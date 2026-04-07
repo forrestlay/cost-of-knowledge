@@ -216,16 +216,16 @@ with single_tab:
             }
         )
         pie = px.pie(comp_df, names="Component", values="Cost (AUD)", title="Cost breakdown")
-        st.plotly_chart(pie, use_container_width=True)
+        st.plotly_chart(pie, width="stretch")
 
         waterfall = px.bar(
             comp_df,
             x="Component",
             y="Cost (AUD)",
             title="Component values",
-            text_auto=".2s",
+            text_auto=True,
         )
-        st.plotly_chart(waterfall, use_container_width=True)
+        st.plotly_chart(waterfall, width="stretch")
 
         detail_df = pd.DataFrame(
             [
@@ -242,7 +242,7 @@ with single_tab:
             ],
             columns=["Field", "Value"],
         )
-        st.dataframe(detail_df, use_container_width=True, hide_index=True)
+        st.dataframe(detail_df, width="stretch", hide_index=True)
 
 with portfolio_tab:
     st.subheader("Portfolio simulator")
@@ -312,8 +312,8 @@ with portfolio_tab:
 
         by_tier = portfolio_df.groupby("journal_tier", as_index=False)["total_cost_aud"].mean()
         st.plotly_chart(
-            px.bar(by_tier, x="journal_tier", y="total_cost_aud", title="Average cost by tier", text_auto=".2s"),
-            use_container_width=True,
+            px.bar(by_tier, x="journal_tier", y="total_cost_aud", title="Average cost by tier", text_auto=True),
+            width="stretch",
         )
 
         scatter = px.scatter(
@@ -325,14 +325,14 @@ with portfolio_tab:
             hover_name="paper_id",
             title="Project months vs total cost",
         )
-        st.plotly_chart(scatter, use_container_width=True)
+        st.plotly_chart(scatter, width="stretch")
 
         st.dataframe(
             portfolio_df[[
                 "paper_id", "journal_tier", "discipline", "region", "methodology", "author_count",
                 "project_months", "total_cost_aud"
             ]].sort_values(["journal_tier", "total_cost_aud"], ascending=[True, False]),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -359,17 +359,17 @@ with data_tab:
         st.success("Uploaded CSV loaded.")
 
     if not df.empty:
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width="stretch")
         if {"journal_tier", "total_cost_aud"}.issubset(df.columns):
             st.plotly_chart(
                 px.box(df, x="journal_tier", y="total_cost_aud", color="journal_tier", title="Cost distribution by journal tier"),
-                use_container_width=True,
+                width="stretch",
             )
         if {"discipline", "total_cost_aud"}.issubset(df.columns):
-            disc = df.groupby("discipline", as_index=False)["total_cost_aud"].mean().sort_values("total_cost_aud", ascending=False)
+            disc = df[["discipline", "total_cost_aud"]].groupby("discipline", as_index=False).mean().sort_values(by="total_cost_aud", ascending=False)
             st.plotly_chart(
-                px.bar(disc, x="discipline", y="total_cost_aud", title="Average cost by discipline", text_auto=".2s"),
-                use_container_width=True,
+                px.bar(disc, x="discipline", y="total_cost_aud", title="Average cost by discipline", text_auto=True),
+                width="stretch",
             )
     else:
         st.info("No CSV loaded in the data explorer.")

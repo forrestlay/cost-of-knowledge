@@ -54,7 +54,7 @@ cost_diagram = graphviz.Digraph('research-activity-cost', comment='Cost of resea
 
 cost_diagram.attr('node', shape='box')
 
-with cost_diagram.subgraph(name='cluster_incubation') as subgraph:
+with cost_diagram.subgraph(name='cluster_incubation') as subgraph: #type: ignore[union-attr]
     subgraph.attr(label='Incubation')
     subgraph.attr(labeljust='l')
     subgraph.attr(margin='12')
@@ -67,7 +67,7 @@ with cost_diagram.subgraph(name='cluster_incubation') as subgraph:
     subgraph.edge('ideation', 'literature-review')
     subgraph.edge('literature-review', 'ethics')
 
-with cost_diagram.subgraph(name='cluster_data-analysis') as subgraph:
+with cost_diagram.subgraph(name='cluster_data-analysis') as subgraph: #type: ignore[union-attr]
     subgraph.attr(label='Data analysis')
     subgraph.attr(labeljust='l')
     subgraph.attr(margin='12')
@@ -77,7 +77,7 @@ with cost_diagram.subgraph(name='cluster_data-analysis') as subgraph:
     subgraph.node('data-analysis', 'Data analysis')
     subgraph.edge('databases', 'data-analysis')
 
-with cost_diagram.subgraph(name='cluster_writing') as subgraph:
+with cost_diagram.subgraph(name='cluster_writing') as subgraph: #type: ignore[union-attr]
     subgraph.attr(label='Writing')
     subgraph.attr(labeljust='l')
     subgraph.attr(margin='12')
@@ -91,7 +91,7 @@ with cost_diagram.subgraph(name='cluster_writing') as subgraph:
     subgraph.edge('workshops', 'writing')
     subgraph.edge('conferences', 'writing')
 
-with cost_diagram.subgraph(name='cluster_editing') as subgraph:
+with cost_diagram.subgraph(name='cluster_editing') as subgraph: #type: ignore[union-attr]
     subgraph.attr(label='Peer review and editing')
     subgraph.attr(labeljust='l')
     subgraph.attr(margin='12')

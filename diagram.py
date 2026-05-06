@@ -1,54 +1,229 @@
 import streamlit as st
 import graphviz
 
-total_hours = 258 + 100 + 60 + 24
-total_cost = total_hours * 83
+# Initial variable setup.
 
-label_dict = {
-    'ideation': [
-        ('Ideation and conception', 'heading'),
-        '6 x 35 hours + 6 x 8 hours = 258 hours',
-        '258 hours x $83/h = $21,414'
-    ],
-    'writing': [
-        ('Manuscript preparation (total)', 'heading'),
-        '100 hours',
-        '100 hours x $83/h = $8,300'
-    ],
-    'formatting': [
-        ('Manuscript formatting', 'heading'),
-        '14 hours',
-        '14 hours x $83/h = $1,162'
-    ],
-    'peer-review': [
-        ('Peer review', 'heading'),
-        '10 reviews x 6 hours = 60 hours',
-        '60 hours x $83/h = $4,980'
-    ],
-    'editing': [
-        ('Journal editorial handling', 'heading'),
-        '3 manuscripts x 8 hours = 24 hours',
-        '24 hours x $83/h = $1,992'
-    ],
-    'total': [
-        ('Total cost of a journal publication', 'heading'),
-        str(total_hours) + ' hours',
-        '$' + str(total_cost)
-    ]
-}
+st.set_page_config(layout="wide")
+st.title('Cost of Knowledge Diagram')
 
-def generate_node_html_label(text: list[str | tuple[str, str]]) -> str:
-    html_label = '<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">'
-    for text_element in text:
-        if isinstance(text_element, tuple):
-            if text_element[1] == 'heading':
-                html_label = html_label + f'<TR><TD ALIGN="CENTER"><B>{text_element[0]}</B></TD></TR>'
-            else:
-                html_label = html_label + f'<TR><TD ALIGN="CENTER">{text_element[0]}</TD></TR>'
+mcr_hourly_wage = 83 # Current default hourly cost
+
+# Helper classes to simplify generating HTML labels for Graphviz and help calculate totals.
+
+class ActivityNode():
+    """
+    Represents a single research activity.
+
+    Attributes:
+        heading: Label for the activity.
+        hours: Total hours estimated for the activity.
+        hourly_cost: Cost in USD per hour of the activity, generally based on a mid-career researcher's hourly wage.
+        hours_calculation: A string providing the equation for calculating total hours.
+        cost_calculation: A string providing the equation for calculating total cost.
+    """
+    def __init__(
+            self,
+            heading: str,
+            hours: int,
+            hourly_cost: int,
+            hours_calculation: str | None = None,
+            cost_calculation: str | None = None
+    ):
+        """
+        Initialises the Activity Node.
+        
+        Args:
+            heading: Label for the activity.
+            hours: Total hours estimated for the activity.
+            hourly_cost: Cost in USD per hour of the activity, generally based on a mid-career researcher's hourly wage.
+            hours_calculation: A string providing the equation for calculating total hours.
+            cost_calculation: A string providing the equation for calculating total cost.
+        """
+        self.heading = heading
+        self.hours = hours
+        self.hourly_cost = hourly_cost
+        self.hours_calculation = hours_calculation
+        self.cost_calculation = cost_calculation
+    
+    def total_cost(self) -> int:
+        """
+        Returns the total cost of the activity, calculated as hours * hourly_cost.
+        """
+        return self.hours * self.hourly_cost
+    
+    def generate_label_html(self) -> str:
+        """
+        Generates a HTML label string for the activity node for a Graphviz diagram.
+        """
+        html_label = '<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">'
+        html_label = html_label + f'<TR><TD ALIGN="CENTER"><B>{self.heading}</B></TD></TR>'
+
+        if self.hours_calculation is not None:
+            html_label = html_label + f'<TR><TD ALIGN="CENTER">{self.hours_calculation} = {format(self.hours, ',')} hours</TD></TR>'
         else:
-            html_label = html_label + f'<TR><TD ALIGN="CENTER">{text_element}</TD></TR>'
-    html_label = html_label + '</TABLE>>'
-    return html_label
+            html_label = html_label + f'<TR><TD ALIGN="CENTER">{format(self.hours, ',')} hours</TD></TR>'
+        
+        if self.cost_calculation is not None:
+            html_label = html_label + f'<TR><TD ALIGN="CENTER">{self.cost_calculation} = ${format(self.total_cost(), ',')}</TD></TR>'
+        else:
+            html_label = html_label + f'<TR><TD ALIGN="CENTER">{format(self.hours,',')} hours x ${format(self.hourly_cost, ',')} = ${format(self.total_cost(), ',')}</TD></TR>'
+
+        html_label = html_label + '</TABLE>>'
+        return html_label
+
+class CostNode():
+    """
+    Represents a single research cost centre, for example, databases.
+
+    Attributes:
+        heading: Label for the cost.
+        cost: Cost in USD.
+        cost_calculation: A string providing the equation for calculating total cost.
+    """
+    def __init__(
+            self,
+            heading: str,
+            cost: int,
+            cost_calculation: str | None = None
+    ):
+        """
+        Initialises the Activity Node.
+        
+        Args:
+            heading: Label for the activity.
+            cost: Cost in USD.
+            cost_calculation: A string providing the equation for calculating total cost.
+        """
+        self.heading = heading
+        self.cost = cost
+        self.cost_calculation = cost_calculation
+    
+    def total_cost(self) -> int:
+        """
+        Returns the total cost.
+        """
+        return self.cost
+    
+    def generate_label_html(self) -> str:
+        """
+        Generates a HTML label string for the activity node for a Graphviz diagram.
+        """
+        html_label = '<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">'
+        html_label = html_label + f'<TR><TD ALIGN="CENTER"><B>{self.heading}</B></TD></TR>'
+        html_label = html_label + f'<TR><TD ALIGN="CENTER">${format(self.total_cost(), ',')}</TD></TR>'
+
+        if self.cost_calculation is not None:
+            html_label = html_label + f'<TR><TD ALIGN="CENTER">{self.cost_calculation}</TD></TR>'
+
+        html_label = html_label + '</TABLE>>'
+        return html_label
+
+class TotalNode():
+    """
+    Calculates total hours and costs for a given set of ActivityNodes and CostNodes.
+
+    Attributes:
+        heading: Label for the total node.
+        activity_nodes: A list of ActivityNodes and CostNodes from which totals will be calculated.
+    """
+    def __init__(self, heading: str, activity_nodes: list[ActivityNode | CostNode]):
+        """
+        Initialises the TotalNode
+
+        Args:
+            heading: Label for the total node.
+            activity_nodes: A list of ActivityNodes and CostNodes from which totals will be calculated.
+        """
+        self.heading = heading
+        self.activity_nodes = activity_nodes
+    
+    def total_hours(self) -> int:
+        """
+        Returns the total number of hours across the nodes in self.activity_nodes.
+        """
+        hour_count = 0
+        for activity in self.activity_nodes:
+            if isinstance(activity, ActivityNode):
+                hour_count += activity.hours
+        return hour_count
+    
+    def total_cost(self) -> int:
+        """
+        Returns the total cost across the nodes in self.activity_nodes.
+        """
+        cost_count = 0
+        for activity in self.activity_nodes:
+            cost_count += activity.total_cost()
+        return cost_count
+    
+    def generate_label_html(self) -> str:
+        """
+        Generates a HTML label string for the total node for a Graphviz diagram.
+        """
+        html_label = '<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">'
+        html_label = html_label + f'<TR><TD ALIGN="CENTER"><B>{self.heading}</B></TD></TR>'
+        html_label = html_label + f'<TR><TD ALIGN="CENTER">{format(self.total_hours(), ',')} hours</TD></TR>'
+        html_label = html_label + f'<TR><TD ALIGN="CENTER">${format(self.total_cost(), ',')}</TD></TR>'
+        html_label = html_label + '</TABLE>>'
+        return html_label
+
+# Initialise all of the ActivityNodes and TotalNodes for the graph.
+
+ideation_node = ActivityNode(
+    'Ideation and conception',
+    6*35+6*8,
+    mcr_hourly_wage,
+    '6 x 35 hours + 6 x 8 hours'
+)
+
+database_node = CostNode(
+    'Database access',
+    10000,
+    'Placeholder number'
+)
+
+software_node = CostNode(
+    'Software licences',
+    5000,
+    'Placeholder number'
+)
+
+manu_prep_node = ActivityNode(
+    'Manuscript preparation (total)',
+    100,
+    mcr_hourly_wage
+)
+
+formatting_node = ActivityNode(
+    'Manuscript formatting',
+    14,
+    mcr_hourly_wage
+)
+
+peer_review_node = ActivityNode(
+    'Peer review',
+    10*6,
+    mcr_hourly_wage,
+    '10 reviews x 6 hours'
+)
+
+editing_node = ActivityNode(
+    'Journal editorial handling',
+    3*8,
+    mcr_hourly_wage,
+    '3 manuscripts x 8 hours'
+)
+
+overall_total_node = TotalNode('Total cost of a journal publication',[
+    ideation_node,
+    database_node,
+    software_node,
+    manu_prep_node,
+    peer_review_node,
+    editing_node
+])
+
+# Graphviz directed graph
 
 cost_diagram = graphviz.Digraph('research-activity-cost', comment='Cost of research activities')
 
@@ -60,7 +235,7 @@ with cost_diagram.subgraph(name='cluster_incubation') as subgraph: #type: ignore
     subgraph.attr(margin='12')
     subgraph.attr('node', shape='box')
     subgraph.attr('node', penwidth='0')
-    subgraph.node('ideation', generate_node_html_label(label_dict['ideation']))
+    subgraph.node('ideation', ideation_node.generate_label_html())
     subgraph.attr('node', penwidth='1')
     subgraph.node('literature-review', 'Literature review')
     subgraph.node('ethics', 'Ethics application')
@@ -72,10 +247,13 @@ with cost_diagram.subgraph(name='cluster_data-analysis') as subgraph: #type: ign
     subgraph.attr(labeljust='l')
     subgraph.attr(margin='12')
     subgraph.attr('node', shape='box')
+    subgraph.attr('node', penwidth='0')
+    subgraph.node('databases', database_node.generate_label_html())
+    subgraph.node('software', software_node.generate_label_html())
     subgraph.attr('node', penwidth='1')
-    subgraph.node('databases', 'Database access')
     subgraph.node('data-analysis', 'Data analysis')
     subgraph.edge('databases', 'data-analysis')
+    subgraph.edge('software', 'data-analysis')
 
 with cost_diagram.subgraph(name='cluster_writing') as subgraph: #type: ignore[union-attr]
     subgraph.attr(label='Writing')
@@ -83,8 +261,8 @@ with cost_diagram.subgraph(name='cluster_writing') as subgraph: #type: ignore[un
     subgraph.attr(margin='12')
     subgraph.attr('node', penwidth='1')
     subgraph.attr('node', shape='box')
-    subgraph.node('writing', generate_node_html_label(label_dict['writing']))
-    subgraph.node('formatting', generate_node_html_label(label_dict['formatting']))
+    subgraph.node('writing', manu_prep_node.generate_label_html())
+    subgraph.node('formatting', formatting_node.generate_label_html())
     subgraph.node('workshops', 'Workshopping')
     subgraph.node('conferences', 'Conference attendance')
     subgraph.edge('formatting', 'writing')
@@ -97,12 +275,12 @@ with cost_diagram.subgraph(name='cluster_editing') as subgraph: #type: ignore[un
     subgraph.attr(margin='12')
     subgraph.attr('node', penwidth='1')
     subgraph.attr('node', shape='box')
-    subgraph.node('peer-review', generate_node_html_label(label_dict['peer-review']))
-    subgraph.node('editing', generate_node_html_label(label_dict['editing']))
+    subgraph.node('peer-review', peer_review_node.generate_label_html())
+    subgraph.node('editing', editing_node.generate_label_html())
     subgraph.edge('peer-review', 'editing')
     subgraph.edge('editing', 'peer-review')
 
-cost_diagram.node('total', generate_node_html_label(label_dict['total']))
+cost_diagram.node('total', overall_total_node.generate_label_html())
 
 cost_diagram.edge('ethics', 'data-analysis')
 cost_diagram.edge('data-analysis', 'writing')

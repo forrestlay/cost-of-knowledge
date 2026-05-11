@@ -183,6 +183,12 @@ ethics_node = ActivityNode(
     'Median time from estimated range of 45-140 hours'
 )
 
+grants_node = ActivityNode(
+    'Grant applications',
+    171,
+    mcr_hourly_wage
+)
+
 database_node = CostNode(
     'Database access',
     10000,
@@ -203,13 +209,13 @@ manu_prep_node = ActivityNode(
 
 formatting_node = ActivityNode(
     'Manuscript formatting',
-    14,
+    22,
     mcr_hourly_wage
 )
 
 copyediting_node = CostNode(
     'Professional copyediting',
-    500
+    543
 )
 
 conferencing_node = ActivityNode(
@@ -236,6 +242,7 @@ editing_node = ActivityNode(
 overall_total_node = TotalNode('Total cost of a journal publication',[
     ideation_node,
     ethics_node,
+    grants_node,
     database_node,
     software_node,
     manu_prep_node,
@@ -260,8 +267,8 @@ with cost_diagram.subgraph(name='cluster_incubation') as subgraph: #type: ignore
     subgraph.attr('node', penwidth='0')
     subgraph.node('ideation', ideation_node.generate_label_html())
     subgraph.node('ethics', ethics_node.generate_label_html())
+    subgraph.node('grants', grants_node.generate_label_html())
     subgraph.attr('node', penwidth='1')
-    subgraph.node('grants', 'Grant applications')
     subgraph.node('literature-review', 'Literature review')
     subgraph.edge('ideation', 'literature-review')
     subgraph.edge('literature-review', 'grants')

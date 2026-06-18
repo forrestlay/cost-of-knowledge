@@ -1,3 +1,4 @@
+import io
 import streamlit as st
 import graphviz
 
@@ -189,21 +190,27 @@ grants_node = ActivityNode(
     mcr_hourly_wage
 )
 
-database_node = CostNode(
-    'Database access',
-    10000,
-    'Placeholder number'
+data_collection_node = ActivityNode(
+    heading='Data collection - Interviews and focus groups',
+    hours = 36,
+    hourly_cost=mcr_hourly_wage
 )
 
-software_node = CostNode(
-    'Software licences',
-    5000,
-    'Placeholder number'
+interview_transcription_node = ActivityNode(
+    heading='Data collection - Interview transcription',
+    hours = 234,
+    hourly_cost = mcr_hourly_wage
+)
+
+data_analysis_node = ActivityNode(
+    heading='Data analysis - Coding and thematic analysis',
+    hours = 119,
+    hourly_cost=mcr_hourly_wage
 )
 
 manu_prep_node = ActivityNode(
     'Manuscript preparation and revision',
-    100,
+    150,
     mcr_hourly_wage
 )
 
@@ -243,8 +250,9 @@ overall_total_node = TotalNode('Total cost of a journal publication',[
     ideation_node,
     ethics_node,
     grants_node,
-    database_node,
-    software_node,
+    data_collection_node,
+    interview_transcription_node,
+    data_analysis_node,
     manu_prep_node,
     conferencing_node,
     copyediting_node,
@@ -281,14 +289,12 @@ with cost_diagram.subgraph(name='cluster_data-analysis') as subgraph: #type: ign
     subgraph.attr(margin='12')
     subgraph.attr('node', shape='box')
     subgraph.attr('node', penwidth='0')
-    subgraph.node('databases', database_node.generate_label_html())
-    subgraph.node('software', software_node.generate_label_html())
+    subgraph.node('data-collection', data_collection_node.generate_label_html())
+    subgraph.node('interview-transcription', interview_transcription_node.generate_label_html())
+    subgraph.node('data-analysis', data_analysis_node.generate_label_html())
     subgraph.attr('node', penwidth='1')
-    subgraph.node('data-collection', 'Data collection')
-    subgraph.node('data-analysis', 'Data analysis')
-    subgraph.edge('data-collection', 'data-analysis')
-    subgraph.edge('databases', 'data-analysis')
-    subgraph.edge('software', 'data-analysis')
+    subgraph.edge('data-collection', 'interview-transcription')
+    subgraph.edge('interview-transcription', 'data-analysis')
 
 with cost_diagram.subgraph(name='cluster_writing') as subgraph: #type: ignore[union-attr]
     subgraph.attr(label='Writing')
@@ -320,9 +326,11 @@ cost_diagram.node('total', overall_total_node.generate_label_html())
 
 cost_diagram.edge('ethics', 'data-collection')
 cost_diagram.edge('data-analysis', 'writing')
+cost_diagram.edge('writing', 'literature-review', None, color='red')
 cost_diagram.edge('writing', 'data-collection', None, color='red')
 cost_diagram.edge('writing', 'editing')
 cost_diagram.edge('editing', 'writing', None, color='red')
 cost_diagram.edge('editing', 'total')
 
 st.graphviz_chart(cost_diagram, width='stretch')
+st.download_button("Export diagram.dot", cost_diagram.source, file_name="cost_of_knowledge.dot")

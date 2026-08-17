@@ -1,0 +1,64 @@
+// Cost of research activities
+digraph "research-activity-cost" {
+	node [shape=box]
+	ranksep=0.7
+	subgraph cluster_incubation {
+		label=Incubation
+		labeljust=l
+		margin=12
+		node [shape=box]
+		node [penwidth=0]
+		ideation [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Ideation and conception</B></TD></TR><TR><TD ALIGN="CENTER">33 hrs focal + 22 hrs exploratory = 55 hours</TD></TR><TR><TD ALIGN="CENTER">55 hours x $90 = $4,950</TD></TR></TABLE>>]
+		ethics [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Ethics approval</B></TD></TR><TR><TD ALIGN="CENTER">Midpoint of 25-95 hr range = 60 hours</TD></TR><TR><TD ALIGN="CENTER">60 hours x $90 = $5,400</TD></TR></TABLE>>]
+		grants [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Grant applications</B></TD></TR><TR><TD ALIGN="CENTER">116 primary author hrs + 55 co-author hrs = 171 hours</TD></TR><TR><TD ALIGN="CENTER">171 hours x $90 = $15,390</TD></TR></TABLE>>]
+		node [penwidth=1]
+		ideation -> grants
+		ideation -> ethics
+		grants -> ethics
+	}
+	subgraph "cluster_data-analysis" {
+		label="Data analysis"
+		labeljust=l
+		margin=12
+		node [shape=box]
+		node [penwidth=0]
+		"data-collection" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Data collection - Interviews and focus groups</B></TD></TR><TR><TD ALIGN="CENTER">26 interviews x 79 minutes = 34 hours</TD></TR><TR><TD ALIGN="CENTER">34 hours x $90 = $3,060</TD></TR></TABLE>>]
+		"interview-transcription" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Transcription verification</B></TD></TR><TR><TD ALIGN="CENTER">34 interview hrs x 75 min/hr = 42.5 hours</TD></TR><TR><TD ALIGN="CENTER">42.5 hours x $90 = $3,825</TD></TR></TABLE>>]
+		"data-analysis" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Data analysis</B></TD></TR><TR><TD ALIGN="CENTER">Midpoint of 38 (rapid analysis) and 187 (thematic analysis) hrs = 112.5 hours</TD></TR><TR><TD ALIGN="CENTER">112.5 hours x $90 = $10,125</TD></TR></TABLE>>]
+		node [penwidth=1]
+		"data-collection" -> "interview-transcription"
+		"interview-transcription" -> "data-analysis"
+	}
+	subgraph cluster_writing {
+		label=Writing
+		labeljust=l
+		margin=12
+		node [shape=box]
+		node [penwidth=0]
+		writing [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Writing and manuscript preparation</B></TD></TR><TR><TD ALIGN="CENTER">100 hours</TD></TR><TR><TD ALIGN="CENTER">100 hours x $90 = $9,000</TD></TR></TABLE>>]
+		conferences [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Conferencing (total)</B></TD></TR><TR><TD ALIGN="CENTER">123 hours</TD></TR><TR><TD ALIGN="CENTER">$14,470</TD></TR></TABLE>>]
+		conferences -> writing
+		writing -> conferences
+	}
+	subgraph cluster_editing {
+		label="Peer review and editing"
+		labeljust=l
+		margin=12
+		node [shape=box]
+		node [penwidth=0]
+		"peer-review" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Peer review</B></TD></TR><TR><TD ALIGN="CENTER">3.5 completed reviews, 4 hrs first review/2 hrs re-review = 9 hours</TD></TR><TR><TD ALIGN="CENTER">9 hours x $90 = $810</TD></TR></TABLE>>]
+		editing [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Journal editorial work</B></TD></TR><TR><TD ALIGN="CENTER">15 hours</TD></TR><TR><TD ALIGN="CENTER">15 hours x $90 = $1,350</TD></TR></TABLE>>]
+		"peer-review" -> editing
+		editing -> "peer-review"
+	}
+	total [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Total cost of a journal publication</B></TD></TR><TR><TD ALIGN="CENTER">722.0 hours</TD></TR><TR><TD ALIGN="CENTER">$68,380</TD></TR></TABLE>>]
+	ethics -> "data-collection"
+	"data-analysis" -> writing
+	writing -> ideation [color=red]
+	writing -> "data-collection" [color=red]
+	writing -> "data-analysis" [color=red]
+	writing -> editing
+	editing -> writing [color=red]
+	editing -> total
+	label="Red arrows represent potential moves between phases arising from revisions and iterations. Costs of revision and iteration cycles have not been incorporated unless explicitly stated."
+}

@@ -7,7 +7,7 @@ import graphviz
 st.set_page_config(layout="wide")
 st.title("Cost of Knowledge Diagram")
 
-mcr_hourly_wage = 83  # Current default hourly cost
+mcr_hourly_wage = 90  # Current default hourly cost
 
 # Helper classes to simplify generating HTML labels for Graphviz and help calculate totals.
 
@@ -27,7 +27,7 @@ class ActivityNode:
     def __init__(
         self,
         heading: str,
-        hours: int,
+        hours: float,
         hourly_cost: int,
         hours_calculation: str | None = None,
         cost_calculation: str | None = None,
@@ -52,7 +52,7 @@ class ActivityNode:
         """
         Returns the total cost of the activity, calculated as hours * hourly_cost.
         """
-        return self.hours * self.hourly_cost
+        return int(self.hours * self.hourly_cost)
 
     def generate_label_html(self) -> str:
         """
@@ -203,60 +203,75 @@ class TotalNode:
 
 ideation_node = ActivityNode(
     "Ideation and conception",
-    6 * 35 + 6 * 8,
+    55,
     mcr_hourly_wage,
-    "6 x 35 hours + 6 x 8 hours",
+    "33 hrs focal + 22 hrs exploratory",
 )
 
 ethics_node = ActivityNode(
     "Ethics approval",
-    93,
+    60,
     mcr_hourly_wage,
-    "Median time from estimated range of 45-140 hours",
+    "Midpoint of 25-95 hr range",
 )
 
-grants_node = ActivityNode("Grant applications", 171, mcr_hourly_wage)
+grants_node = ActivityNode(
+    "Grant applications",
+    171,
+    mcr_hourly_wage,
+    "116 primary author hrs + 55 co-author hrs",
+)
 
 data_collection_node = ActivityNode(
     heading="Data collection - Interviews and focus groups",
-    hours=36,
+    hours=34,
     hourly_cost=mcr_hourly_wage,
+    hours_calculation="26 interviews x 79 minutes",
 )
 
 interview_transcription_node = ActivityNode(
-    heading="Data collection - Interview transcription",
-    hours=234,
+    heading="Transcription verification",
+    hours=42.5,
     hourly_cost=mcr_hourly_wage,
+    hours_calculation="34 interview hrs x 75 min/hr",
 )
 
 data_analysis_node = ActivityNode(
-    heading="Data analysis - Coding and thematic analysis",
-    hours=119,
+    heading="Data analysis",
+    hours=112.5,
     hourly_cost=mcr_hourly_wage,
+    hours_calculation="Midpoint of 38 (rapid analysis) and 187 (thematic analysis) hrs",
 )
 
 manu_prep_node = ActivityNode(
-    "Manuscript preparation and revision", 150, mcr_hourly_wage
+    "Writing and manuscript preparation", 100, mcr_hourly_wage
 )
 
-formatting_node = ActivityNode("Manuscript formatting", 22, mcr_hourly_wage)
-
-copyediting_node = CostNode("Professional copyediting", 543)
-
-conferencing_node = ActivityNode(
-    "Conferencing and workshopping",
-    40 + 40 + 75 + 3 * 12,
+conferencing_labour_node = ActivityNode(
+    "Conferencing (labour)",
+    123,
     mcr_hourly_wage,
-    "155 hours author labour + 36 hours third party labour",
+    "3 events x 41 hrs/event",
+)
+
+conferencing_direct_node = CostNode(
+    "Conferencing (direct costs)",
+    3400,
+    "$100 local + $1,000 national + $2,300 international",
+)
+
+conferencing_node = TotalNode(
+    "Conferencing (total)", [conferencing_labour_node, conferencing_direct_node]
 )
 
 peer_review_node = ActivityNode(
-    "Peer review", 10 * 6, mcr_hourly_wage, "10 reviews x 6 hours"
+    "Peer review",
+    9,
+    mcr_hourly_wage,
+    "3.5 completed reviews, 4 hrs first review/2 hrs re-review",
 )
 
-editing_node = ActivityNode(
-    "Journal editorial handling", 3 * 8, mcr_hourly_wage, "3 manuscripts x 8 hours"
-)
+editing_node = ActivityNode("Journal editorial work", 15, mcr_hourly_wage)
 
 overall_total_node = TotalNode(
     "Total cost of a journal publication",
@@ -268,8 +283,8 @@ overall_total_node = TotalNode(
         interview_transcription_node,
         data_analysis_node,
         manu_prep_node,
-        conferencing_node,
-        copyediting_node,
+        conferencing_labour_node,
+        conferencing_direct_node,
         peer_review_node,
         editing_node,
     ],
@@ -294,10 +309,8 @@ with cost_diagram.subgraph(name="cluster_incubation") as subgraph:  # type: igno
     subgraph.node("ethics", ethics_node.generate_label_html())
     subgraph.node("grants", grants_node.generate_label_html())
     subgraph.attr("node", penwidth="1")
-    subgraph.node("literature-review", "Literature review")
-    subgraph.edge("ideation", "literature-review")
-    subgraph.edge("literature-review", "grants")
-    subgraph.edge("literature-review", "ethics")
+    subgraph.edge("ideation", "grants")
+    subgraph.edge("ideation", "ethics")
     subgraph.edge("grants", "ethics")
 
 with cost_diagram.subgraph(name="cluster_data-analysis") as subgraph:  # type: ignore[union-attr]
@@ -322,12 +335,8 @@ with cost_diagram.subgraph(name="cluster_writing") as subgraph:  # type: ignore[
     subgraph.attr("node", shape="box")
     subgraph.attr("node", penwidth="0")
     subgraph.node("writing", manu_prep_node.generate_label_html())
-    subgraph.node("formatting", formatting_node.generate_label_html())
     subgraph.node("conferences", conferencing_node.generate_label_html())
-    subgraph.node("copyediting", copyediting_node.generate_label_html())
-    subgraph.edge("formatting", "writing", "Included in", color="blue")
     subgraph.edge("conferences", "writing")
-    subgraph.edge("copyediting", "writing")
     subgraph.edge("writing", "conferences")
 
 with cost_diagram.subgraph(name="cluster_editing") as subgraph:  # type: ignore[union-attr]
@@ -345,11 +354,15 @@ cost_diagram.node("total", overall_total_node.generate_label_html())
 
 cost_diagram.edge("ethics", "data-collection")
 cost_diagram.edge("data-analysis", "writing")
-cost_diagram.edge("writing", "literature-review", None, color="red")
+cost_diagram.edge("writing", "ideation", None, color="red")
 cost_diagram.edge("writing", "data-collection", None, color="red")
+cost_diagram.edge("writing", "data-analysis", None, color="red")
 cost_diagram.edge("writing", "editing")
 cost_diagram.edge("editing", "writing", None, color="red")
 cost_diagram.edge("editing", "total")
+
+cost_diagram.attr(label=r"Red arrows represent potential moves between phases arising from revisions and iterations. "
+                        r"Costs of revision and iteration cycles have not been incorporated unless explicitly stated.")
 
 st.graphviz_chart(cost_diagram, width="stretch")
 st.download_button(

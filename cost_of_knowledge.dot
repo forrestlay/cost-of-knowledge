@@ -2,6 +2,7 @@
 digraph "research-activity-cost" {
 	node [shape=box]
 	ranksep=0.7
+	newrank=true
 	subgraph cluster_incubation {
 		label=Incubation
 		labeljust=l
@@ -23,9 +24,11 @@ digraph "research-activity-cost" {
 		node [shape=box]
 		node [penwidth=0]
 		"data-collection" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Data collection - Interviews and focus groups</B></TD></TR><TR><TD ALIGN="CENTER">26 interviews x 79 minutes = 34 hours</TD></TR><TR><TD ALIGN="CENTER">34 hours x $90 = $3,060</TD></TR></TABLE>>]
+		"participant-incentive" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Participant incentivisation</B></TD></TR><TR><TD ALIGN="CENTER">$246</TD></TR><TR><TD ALIGN="CENTER">34 participant-hrs x $7.25</TD></TR></TABLE>>]
 		"interview-transcription" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Transcription verification</B></TD></TR><TR><TD ALIGN="CENTER">34 interview hrs x 75 min/hr = 42.5 hours</TD></TR><TR><TD ALIGN="CENTER">42.5 hours x $90 = $3,825</TD></TR></TABLE>>]
 		"data-analysis" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Data analysis</B></TD></TR><TR><TD ALIGN="CENTER">Midpoint of 38 (rapid analysis) and 187 (thematic analysis) hrs = 112.5 hours</TD></TR><TR><TD ALIGN="CENTER">112.5 hours x $90 = $10,125</TD></TR></TABLE>>]
 		node [penwidth=1]
+		"participant-incentive" -> "data-collection" [color=blue constraint=false]
 		"data-collection" -> "interview-transcription"
 		"interview-transcription" -> "data-analysis"
 	}
@@ -37,6 +40,10 @@ digraph "research-activity-cost" {
 		node [penwidth=0]
 		writing [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Writing and manuscript preparation</B></TD></TR><TR><TD ALIGN="CENTER">100 hours</TD></TR><TR><TD ALIGN="CENTER">100 hours x $90 = $9,000</TD></TR></TABLE>>]
 		conferences [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Conferencing (total)</B></TD></TR><TR><TD ALIGN="CENTER">123 hours</TD></TR><TR><TD ALIGN="CENTER">$14,470</TD></TR></TABLE>>]
+		"conference-labour" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Conferencing (labour)</B></TD></TR><TR><TD ALIGN="CENTER">3 events x 41 hrs/event = 123 hours</TD></TR><TR><TD ALIGN="CENTER">123 hours x $90 = $11,070</TD></TR></TABLE>>]
+		"conference-costs" [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Conferencing (direct costs)</B></TD></TR><TR><TD ALIGN="CENTER">$3,400</TD></TR><TR><TD ALIGN="CENTER">$100 local + $1,000 national + $2,300 international</TD></TR></TABLE>>]
+		"conference-labour" -> conferences [color=blue]
+		"conference-costs" -> conferences [color=blue]
 		conferences -> writing
 		writing -> conferences
 	}
@@ -51,8 +58,8 @@ digraph "research-activity-cost" {
 		"peer-review" -> editing
 		editing -> "peer-review"
 	}
-	total [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Total cost of a journal publication</B></TD></TR><TR><TD ALIGN="CENTER">722.0 hours</TD></TR><TR><TD ALIGN="CENTER">$68,380</TD></TR></TABLE>>]
-	ethics -> "data-collection"
+	total [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0"><TR><TD ALIGN="CENTER"><B>Total cost of a journal publication</B></TD></TR><TR><TD ALIGN="CENTER">722.0 hours</TD></TR><TR><TD ALIGN="CENTER">$68,626</TD></TR></TABLE>>]
+	ethics -> "data-collection" [rank=sink]
 	"data-analysis" -> writing
 	writing -> ideation [color=red]
 	writing -> "data-collection" [color=red]
@@ -60,5 +67,5 @@ digraph "research-activity-cost" {
 	writing -> editing
 	editing -> writing [color=red]
 	editing -> total
-	label="Red arrows represent potential moves between phases arising from revisions and iterations. Costs of revision and iteration cycles have not been incorporated unless explicitly stated."
+	label="*Red arrows represent potential moves between phases arising from revisions and iterations. Costs of revision and iteration cycles have not been incorporated unless explicitly stated."
 }

@@ -1,3 +1,4 @@
+from requests.api import head
 import io
 import streamlit as st
 import graphviz
@@ -126,14 +127,16 @@ class CostNode:
         html_label = (
             html_label + f'<TR><TD ALIGN="CENTER"><B>{self.heading}</B></TD></TR>'
         )
-        html_label = (
-            html_label
-            + f'<TR><TD ALIGN="CENTER">${format(self.total_cost(), ",")}</TD></TR>'
-        )
 
         if self.cost_calculation is not None:
             html_label = (
-                html_label + f'<TR><TD ALIGN="CENTER">{self.cost_calculation}</TD></TR>'
+                html_label
+                + f'<TR><TD ALIGN="CENTER">{self.cost_calculation} = ${format(self.total_cost(), ",")}</TD></TR>'
+            )
+        else:
+            html_label = (
+                html_label
+                + f'<TR><TD ALIGN="CENTER">${format(self.total_cost(), ",")}</TD></TR>'
             )
 
         html_label = html_label + "</TABLE>>"
@@ -168,7 +171,7 @@ class TotalNode:
         for activity in self.nodes:
             if isinstance(activity, ActivityNode):
                 hour_count += activity.hours
-        return hour_count
+        return int(hour_count)
 
     def total_cost(self) -> int:
         """
@@ -229,6 +232,12 @@ data_collection_node = ActivityNode(
     hours_calculation="26 interviews x 79 minutes",
 )
 
+participant_incentives_node = CostNode(
+    heading="Participant incentivisation",
+    cost=246,
+    cost_calculation="34 participant-hrs x $7.25",
+)
+
 interview_transcription_node = ActivityNode(
     heading="Transcription verification",
     hours=42.5,
@@ -280,6 +289,7 @@ overall_total_node = TotalNode(
         ethics_node,
         grants_node,
         data_collection_node,
+        participant_incentives_node,
         interview_transcription_node,
         data_analysis_node,
         manu_prep_node,
@@ -297,7 +307,8 @@ cost_diagram = graphviz.Digraph(
 )
 
 cost_diagram.attr("node", shape="box")
-cost_diagram.attr(ranksep="0.7")
+cost_diagram.attr(ranksep="0.3")
+cost_diagram.attr(newrank="true")
 
 with cost_diagram.subgraph(name="cluster_incubation") as subgraph:  # type: ignore[union-attr]
     subgraph.attr(label="Incubation")
@@ -321,10 +332,14 @@ with cost_diagram.subgraph(name="cluster_data-analysis") as subgraph:  # type: i
     subgraph.attr("node", penwidth="0")
     subgraph.node("data-collection", data_collection_node.generate_label_html())
     subgraph.node(
+        "participant-incentive", participant_incentives_node.generate_label_html()
+    )
+    subgraph.node(
         "interview-transcription", interview_transcription_node.generate_label_html()
     )
     subgraph.node("data-analysis", data_analysis_node.generate_label_html())
     subgraph.attr("node", penwidth="1")
+    subgraph.edge("participant-incentive", "data-collection", None, color="blue")
     subgraph.edge("data-collection", "interview-transcription")
     subgraph.edge("interview-transcription", "data-analysis")
 
@@ -336,6 +351,10 @@ with cost_diagram.subgraph(name="cluster_writing") as subgraph:  # type: ignore[
     subgraph.attr("node", penwidth="0")
     subgraph.node("writing", manu_prep_node.generate_label_html())
     subgraph.node("conferences", conferencing_node.generate_label_html())
+    subgraph.node("conference-labour", conferencing_labour_node.generate_label_html())
+    subgraph.node("conference-costs", conferencing_direct_node.generate_label_html())
+    subgraph.edge("conference-labour", "conferences", None, color="blue")
+    subgraph.edge("conference-costs", "conferences", None, color="blue")
     subgraph.edge("conferences", "writing")
     subgraph.edge("writing", "conferences")
 
@@ -352,7 +371,7 @@ with cost_diagram.subgraph(name="cluster_editing") as subgraph:  # type: ignore[
 
 cost_diagram.node("total", overall_total_node.generate_label_html())
 
-cost_diagram.edge("ethics", "data-collection")
+cost_diagram.edge("ethics", "data-collection", None, rank="sink")
 cost_diagram.edge("data-analysis", "writing")
 cost_diagram.edge("writing", "ideation", None, color="red")
 cost_diagram.edge("writing", "data-collection", None, color="red")
@@ -361,8 +380,10 @@ cost_diagram.edge("writing", "editing")
 cost_diagram.edge("editing", "writing", None, color="red")
 cost_diagram.edge("editing", "total")
 
-cost_diagram.attr(label=r"Red arrows represent potential moves between phases arising from revisions and iterations. "
-                        r"Costs of revision and iteration cycles have not been incorporated unless explicitly stated.")
+cost_diagram.attr(
+    label=r"*Red arrows represent potential moves between phases arising from revisions and iterations. "
+    r"Costs of revision and iteration cycles have not been incorporated unless explicitly stated."
+)
 
 st.graphviz_chart(cost_diagram, width="stretch")
 st.download_button(

@@ -1,7 +1,7 @@
 """Contains various dataclasses and helper functions for the main Cost of Knowledge tool."""
 
 from typing import Protocol
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -68,6 +68,7 @@ class Person:
 
 class Cost(Protocol):
     """Base interface for anything that contributes to the total cost of a journal publication."""
+
     phase: str
 
     def get_total_cost(self) -> int | float: ...

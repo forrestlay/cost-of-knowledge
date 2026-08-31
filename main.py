@@ -8,6 +8,15 @@ from models import Person, PersonType, Cost, Activity, DirectCost
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
+TOOL_STEPS: list[str] = [
+    "people",
+    "incubation",
+    "data",
+    "writing",
+    "editing",
+    "end",
+]
+
 ROLES: list[str] = [
     "Professor",
     "Associate Professor",
@@ -19,6 +28,7 @@ ROLES: list[str] = [
     "Research Assistant",
     "Peer reviewer",
     "Journal editor",
+    "Other",
 ]
 
 RESEARCH_PHASES: dict[str, str] = {
@@ -27,6 +37,12 @@ RESEARCH_PHASES: dict[str, str] = {
     "writing": "Manuscript preparation",
     "editing": "Peer review and journal editorial work",
 }
+
+# TODO: Add dict of lists with preset activities and costs.
+
+# Setup session variable to track progress through CoK tool.
+if "tool_step" not in st.session_state:
+    st.session_state["tool_step"]: int = 0
 
 
 def compute_costs(costs: list[Cost], phase: str | None = None) -> float:
@@ -65,6 +81,8 @@ def format_usd(x: int | float) -> str:
 # -----------------------------------------------
 # Model variables
 # -----------------------------------------------
+
+# Create initial people roles.
 if "people" not in st.session_state:
     default_person: Person = Person(
         name="Associate Professor",
@@ -90,44 +108,53 @@ if "people" not in st.session_state:
         default_person.unique_key: default_person,
     }
 
+# Populate initial list of activities and costs.
 if "activity_list" not in st.session_state:
     st.session_state["activity_list"]: list[Activity] = [
         Activity(
-            "Ideation and conception", st.session_state["people"]["1"], "incubation", 55
+            "Ideation and conception",
+            st.session_state["people"]["1"],
+            "incubation",
+            55,
+            1,
         ),
-        Activity("Ethics approval", st.session_state["people"]["1"], "incubation", 60),
         Activity(
-            "Grant applications", st.session_state["people"]["1"], "incubation", 171
+            "Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2
         ),
-        Activity("Data collection", st.session_state["people"]["1"], "data", 34),
         Activity(
-            "Interview transcription", st.session_state["people"]["1"], "data", 42.5
+            "Grant applications", st.session_state["people"]["1"], "incubation", 171, 3
         ),
-        Activity("Data analysis", st.session_state["people"]["1"], "data", 112.5),
+        Activity("Data collection", st.session_state["people"]["1"], "data", 48.5, 4),
+        Activity(
+            "Interview transcription", st.session_state["people"]["1"], "data", 60.5, 5
+        ),
+        Activity("Data analysis", st.session_state["people"]["1"], "data", 157.5, 6),
         Activity(
             "Writing and manuscript preparation",
             st.session_state["people"]["1"],
             "writing",
             100,
+            7,
         ),
         Activity(
-            "Conferencing (labour)", st.session_state["people"]["1"], "writing", 123
+            "Conferencing (labour)", st.session_state["people"]["1"], "writing", 123, 8
         ),
         Activity(
-            "Peer review", st.session_state["people"]["Peer reviewer"], "editing", 9
+            "Peer review", st.session_state["people"]["Peer reviewer"], "editing", 9, 9
         ),
         Activity(
             "Journal editorial work",
             st.session_state["people"]["Journal editor"],
             "editing",
             15,
+            10,
         ),
     ]
 
 if "cost_list" not in st.session_state:
     st.session_state["cost_list"]: list[DirectCost] = [
-        DirectCost("Participant incentivization", "data", 246),
-        DirectCost("Conferencing (direct costs)", "writing", 3400),
+        DirectCost("Participant incentivization", "data", 246, 1),
+        DirectCost("Conferencing (direct costs)", "writing", 3400, 2),
     ]
 
 # -----------------------------------------------
@@ -166,11 +193,6 @@ st.markdown("""
             journal preparation process.
             """)
 
-if "study_team_finalised" not in st.session_state:
-    st.session_state[
-        "study_team_finalised"
-    ]: bool = False  # Expands study team expander until team is finalised.
-
 
 def add_person(key: str):
     st.session_state["people"][key] = Person(
@@ -205,13 +227,17 @@ def calculate_hourly_rate(person: Person):
         st.rerun()
 
 
-def team_finalised():
-    st.session_state["study_team_finalised"]: bool = True
+def next_tool_step():
+    if st.session_state["tool_step"] < len(TOOL_STEPS) - 1:
+        st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
 
 
 person_counter: int = 1  # Used to set a unique key for each person.
+people_step: bool = (
+    True if TOOL_STEPS[st.session_state["tool_step"]] == "people" else False
+)
 
-with st.expander("Roles", expanded=not st.session_state["study_team_finalised"]):
+with st.expander("Roles", expanded=people_step):
     for key, person in st.session_state["people"].items():
         with st.container(border=True):
             try:
@@ -265,7 +291,7 @@ with st.expander("Roles", expanded=not st.session_state["study_team_finalised"])
             key="confirm-team",
             type="primary",
             icon=":material/check:",
-            on_click=team_finalised,
+            on_click=next_tool_step,
         )
 
 # -----------------------------------------------
@@ -274,30 +300,66 @@ with st.expander("Roles", expanded=not st.session_state["study_team_finalised"])
 
 
 def person_option_display(key: str):
-    """Converts a st.session_state["people"] key to a display name."""
+    """Converts a st.session_state["people"] key to a st.selectbox display name."""
     person: Person = st.session_state["people"][key]
     if person.person_type == PersonType.RESEARCH_TEAM:
         return f"{key}: {person.name}"
     else:
         return key
 
-# TODO: Fix this method to actually set the person.
-def set_activity_person(activity: Activity):
+
+def person_option_decode(display_string: str):
+    """Converts a st.selectbox display name to a st.session_state["people"] key."""
+    return display_string.split(":")[0]
+
+
+def set_activity_person(activity: Activity, counter: int):
     """Callback for st.selectbox to select the person assigned to an activity."""
-    activity.person: Person = st.session_state["people"][
-        st.session_state["update_activity_person"]
-    ]
+    people_key: str = person_option_decode(
+        st.session_state[f"activity-person-{counter}"]
+    )
+    activity.person: Person = st.session_state["people"][people_key]
+
+
+def add_activity(phase: str):
+    st.session_state["activity_list"].append(
+        Activity(
+            "New Activity",
+            st.session_state["people"]["1"],
+            phase,
+            0.0,
+            len(st.session_state["activity_list"]) + 1,
+        )
+    )
+
+
+def delete_activity(activity: Activity):
+    st.session_state["activity_list"].remove(activity)
+
+
+def add_direct_cost(phase: str):
+    st.session_state["cost_list"].append(
+        DirectCost("New Cost", phase, 0.0, len(st.session_state["cost_list"]) + 1)
+    )
+
+
+def delete_direct_cost(direct_cost: DirectCost):
+    st.session_state["cost_list"].remove(direct_cost)
 
 
 st.subheader("Calculator")
 
 main_left, main_right = st.columns([1, 2])
 
+# Activities and costs setup pane
 with main_left:
-    cost_counter = 1  # Used to give each cost input a unique key
-
     for phase, phase_name in RESEARCH_PHASES.items():
-        with st.expander(phase_name):
+        # Expand expander if the current tool step is the current phase.
+        phase_expand: bool = (
+            True if TOOL_STEPS[st.session_state["tool_step"]] == phase else False
+        )
+
+        with st.expander(phase_name, expanded=phase_expand):
             phase_activities: list[Activity] = [
                 activity
                 for activity in st.session_state["activity_list"]
@@ -314,26 +376,32 @@ with main_left:
                 with st.container(border=True):
                     phase_activity.name: str = st.text_input(
                         "Activity",
-                        key=f"activity-name-{cost_counter}",
+                        key=f"activity-name-{phase_activity.unique_key}",
                         value=phase_activity.name,
                     )
                     st.session_state["update_activity_person"]: str = st.selectbox(
                         "Assigned person",
                         st.session_state["people"].keys(),
-                        key=f"activity-person-{cost_counter}",
+                        key=f"activity-person-{phase_activity.unique_key}",
                         index=activity_person_index,
                         format_func=person_option_display,
                         on_change=set_activity_person,
-                        args=[phase_activity],
+                        args=[phase_activity, phase_activity.unique_key],
                     )
                     phase_activity.hours: float = st.number_input(
                         "Total hours",
-                        key=f"activity-hours-{cost_counter}",
+                        key=f"activity-hours-{phase_activity.unique_key}",
                         min_value=0.0,
                         step=0.5,
                         value=float(phase_activity.hours),
                     )
-                cost_counter += 1
+                    st.button(
+                        "Delete activity",
+                        key=f"delete-activity-{phase_activity.unique_key}",
+                        icon=":material/delete:",
+                        on_click=delete_activity,
+                        args=[phase_activity],
+                    )
 
             phase_costs: list[DirectCost] = [
                 direct_cost
@@ -344,19 +412,53 @@ with main_left:
                 with st.container(border=True):
                     phase_cost.name: str = st.text_input(
                         "Cost",
-                        key=f"directcost-name-{cost_counter}",
+                        key=f"directcost-name-{phase_cost.unique_key}",
                         value=phase_cost.name,
                     )
                     phase_cost.cost: float = st.number_input(
                         "Cost US$",
-                        key=f"directcost-cost-{cost_counter}",
+                        key=f"directcost-cost-{phase_cost.unique_key}",
                         min_value=0.0,
                         step=0.50,
                         value=float(phase_cost.cost),
                     )
-                cost_counter += 1
+                    st.button(
+                        "Delete direct cost",
+                        key=f"delete-direct-cost-{phase_cost.unique_key}",
+                        icon=":material/delete:",
+                        on_click=delete_direct_cost,
+                        args=[phase_cost],
+                    )
 
-combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]  # ty:ignore[invalid-assignment]
+            with st.container(horizontal=True, horizontal_alignment="left"):
+                st.button(
+                    "Add Activity",
+                    key=f"add-activity-{phase}",
+                    icon=":material/sprint:",
+                    on_click=add_activity,
+                    args=[phase],
+                )
+                st.button(
+                    "Add Direct Cost",
+                    key=f"add-direct-cost-{phase}",
+                    icon=":material/request_quote:",
+                    on_click=add_direct_cost,
+                    args=[phase],
+                )
+                st.button(
+                    "Next Phase",
+                    key=f"next-phase-{phase}",
+                    icon=":material/check:",
+                    type="primary",
+                    on_click=next_tool_step,
+                )
+
+# Visualisation pane
+
+# Calculate total costs and total hours.
+combined_costs_list: list[Cost] = (
+    st.session_state["activity_list"] + st.session_state["cost_list"]
+)  # ty:ignore[invalid-assignment]
 total_cost: float = compute_costs(combined_costs_list)
 total_hours: float = compute_hours(st.session_state["activity_list"])
 
@@ -364,8 +466,12 @@ with main_right:
     k1, k2, k3 = st.columns(3)
     k1.metric("Estimated total cost", format_usd(total_cost))
     k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
-    k3.metric("Estimated direct costs", format_usd(compute_costs(st.session_state["cost_list"])))  # ty:ignore[invalid-argument-type]
+    k3.metric(
+        "Estimated direct costs",
+        format_usd(compute_costs(st.session_state["cost_list"])),  # ty:ignore[invalid-argument-type]
+    )
 
+    # Pie chart
     phase_df = pd.DataFrame(
         {
             "Phase": [
@@ -382,23 +488,47 @@ with main_right:
             ],
         }
     )
-    pie = px.pie(
-        phase_df, names="Phase", values="Cost (USD)", title="Cost breakdown"
-    )
+    pie = px.pie(phase_df, names="Phase", values="Cost (USD)", title="Cost breakdown")
     st.plotly_chart(pie, width="stretch")
 
+    # Labour cost bar chart
     labour_df = pd.DataFrame(
         {
-            "Activity": [activity.name for activity in st.session_state["activity_list"]],
-            "Cost (USD)": [activity.get_total_cost() for activity in st.session_state["activity_list"]],
+            "Activity": [
+                activity.name for activity in st.session_state["activity_list"]
+            ],
+            "Cost (USD)": [
+                activity.get_total_cost()
+                for activity in st.session_state["activity_list"]
+            ],
+            "Hours": [activity.hours for activity in st.session_state["activity_list"]],
+            "Phase": [
+                RESEARCH_PHASES[activity.phase]
+                for activity in st.session_state["activity_list"]
+            ],
+            "Person": [
+                activity.person.name for activity in st.session_state["activity_list"]
+            ],
         }
     )
 
-    waterfall = px.bar(
+    labour_chart_selection = st.pills(
+        "**Show labor as**", ["Cost (USD)", "Hours"], default="Cost (USD)"
+    )
+
+    labour_chart = px.bar(
         labour_df,
         x="Activity",
-        y="Cost (USD)",
-        title="Cost of Labor Activities",
+        y=labour_chart_selection,
+        color="Phase",
+        title="Cost of and Time Spent on Labor Activities",
         text_auto=True,
     )
-    st.plotly_chart(waterfall, width="stretch")
+    if labour_chart_selection == "Cost (USD)":
+        labour_chart.update_traces(texttemplate="%{y:$.2f}", textposition="outside")
+    else:
+        labour_chart.update_traces(
+            texttemplate="%{y:.1f} hours", textposition="outside"
+        )
+    labour_chart.update_yaxes(tickprefix="$")
+    st.plotly_chart(labour_chart, width="stretch")

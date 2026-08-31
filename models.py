@@ -83,12 +83,14 @@ class Activity:
         person: Person to who this activity is assigned.
         phase: Phase of research this activity belongs to.
         hours: Number of hours allocated to this activity, used to calculate the total cost.
+        unique_key: Unique numerical identifier for this activity.
     """
 
     name: str
     person: Person
     phase: str
     hours: int | float
+    unique_key: int
 
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this activity in dollars."""
@@ -104,11 +106,13 @@ class DirectCost:
         name: Name of this cost.
         phase: Phase of research this cost belongs to.
         cost: Value of this cost in dollars.
+        unique_key: Unique numerical identifier for this direct cost.
     """
 
     name: str
     phase: str
     cost: int | float
+    unique_key: int
 
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this direct cost in dollars."""

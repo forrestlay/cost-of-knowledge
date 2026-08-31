@@ -4,124 +4,131 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from models import Person, PersonType
+from models import Person, PersonType, Cost, Activity, DirectCost
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
-BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_CSV = BASE_DIR / "simulated_paper_costs_by_tier.csv"
+ROLES: list[str] = [
+    "Professor",
+    "Associate Professor",
+    "Assistant Professor",
+    "Instructor",
+    "Lecturer",
+    "Senior Lecturer",
+    "Associate Lecturer",
+    "Research Assistant",
+    "Peer reviewer",
+    "Journal editor",
+]
 
-TIER_MULTIPLIERS = {"C": 0.72, "B": 0.84, "A": 0.94, "A*": 1.00}
-DISCIPLINE_MULTIPLIERS = {
-    "Accounting & Finance": 1.00,
-    "Management": 0.96,
-    "Economics": 1.03,
-    "Information Systems": 0.99,
-    "Interdisciplinary": 1.06,
+RESEARCH_PHASES: dict[str, str] = {
+    "incubation": "Incubation",
+    "data": "Data collection and analysis",
+    "writing": "Manuscript preparation",
+    "editing": "Peer review and journal editorial work",
 }
-REGION_MULTIPLIERS = {
-    "Australia/NZ": 1.00,
-    "North America": 1.08,
-    "Europe": 1.04,
-    "Asia": 0.92,
-    "Global Team": 1.06,
-}
-METHOD_MULTIPLIERS = {
-    "Conceptual": 0.82,
-    "Archival/Empirical": 1.00,
-    "Survey": 0.96,
-    "Experiment": 1.08,
-    "Qualitative": 1.02,
-    "Mixed Methods": 1.12,
-}
-OA_MODELS = {
-    "Subscription / closed": 0,
-    "Hybrid open access": 3500,
-    "Gold open access": 5200,
-}
-LANGUAGE_COMPLEXITY = {"Low": 0.96, "Moderate": 1.00, "High": 1.08}
 
 
-def compute_costs(
-    journal_tier: str,
-    discipline: str,
-    region: str,
-    methodology: str,
-    author_count: int,
-    project_months: int,
-    revision_rounds: int,
-    ra_hourly_rate: float,
-    base_ra_hours: float,
-    peer_review_hours: float,
-    infra_library_cost: float,
-    editing_cost: float,
-    design_cost: float,
-    overhead_rate: float,
-    in_kind_support: float,
-    oa_model: str,
-    language_level: str,
-    conference_cost: float,
-):
-    scale = (
-        TIER_MULTIPLIERS[journal_tier]
-        * DISCIPLINE_MULTIPLIERS[discipline]
-        * REGION_MULTIPLIERS[region]
-        * METHOD_MULTIPLIERS[methodology]
-        * LANGUAGE_COMPLEXITY[language_level]
-    )
+def compute_costs(costs: list[Cost], phase: str | None = None) -> float:
+    """Calculates the total cost of activities and direct costs in the given list.
 
-    author_factor = 1 + max(author_count - 2, 0) * 0.045
-    months_factor = 1 + max(project_months - 9, 0) * 0.018
-    revision_factor = 1 + max(revision_rounds - 1, 0) * 0.07
+    Args:
+        costs: A list of Cost items (Activities or DirectCosts).
+        phase: If not None (default), only calculates costs for the given RESEARCH_PHASE key.
+    """
+    total_cost: float = 0.0
+    for cost_item in costs:
+        if phase is None or phase == cost_item.phase:
+            total_cost += cost_item.get_total_cost()
+    return total_cost
 
-    labour_hours = (
-        base_ra_hours * scale * author_factor * months_factor * revision_factor
-    )
-    peer_hours = peer_review_hours * scale * revision_factor
-    labour_cost = labour_hours * ra_hourly_rate
-    peer_review_cost = peer_hours * ra_hourly_rate
-    infrastructure_cost = infra_library_cost * scale
-    editing_design_cost = (editing_cost + design_cost) * (
-        0.92 if journal_tier == "C" else 1.00
-    )
-    open_access_cost = OA_MODELS[oa_model]
-    direct_cash = (
-        labour_cost
-        + peer_review_cost
-        + infrastructure_cost
-        + editing_design_cost
-        + open_access_cost
-        + conference_cost
-    )
-    overhead_cost = direct_cash * overhead_rate
-    total_cost = direct_cash + overhead_cost + in_kind_support
 
-    return {
-        "journal_tier": journal_tier,
-        "discipline": discipline,
-        "region": region,
-        "methodology": methodology,
-        "author_count": author_count,
-        "project_months": project_months,
-        "revision_rounds": revision_rounds,
-        "ra_hourly_rate": ra_hourly_rate,
-        "labour_hours": labour_hours,
-        "peer_review_hours": peer_hours,
-        "labour_cost_aud": labour_cost,
-        "peer_review_cost_aud": peer_review_cost,
-        "infrastructure_library_cost_aud": infrastructure_cost,
-        "editing_design_cost_aud": editing_design_cost,
-        "open_access_cost_aud": open_access_cost,
-        "conference_cost_aud": conference_cost,
-        "university_overhead_cost_aud": overhead_cost,
-        "in_kind_support_cost_aud": in_kind_support,
-        "total_cost_aud": total_cost,
-    }
+def compute_hours(activities: list[Activity], phase: str | None = None) -> float:
+    """Calculates the total labour hours of activities in the given list.
+
+    Args:
+        costs: A list of Activity items.
+        phase: If not None (default), only calculates hours for the given RESEARCH_PHASE key.
+    """
+    total_hours: float = 0.0
+    for activity in activities:
+        if phase is None or phase == activity.phase:
+            total_hours += activity.hours
+    return total_hours
 
 
 def format_usd(x: int | float) -> str:
+    """Formats an int or float to a string displaying US$."""
     return f"US${x:,.0f}"
 
+
+# -----------------------------------------------
+# Model variables
+# -----------------------------------------------
+if "people" not in st.session_state:
+    default_person: Person = Person(
+        name="Associate Professor",
+        unique_key="1",
+        person_type=PersonType.RESEARCH_TEAM,
+        hourly_rate=85,
+    )
+    peer_reviewer: Person = Person(
+        name="Peer reviewer",
+        unique_key="Peer reviewer",
+        person_type=PersonType.OTHER,
+        hourly_rate=85,
+    )
+    journal_editor: Person = Person(
+        name="Journal editor",
+        unique_key="Journal editor",
+        person_type=PersonType.OTHER,
+        hourly_rate=85,
+    )
+    st.session_state["people"]: dict[str, Person] = {
+        peer_reviewer.unique_key: peer_reviewer,
+        journal_editor.unique_key: journal_editor,
+        default_person.unique_key: default_person,
+    }
+
+if "activity_list" not in st.session_state:
+    st.session_state["activity_list"]: list[Activity] = [
+        Activity(
+            "Ideation and conception", st.session_state["people"]["1"], "incubation", 55
+        ),
+        Activity("Ethics approval", st.session_state["people"]["1"], "incubation", 60),
+        Activity(
+            "Grant applications", st.session_state["people"]["1"], "incubation", 171
+        ),
+        Activity("Data collection", st.session_state["people"]["1"], "data", 34),
+        Activity(
+            "Interview transcription", st.session_state["people"]["1"], "data", 42.5
+        ),
+        Activity("Data analysis", st.session_state["people"]["1"], "data", 112.5),
+        Activity(
+            "Writing and manuscript preparation",
+            st.session_state["people"]["1"],
+            "writing",
+            100,
+        ),
+        Activity(
+            "Conferencing (labour)", st.session_state["people"]["1"], "writing", 123
+        ),
+        Activity(
+            "Peer review", st.session_state["people"]["Peer reviewer"], "editing", 9
+        ),
+        Activity(
+            "Journal editorial work",
+            st.session_state["people"]["Journal editor"],
+            "editing",
+            15,
+        ),
+    ]
+
+if "cost_list" not in st.session_state:
+    st.session_state["cost_list"]: list[DirectCost] = [
+        DirectCost("Participant incentivization", "data", 246),
+        DirectCost("Conferencing (direct costs)", "writing", 3400),
+    ]
 
 # -----------------------------------------------
 # Header
@@ -151,24 +158,13 @@ with st.expander("About the data", expanded=False):
 # Study team
 # -----------------------------------------------
 
-st.subheader("Study Team")
+st.subheader("People Involved in the Article Preperation Process")
 st.markdown("""
-            Fill in the details of the people on your team who contributed to the preparation of your journal article.
-            Your salary will be used to calculate the cost of labour for most of the steps involved in the journal
-            preparation process.
-
-            Alternatively, if your team has many people, you may add the average salary of each level of academic in
-            your team (for example, add one person representing all Professors on your team, another person representing
-            all lecturers on your team, etc.).
+            Fill in the details of the people who are involved in the preparation of your journal article.
+            Details have been pre-filled for the peer reviewer and journal editor roles.
+            The hourly rates below will be used to calculate the cost of labour for most of the steps involved in the
+            journal preparation process.
             """)
-
-if "people" not in st.session_state:
-    default_person: Person = Person(
-        name="Primary Investigator",
-        person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=85,
-    )
-    st.session_state["people"]: list[Person] = [default_person]
 
 if "study_team_finalised" not in st.session_state:
     st.session_state[
@@ -176,14 +172,17 @@ if "study_team_finalised" not in st.session_state:
     ]: bool = False  # Expands study team expander until team is finalised.
 
 
-def add_person():
-    st.session_state["people"].append(
-        Person(name="New person", person_type=PersonType.RESEARCH_TEAM, hourly_rate=85)
+def add_person(key: str):
+    st.session_state["people"][key] = Person(
+        name="New person",
+        unique_key=key,
+        person_type=PersonType.RESEARCH_TEAM,
+        hourly_rate=85,
     )
 
 
-def delete_person(person: Person):
-    st.session_state["people"].remove(person)
+def delete_person(key: str):
+    del st.session_state["people"][key]
 
 
 @st.dialog("Calculate your hourly rate")
@@ -212,14 +211,24 @@ def team_finalised():
 
 person_counter: int = 1  # Used to set a unique key for each person.
 
-with st.expander(
-    "Modify your study team", expanded=not st.session_state["study_team_finalised"]
-):
-    for person in st.session_state["people"]:
+with st.expander("Roles", expanded=not st.session_state["study_team_finalised"]):
+    for key, person in st.session_state["people"].items():
         with st.container(border=True):
-            person.name: str = st.text_input("Name", value=person.name)
+            try:
+                person_name_index = ROLES.index(person.name)
+            except ValueError:
+                person_name_index = 1
+            person.name: str = st.selectbox(
+                "Name",
+                options=ROLES,
+                index=person_name_index,
+                accept_new_options=True,
+                key=f"person-name-{person_counter}",
+            )
             person.hourly_rate: int | float = st.number_input(
-                "Hourly wage", value=person.hourly_rate
+                "Hourly wage",
+                value=person.hourly_rate,
+                key=f"person-rate-{person_counter}",
             )
             with st.container(horizontal=True, horizontal_alignment="left"):
                 if st.button(
@@ -227,22 +236,29 @@ with st.expander(
                     key=f"calculate-hourly-wage-{person_counter}",
                 ):
                     calculate_hourly_rate(person)
-                if person_counter > 1:
+                if (
+                    person_counter > 3
+                    and person.person_type == PersonType.RESEARCH_TEAM
+                ):
                     st.button(
                         f"Delete {person.name}",
                         key=f"delete-person-{person_counter}",
                         icon=":material/delete:",
                         on_click=delete_person,
-                        args=[person],
+                        args=[key],
                     )
         person_counter += 1
 
     with st.container(horizontal=True, horizontal_alignment="left"):
+        add_person_key = str(
+            person_counter - 2
+        )  # Subtract 2 to account for peer reviewer and journal editor roles.
         st.button(
             "Add person/role",
             key="add-person",
             icon=":material/add:",
             on_click=add_person,
+            args=[add_person_key],
         )
         st.button(
             "Finalize team",
@@ -256,159 +272,133 @@ with st.expander(
 # Calculator
 # -----------------------------------------------
 
+
+def person_option_display(key: str):
+    """Converts a st.session_state["people"] key to a display name."""
+    person: Person = st.session_state["people"][key]
+    if person.person_type == PersonType.RESEARCH_TEAM:
+        return f"{key}: {person.name}"
+    else:
+        return key
+
+# TODO: Fix this method to actually set the person.
+def set_activity_person(activity: Activity):
+    """Callback for st.selectbox to select the person assigned to an activity."""
+    activity.person: Person = st.session_state["people"][
+        st.session_state["update_activity_person"]
+    ]
+
+
 st.subheader("Calculator")
 
 main_left, main_right = st.columns([1, 2])
 
 with main_left:
-    journal_tier = st.selectbox("Journal tier", list(TIER_MULTIPLIERS.keys()), index=3)
-    discipline = st.selectbox(
-        "Discipline", list(DISCIPLINE_MULTIPLIERS.keys()), index=0
-    )
-    region = st.selectbox(
-        "Research team region", list(REGION_MULTIPLIERS.keys()), index=0
-    )
-    methodology = st.selectbox("Methodology", list(METHOD_MULTIPLIERS.keys()), index=1)
-    oa_model = st.selectbox("Publishing model", list(OA_MODELS.keys()), index=0)
-    language_level = st.select_slider(
-        "Language / writing complexity",
-        options=list(LANGUAGE_COMPLEXITY.keys()),
-        value="Moderate",
-    )
-    author_count = st.slider("Number of authors", 1, 8, 3)
-    project_months = st.slider("Project duration (months)", 3, 24, 9)
-    revision_rounds = st.slider("Revision rounds", 0, 4, 2)
+    cost_counter = 1  # Used to give each cost input a unique key
 
-    st.markdown("**Cost driver assumptions**")
-    ra_hourly_rate = st.number_input(
-        "RA hourly rate (AUD)", min_value=30.0, max_value=150.0, value=73.45, step=1.0
-    )
-    base_ra_hours = st.slider("Base RA hours", 80, 800, 420, step=10)
-    peer_review_hours = st.slider(
-        "Peer review / editorial labour hours", 5, 120, 24, step=1
-    )
-    infra_library_cost = st.number_input(
-        "Infrastructure & library cost (AUD)",
-        min_value=0.0,
-        max_value=20000.0,
-        value=4500.0,
-        step=250.0,
-    )
-    editing_cost = st.number_input(
-        "Editing cost (AUD)", min_value=0.0, max_value=10000.0, value=1674.0, step=100.0
-    )
-    design_cost = st.number_input(
-        "Design / formatting cost (AUD)",
-        min_value=0.0,
-        max_value=10000.0,
-        value=2000.0,
-        step=100.0,
-    )
-    conference_cost = st.number_input(
-        "Dissemination / conference cost (AUD)",
-        min_value=0.0,
-        max_value=15000.0,
-        value=0.0,
-        step=250.0,
-    )
-    overhead_rate = st.slider("University overhead rate", 0.0, 0.6, 0.35, 0.01)
-    in_kind_support = st.number_input(
-        "In-kind support (AUD)",
-        min_value=0.0,
-        max_value=20000.0,
-        value=5000.0,
-        step=250.0,
-    )
+    for phase, phase_name in RESEARCH_PHASES.items():
+        with st.expander(phase_name):
+            phase_activities: list[Activity] = [
+                activity
+                for activity in st.session_state["activity_list"]
+                if activity.phase == phase
+            ]
+            for phase_activity in phase_activities:
+                try:  # Get index of person in list of people.
+                    activity_person_index: int = list(
+                        st.session_state["people"].keys()
+                    ).index(phase_activity.person.unique_key)
+                except ValueError:
+                    activity_person_index: int = 2
 
-result = compute_costs(
-    journal_tier,
-    discipline,
-    region,
-    methodology,
-    author_count,
-    project_months,
-    revision_rounds,
-    ra_hourly_rate,
-    base_ra_hours,
-    peer_review_hours,
-    infra_library_cost,
-    editing_cost,
-    design_cost,
-    overhead_rate,
-    in_kind_support,
-    oa_model,
-    language_level,
-    conference_cost,
-)
+                with st.container(border=True):
+                    phase_activity.name: str = st.text_input(
+                        "Activity",
+                        key=f"activity-name-{cost_counter}",
+                        value=phase_activity.name,
+                    )
+                    st.session_state["update_activity_person"]: str = st.selectbox(
+                        "Assigned person",
+                        st.session_state["people"].keys(),
+                        key=f"activity-person-{cost_counter}",
+                        index=activity_person_index,
+                        format_func=person_option_display,
+                        on_change=set_activity_person,
+                        args=[phase_activity],
+                    )
+                    phase_activity.hours: float = st.number_input(
+                        "Total hours",
+                        key=f"activity-hours-{cost_counter}",
+                        min_value=0.0,
+                        step=0.5,
+                        value=float(phase_activity.hours),
+                    )
+                cost_counter += 1
+
+            phase_costs: list[DirectCost] = [
+                direct_cost
+                for direct_cost in st.session_state["cost_list"]
+                if direct_cost.phase == phase
+            ]
+            for phase_cost in phase_costs:
+                with st.container(border=True):
+                    phase_cost.name: str = st.text_input(
+                        "Cost",
+                        key=f"directcost-name-{cost_counter}",
+                        value=phase_cost.name,
+                    )
+                    phase_cost.cost: float = st.number_input(
+                        "Cost US$",
+                        key=f"directcost-cost-{cost_counter}",
+                        min_value=0.0,
+                        step=0.50,
+                        value=float(phase_cost.cost),
+                    )
+                cost_counter += 1
+
+combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]  # ty:ignore[invalid-assignment]
+total_cost: float = compute_costs(combined_costs_list)
+total_hours: float = compute_hours(st.session_state["activity_list"])
 
 with main_right:
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Estimated total cost", format_usd(result["total_cost_aud"]))
-    k2.metric(
-        "Direct cash cost",
-        format_usd(result["total_cost_aud"] - result["in_kind_support_cost_aud"]),
-    )
-    k3.metric("Labour hours", f"{result['labour_hours']:.0f} h")
-    k4.metric("Overhead", format_usd(result["university_overhead_cost_aud"]))
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Estimated total cost", format_usd(total_cost))
+    k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
+    k3.metric("Estimated direct costs", format_usd(compute_costs(st.session_state["cost_list"])))  # ty:ignore[invalid-argument-type]
 
-    if result["total_cost_aud"] > 100000:
-        st.error(
-            "This scenario is above A$100,000. Reduce one or more cost drivers to stay under the cap."
-        )
-    else:
-        st.success("This scenario is within the A$100,000 cap.")
-
-    comp_df = pd.DataFrame(
+    phase_df = pd.DataFrame(
         {
-            "Component": [
-                "Labour",
-                "Peer review",
-                "Infrastructure & library",
-                "Editing & design",
-                "Open access",
-                "Conference / dissemination",
-                "University overhead",
-                "In-kind support",
+            "Phase": [
+                "Incubation",
+                "Data collection and analysis",
+                "Writing",
+                "Peer review and journal editorial work",
             ],
-            "Cost (AUD)": [
-                result["labour_cost_aud"],
-                result["peer_review_cost_aud"],
-                result["infrastructure_library_cost_aud"],
-                result["editing_design_cost_aud"],
-                result["open_access_cost_aud"],
-                result["conference_cost_aud"],
-                result["university_overhead_cost_aud"],
-                result["in_kind_support_cost_aud"],
+            "Cost (USD)": [
+                compute_costs(combined_costs_list, "incubation"),
+                compute_costs(combined_costs_list, "data"),
+                compute_costs(combined_costs_list, "writing"),
+                compute_costs(combined_costs_list, "editing"),
             ],
         }
     )
     pie = px.pie(
-        comp_df, names="Component", values="Cost (AUD)", title="Cost breakdown"
+        phase_df, names="Phase", values="Cost (USD)", title="Cost breakdown"
     )
     st.plotly_chart(pie, width="stretch")
 
+    labour_df = pd.DataFrame(
+        {
+            "Activity": [activity.name for activity in st.session_state["activity_list"]],
+            "Cost (USD)": [activity.get_total_cost() for activity in st.session_state["activity_list"]],
+        }
+    )
+
     waterfall = px.bar(
-        comp_df,
-        x="Component",
-        y="Cost (AUD)",
-        title="Component values",
+        labour_df,
+        x="Activity",
+        y="Cost (USD)",
+        title="Cost of Labor Activities",
         text_auto=True,
     )
     st.plotly_chart(waterfall, width="stretch")
-
-    detail_df = pd.DataFrame(
-        [
-            ["Journal tier", journal_tier],
-            ["Discipline", discipline],
-            ["Region", region],
-            ["Methodology", methodology],
-            ["Publishing model", oa_model],
-            ["Language complexity", language_level],
-            ["Authors", author_count],
-            ["Project months", project_months],
-            ["Revision rounds", revision_rounds],
-            ["RA hourly rate", f"A${ra_hourly_rate:,.2f}"],
-        ],
-        columns=["Field", "Value"],
-    )
-    st.dataframe(detail_df, width="stretch", hide_index=True)

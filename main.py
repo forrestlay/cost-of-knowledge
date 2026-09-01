@@ -269,7 +269,7 @@ if "salary_calculation_person" not in st.session_state:
 
 
 @st.dialog("Calculate your hourly rate")
-def calculate_hourly_rate(person: Person, counter: int):
+def calculate_hourly_rate(person: Person, key: str):
     salary: int = st.number_input("What is your salary?", step=1, min_value=0)
     months: int = st.number_input(
         "What is the period for which that salary is paid in months?",
@@ -299,7 +299,7 @@ def calculate_hourly_rate(person: Person, counter: int):
 
         # Hack to get salary calculation to stick. The default value on the st.number_input overrides the calculated
         # value, which makes it difficult to change this variable outside of the input itself.
-        st.session_state[f"person-rate-{counter}"] = st.session_state[
+        st.session_state[f"person-rate-{key}"] = st.session_state[
             "salary_calculation_result"
         ]
         st.rerun()
@@ -318,7 +318,6 @@ def next_tool_step(current_step: str):
         st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
 
 
-person_counter: int = 1  # Used to set a unique key for each person.
 people_step: bool = (
     True if TOOL_STEPS[st.session_state["tool_step"]] == "people" else False
 )
@@ -338,29 +337,29 @@ with st.expander("Roles", expanded=people_step):
                 options=ROLES,
                 index=person_name_index,
                 accept_new_options=True,
-                key=f"person-name-{person_counter}",
+                key=f"person-name-{person.unique_key}",
             )
             person.hourly_rate: int | float = st.number_input(
                 "Hourly rate of labour including indirect on-costs",
                 value=person.hourly_rate,
-                key=f"person-rate-{person_counter}",
+                key=f"person-rate-{person.unique_key}",
             )
             with st.container(horizontal=True, horizontal_alignment="left"):
                 if st.button(
                     "Calculate hourly wage using salary",
-                    key=f"calculate-hourly-wage-{person_counter}",
+                    key=f"calculate-hourly-wage-{person.unique_key}",
                 ):
-                    calculate_hourly_rate(person, person_counter)
+                    calculate_hourly_rate(person, person.unique_key)
                 if (
-                    person_counter > 3
-                    and person.person_type == PersonType.RESEARCH_TEAM
+                    person.person_type == PersonType.RESEARCH_TEAM
+                    and int(person.unique_key) > 1
                 ):
                     st.button(
                         f"Delete {person.name}",
-                        key=f"delete-person-{person_counter}",
+                        key=f"delete-person-{person.unique_key}",
                         icon=":material/delete:",
                         on_click=delete_person,
-                        args=[key],
+                        args=[person.unique_key],
                     )
 
             # Check if the calculation dialog was run
@@ -374,11 +373,15 @@ with st.expander("Roles", expanded=people_step):
                 ]
                 st.session_state["salary_calculation_person"] = None
                 st.session_state["salary_calculation_result"] = None
-        person_counter += 1
 
     with st.container(horizontal=True, horizontal_alignment="left"):
+        person_key_list: list[int] = [
+            int(person.unique_key)
+            for person in st.session_state["people"].values()
+            if person.unique_key.isdigit()
+        ]
         add_person_key = str(
-            person_counter - 2
+            max(person_key_list) + 1
         )  # Subtract 2 to account for peer reviewer and journal editor roles.
         st.button(
             "Add person/role",
@@ -424,13 +427,14 @@ def set_activity_person(activity: Activity, counter: int):
 
 
 def add_activity(phase: str):
+    activity_key_list: list[int] = [activity.unique_key for activity in st.session_state["activity_list"]]
     st.session_state["activity_list"].append(
         Activity(
             "New Activity",
             st.session_state["people"]["1"],
             phase,
             0.0,
-            len(st.session_state["activity_list"]) + 1,
+            max(activity_key_list) + 1,
         )
     )
 
@@ -440,8 +444,9 @@ def delete_activity(activity: Activity):
 
 
 def add_direct_cost(phase: str):
+    cost_key_list: list[int] = [direct_cost.unique_key for direct_cost in st.session_state["cost_list"]]
     st.session_state["cost_list"].append(
-        DirectCost("New Cost", phase, 0.0, len(st.session_state["cost_list"]) + 1)
+        DirectCost("New Cost", phase, 0.0, max(cost_key_list) + 1)
     )
 
 

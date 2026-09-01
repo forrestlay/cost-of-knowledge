@@ -343,7 +343,8 @@ with st.expander("Roles", expanded=people_step):
 
             # Check if the calculation dialog was run
             if (
-                st.session_state["salary_calculation_person"] == person
+                st.session_state["salary_calculation_person"] is not None
+                and st.session_state["salary_calculation_person"] == person
                 and st.session_state["salary_calculation_result"] is not None
             ):
                 person.hourly_rate: int | float = st.session_state[

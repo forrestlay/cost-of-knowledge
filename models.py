@@ -26,18 +26,14 @@ class Person:
     person_type: PersonType
     hourly_rate: int | float
 
-    def __eq__(self, other) -> bool:
-        """Custom equality function that checks only if name and hourly_rate are defined and the same on the other
-        object.
-        """
-        return (self.name, self.hourly_rate) == (other.name, other.hourly_rate)
-
+    @classmethod
     def salary_to_hourly_rate(
         self,
         salary: int,
         working_hours_weekly: int = 40,
         contract_period_months: int = 12,
-    ):
+        indirect_cost_multiplier: float = 1.0,
+    ) -> int | float:
         """Converts a base salary to an hourly rate. Options to set the number of months and the hours of work per week.
         Leave and public holidays are not excluded as it is assumed the person is paid for those periods as well.
 
@@ -51,7 +47,9 @@ class Person:
         contract_period_hours = contract_period_weeks * working_hours_weekly
 
         if salary > 0:
-            self.hourly_rate: int | float = round(salary / contract_period_hours, 2)
+            return salary / contract_period_hours * indirect_cost_multiplier
+        else:
+            return 0
 
     def to_str(self) -> str:
         return_str: str = f"{self.name},{str(self.hourly_rate)}"

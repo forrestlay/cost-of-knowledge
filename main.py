@@ -37,6 +37,40 @@ RESEARCH_PHASES: dict[str, str] = {
 }
 
 # TODO: Add dict of lists with preset activities and costs.
+ACTIVITY_OPTIONS: dict[str, list[str]] = {
+    "incubation": [
+        "Ideation and conception",
+        "Ethics approval",
+        "Grant applications",
+        "Other",
+    ],
+    "data": [
+        "Data collection",
+        "Data analysis",
+        "Interview transcription",
+        "Other",
+    ],
+    "writing": [
+        "Writing and manuscript preparation",
+        "Conferencing (labour)",
+    ],
+    "editing": [
+        "Peer review",
+        "Journal editorial work",
+    ],
+}
+
+COST_OPTIONS: dict[str, list[str]] = {
+    "incubation": [],
+    "data": [
+        "Software",
+        "Databases",
+    ],
+    "writing": [
+        "Proofreading and Editing Services",
+    ],
+    "editing": [],
+}
 
 # Setup session variable to track progress through CoK tool.
 if "tool_step" not in st.session_state:
@@ -183,7 +217,7 @@ with st.expander("About the data", expanded=False):
 # Study team
 # -----------------------------------------------
 
-st.subheader("People Involved in the Article Preperation Process")
+st.subheader("People Involved in the Article Preparation Process")
 st.markdown("""
             Fill in the details of the people who are involved in the preparation of your journal article.
             Details have been pre-filled for the peer reviewer and journal editor roles.
@@ -205,8 +239,15 @@ def delete_person(key: str):
     del st.session_state["people"][key]
 
 
+# Create session variables to track if the salary calculation dialog has run.
+if "salary_calculation_result" not in st.session_state:
+    st.session_state["salary_calculation_result"]: int | float | None = None
+if "salary_calculation_person" not in st.session_state:
+    st.session_state["salary_calculation_person"]: Person | None = None
+
+
 @st.dialog("Calculate your hourly rate")
-def calculate_hourly_rate(person: Person):
+def calculate_hourly_rate(person: Person, counter: int):
     salary: int = st.number_input("What is your salary?", step=1, min_value=0)
     months: int = st.number_input(
         "What is the period for which that salary is paid in months?",
@@ -220,13 +261,38 @@ def calculate_hourly_rate(person: Person):
         value=40,
         min_value=1,
     )
+    indirect_cost_percentage: int = st.slider(
+        "Indirect costs multiplier",
+        step=1,
+        value=40,
+        min_value=0,
+        max_value=100,
+    )
+    indirect_cost_multiplier: float = 1 + (indirect_cost_percentage / 100)
     if st.button("Calculate"):
-        person.salary_to_hourly_rate(salary, weekly_hours, months)
+        st.session_state["salary_calculation_result"] = Person.salary_to_hourly_rate(
+            salary, weekly_hours, months, indirect_cost_multiplier
+        )
+        st.session_state["salary_calculation_person"] = person
+
+        # Hack to get salary calculation to stick. The default value on the st.number_input overrides the calculated
+        # value, which makes it difficult to change this variable outside of the input itself.
+        st.session_state[f"person-rate-{counter}"] = st.session_state[
+            "salary_calculation_result"
+        ]
         st.rerun()
 
 
-def next_tool_step():
-    if st.session_state["tool_step"] < len(TOOL_STEPS) - 1:
+def next_tool_step(current_step: str):
+    """Navigates to the next step in the tool, opening the relevant expander.
+
+    Args:
+        current_step: The current step, matching a string in TOOL_STEPS.
+    """
+    if (
+        st.session_state["tool_step"] < len(TOOL_STEPS) - 1
+        and current_step == TOOL_STEPS[st.session_state["tool_step"]]
+    ):
         st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
 
 
@@ -238,10 +304,13 @@ people_step: bool = (
 with st.expander("Roles", expanded=people_step):
     for key, person in st.session_state["people"].items():
         with st.container(border=True):
+            # Check if person name is in the roles list.
             try:
                 person_name_index = ROLES.index(person.name)
             except ValueError:
                 person_name_index = 1
+
+            # Inputs
             person.name: str = st.selectbox(
                 "Name",
                 options=ROLES,
@@ -250,7 +319,7 @@ with st.expander("Roles", expanded=people_step):
                 key=f"person-name-{person_counter}",
             )
             person.hourly_rate: int | float = st.number_input(
-                "Hourly wage",
+                "Hourly rate of labour including indirect on-costs",
                 value=person.hourly_rate,
                 key=f"person-rate-{person_counter}",
             )
@@ -259,7 +328,7 @@ with st.expander("Roles", expanded=people_step):
                     "Calculate hourly wage using salary",
                     key=f"calculate-hourly-wage-{person_counter}",
                 ):
-                    calculate_hourly_rate(person)
+                    calculate_hourly_rate(person, person_counter)
                 if (
                     person_counter > 3
                     and person.person_type == PersonType.RESEARCH_TEAM
@@ -271,6 +340,17 @@ with st.expander("Roles", expanded=people_step):
                         on_click=delete_person,
                         args=[key],
                     )
+
+            # Check if the calculation dialog was run
+            if (
+                st.session_state["salary_calculation_person"] == person
+                and st.session_state["salary_calculation_result"] is not None
+            ):
+                person.hourly_rate: int | float = st.session_state[
+                    "salary_calculation_result"
+                ]
+                st.session_state["salary_calculation_person"] = None
+                st.session_state["salary_calculation_result"] = None
         person_counter += 1
 
     with st.container(horizontal=True, horizontal_alignment="left"):
@@ -290,6 +370,7 @@ with st.expander("Roles", expanded=people_step):
             type="primary",
             icon=":material/check:",
             on_click=next_tool_step,
+            args=["people"],
         )
 
 # -----------------------------------------------
@@ -449,6 +530,7 @@ with main_left:
                     icon=":material/check:",
                     type="primary",
                     on_click=next_tool_step,
+                    args=[phase],
                 )
 
 # Visualisation pane

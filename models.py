@@ -28,7 +28,8 @@ class PersonType(Enum):
 
 @dataclass
 class Person:
-    """Represents a member of the study team and used to calculate cost of labour.
+    """Represents a member of the study team or someone involved in the publication process and used to calculate cost
+    of labour.
 
     Attributes:
         name: Person's name (for research team members) or role.
@@ -187,7 +188,7 @@ class PeerReview(BaseActivity):
     person: Person
     review_rounds: int
     journal_submissions: int
-    name: str = "Journal editorial work"
+    name: str = "Peer review"
     phase: str = "editing"
     initial_round_hours: int | float = 4
     subsequent_round_hours: int | float = 2

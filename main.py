@@ -263,8 +263,8 @@ with st.expander("About the data", expanded=False):
 
 st.subheader("People Involved in the Article Preparation Process")
 st.markdown("""
-            Fill in the details of the people who are involved in the preparation of your journal article.
-            Details have been pre-filled for the peer reviewer and journal editor roles.
+            Fill in the details of the people on your study team or who are otherwise involved in the preparation of
+            your journal article in the incubation, data collection and analysis, and manuscript preparation phases.
             The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
             journal preparation process.
             """)
@@ -807,5 +807,7 @@ with st.container(horizontal=True, horizontal_alignment="left"):
 
 # TODO: Determine licensing of this code.
 st.markdown("""
-            The Cost of Knowledge Tool is licensed under the Apache License, Version 2.0.
+            :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh, Ben Lay,
+            Chang-yuan Loh, and Farzana Tanima.
+            :material/license: The Cost of Knowledge Tool is licensed under the Apache License, Version 2.0.]
             """)

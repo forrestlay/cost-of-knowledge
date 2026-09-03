@@ -131,20 +131,3 @@ class DirectCost:
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this direct cost in dollars."""
         return self.cost
-
-
-class Phase:
-    """Represents a phase of the journal article preparation process. Acts as a container for activities and costs."""
-
-    name: str
-    costs: list[Cost] = []
-
-    def __init__(self, name: str):
-        self.name: str = name
-
-
-class Model:
-    """Data model for the entire Cost of Knowledge costing model."""
-
-    people: list[Person] = []
-    phases: list[Phase] = []

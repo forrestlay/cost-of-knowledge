@@ -58,6 +58,10 @@ RESEARCH_PHASES: dict[str, str] = {
     "editing": "Peer review and journal editorial work",
 }
 
+# TODO: Add sharing of PDF and PNG, put names on PDF
+# TODO: Add iterations of Peer review and Editorial, replace roles. 
+#       How many journals submitted, how many rounds (per submission)
+
 # TODO: Add dict of lists with preset activities and costs.
 ACTIVITY_OPTIONS: dict[str, list[str]] = {
     "incubation": [
@@ -74,7 +78,7 @@ ACTIVITY_OPTIONS: dict[str, list[str]] = {
     ],
     "writing": [
         "Writing and manuscript preparation",
-        "Conferencing (labour)",
+        "Conferencing (labor)",
     ],
     "editing": [
         "Peer review",
@@ -191,7 +195,7 @@ if "activity_list" not in st.session_state:
             7,
         ),
         Activity(
-            "Conferencing (labour)", st.session_state["people"]["1"], "writing", 123, 8
+            "Conferencing (labor)", st.session_state["people"]["1"], "writing", 123, 8
         ),
         Activity(
             "Peer review", st.session_state["people"]["Peer reviewer"], "editing", 9, 9
@@ -243,12 +247,27 @@ st.subheader("People Involved in the Article Preparation Process")
 st.markdown("""
             Fill in the details of the people who are involved in the preparation of your journal article.
             Details have been pre-filled for the peer reviewer and journal editor roles.
-            The hourly rates below will be used to calculate the cost of labour for most of the steps involved in the
+            The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
             journal preparation process.
             """)
 
 
-def add_person(key: str):
+def add_person(key: str | None = None):
+    """Adds a new person role to the tool.
+
+    Args:
+        key: A unique_key for the Person. If None, a numerical key will be assigned to the person automatically.
+    """
+    if key is None:
+        # First find the highest unique_key issued so far. Then add one to that key.
+        person_key_list: list[int] = [
+            int(person.unique_key)
+            for person in st.session_state["people"].values()
+            if person.unique_key.isdigit()
+        ]
+        key = str(
+            max(person_key_list) + 1
+        )
     st.session_state["people"][key] = Person(
         name="New person",
         unique_key=key,
@@ -318,6 +337,7 @@ def next_tool_step(current_step: str):
         st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
 
 
+# Check if tool is at the people step, expand Roles expander if True.
 people_step: bool = (
     True if TOOL_STEPS[st.session_state["tool_step"]] == "people" else False
 )
@@ -340,7 +360,7 @@ with st.expander("Roles", expanded=people_step):
                 key=f"person-name-{person.unique_key}",
             )
             person.hourly_rate: int | float = st.number_input(
-                "Hourly rate of labour including indirect on-costs",
+                "Hourly rate of labor including indirect on-costs",
                 value=person.hourly_rate,
                 key=f"person-rate-{person.unique_key}",
             )
@@ -375,20 +395,11 @@ with st.expander("Roles", expanded=people_step):
                 st.session_state["salary_calculation_result"] = None
 
     with st.container(horizontal=True, horizontal_alignment="left"):
-        person_key_list: list[int] = [
-            int(person.unique_key)
-            for person in st.session_state["people"].values()
-            if person.unique_key.isdigit()
-        ]
-        add_person_key = str(
-            max(person_key_list) + 1
-        )  # Subtract 2 to account for peer reviewer and journal editor roles.
         st.button(
             "Add person/role",
             key="add-person",
             icon=":material/add:",
             on_click=add_person,
-            args=[add_person_key],
         )
         st.button(
             "Finalize team",
@@ -460,12 +471,19 @@ main_left, main_right = st.columns([1, 2])
 
 # Activities and costs setup pane
 with main_left:
+    st.markdown("""
+                Provide details of the activities and costs involved in preparing your journal article. The process
+                has been divided between four distinct phases: incubation, data collection and analysis, manuscript
+                preparation, and peer review and journal editorial work.
+                """)
+    
     for phase, phase_name in RESEARCH_PHASES.items():
         # Expand expander if the current tool step is the current phase.
         phase_expand: bool = (
             True if TOOL_STEPS[st.session_state["tool_step"]] == phase else False
         )
 
+        # TODO: Highlight new activities and costs (have $0 cost)
         with st.expander(phase_name, expanded=phase_expand):
             phase_activities: list[Activity] = [
                 activity
@@ -579,13 +597,17 @@ with main_right:
         format_usd(compute_costs(st.session_state["cost_list"])),  # ty:ignore[invalid-argument-type]
     )
 
+    st.markdown("""
+                Click on the phases and people in the charts below to see the breakdown of costs within each.
+                """)
+
     # Pie chart
     phase_df = pd.DataFrame(
         {
             "Phase": [
                 "Incubation",
                 "Data collection and analysis",
-                "Writing",
+                "Manuscript preparation",
                 "Peer review and journal editorial work",
             ],
             "Cost (USD)": [
@@ -596,7 +618,7 @@ with main_right:
             ],
         }
     )
-    pie = px.pie(phase_df, names="Phase", values="Cost (USD)", title="Cost breakdown")
+    pie = px.pie(phase_df, names="Phase", values="Cost (USD)", title="Total Cost Breakdown")
     st.plotly_chart(pie, width="stretch")
 
     # Labour cost bar chart
@@ -620,6 +642,15 @@ with main_right:
         }
     )
 
+    sunburst = px.sunburst(
+        labour_df,
+        path=['Phase', 'Person', 'Activity'],
+        values="Cost (USD)",
+        title="Cost of Labor Breakdown by Phase, Role and Activity"
+    )
+    sunburst.update_layout(height=800)
+    st.plotly_chart(sunburst, width="stretch")
+
     labour_chart_selection = st.pills(
         "**Show labor as**", ["Cost (USD)", "Hours"], default="Cost (USD)"
     )
@@ -640,3 +671,22 @@ with main_right:
         )
     labour_chart.update_yaxes(tickprefix="$")
     st.plotly_chart(labour_chart, width="stretch")
+
+
+# -----------------------------------------------
+# Conclusion
+# -----------------------------------------------
+
+st.subheader("Share your result")
+
+st.markdown("""
+            Share your result using the buttons below.
+            """)
+
+with st.container(horizontal=True, horizontal_alignment="left"):
+    st.button("Email result", icon=":material/email:")
+
+# TODO: Determine licensing of this code.
+st.markdown("""
+            The Cost of Knowledge Tool is licensed under the Apache License, Version 2.0.
+            """)

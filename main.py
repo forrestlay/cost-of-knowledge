@@ -24,7 +24,16 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from models import Person, PersonType, Cost, Activity, DirectCost
+from models import (
+    BaseActivity,
+    Person,
+    PersonType,
+    Cost,
+    Activity,
+    DirectCost,
+    JournalEditing,
+    PeerReview,
+)
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
@@ -59,8 +68,6 @@ RESEARCH_PHASES: dict[str, str] = {
 }
 
 # TODO: Add sharing of PDF and PNG, put names on PDF
-# TODO: Add iterations of Peer review and Editorial, replace roles. 
-#       How many journals submitted, how many rounds (per submission)
 
 # TODO: Add dict of lists with preset activities and costs.
 ACTIVITY_OPTIONS: dict[str, list[str]] = {
@@ -80,10 +87,6 @@ ACTIVITY_OPTIONS: dict[str, list[str]] = {
         "Writing and manuscript preparation",
         "Conferencing (labor)",
     ],
-    "editing": [
-        "Peer review",
-        "Journal editorial work",
-    ],
 }
 
 COST_OPTIONS: dict[str, list[str]] = {
@@ -95,7 +98,6 @@ COST_OPTIONS: dict[str, list[str]] = {
     "writing": [
         "Proofreading and Editing Services",
     ],
-    "editing": [],
 }
 
 # Setup session variable to track progress through CoK tool.
@@ -117,7 +119,7 @@ def compute_costs(costs: list[Cost], phase: str | None = None) -> float:
     return total_cost
 
 
-def compute_hours(activities: list[Activity], phase: str | None = None) -> float:
+def compute_hours(activities: list[BaseActivity], phase: str | None = None) -> float:
     """Calculates the total labour hours of activities in the given list.
 
     Args:
@@ -126,8 +128,8 @@ def compute_hours(activities: list[Activity], phase: str | None = None) -> float
     """
     total_hours: float = 0.0
     for activity in activities:
-        if phase is None or phase == activity.phase:
-            total_hours += activity.hours
+        if phase is None or phase == activity.get_phase():
+            total_hours += activity.get_hours()
     return total_hours
 
 
@@ -148,27 +150,45 @@ if "people" not in st.session_state:
         person_type=PersonType.RESEARCH_TEAM,
         hourly_rate=85,
     )
-    peer_reviewer: Person = Person(
+
+    st.session_state["people"]: dict[str, Person] = {
+        default_person.unique_key: default_person,
+    }
+
+if "peer_reviewer" not in st.session_state:
+    st.session_state["peer_reviewer"]: Person = Person(
         name="Peer reviewer",
         unique_key="Peer reviewer",
         person_type=PersonType.OTHER,
         hourly_rate=85,
     )
-    journal_editor: Person = Person(
+
+if "journal_editor" not in st.session_state:
+    st.session_state["journal_editor"]: Person = Person(
         name="Journal editor",
         unique_key="Journal editor",
         person_type=PersonType.OTHER,
         hourly_rate=85,
     )
-    st.session_state["people"]: dict[str, Person] = {
-        peer_reviewer.unique_key: peer_reviewer,
-        journal_editor.unique_key: journal_editor,
-        default_person.unique_key: default_person,
-    }
 
 # Populate initial list of activities and costs.
+if "peer_review_activity" not in st.session_state:
+    st.session_state["peer_review_activity"]: PeerReview = PeerReview(
+        person=st.session_state["peer_reviewer"],
+        review_rounds=3,
+        journal_submissions=1,
+        unique_key=9,
+    )
+
+if "journal_editing_activity" not in st.session_state:
+    st.session_state["journal_editing_activity"]: JournalEditing = JournalEditing(
+        person=st.session_state["journal_editor"],
+        journal_submissions=1,
+        unique_key=10,
+    )
+
 if "activity_list" not in st.session_state:
-    st.session_state["activity_list"]: list[Activity] = [
+    st.session_state["activity_list"]: list[BaseActivity] = [
         Activity(
             "Ideation and conception",
             st.session_state["people"]["1"],
@@ -197,17 +217,15 @@ if "activity_list" not in st.session_state:
         Activity(
             "Conferencing (labor)", st.session_state["people"]["1"], "writing", 123, 8
         ),
-        Activity(
-            "Peer review", st.session_state["people"]["Peer reviewer"], "editing", 9, 9
-        ),
-        Activity(
-            "Journal editorial work",
-            st.session_state["people"]["Journal editor"],
-            "editing",
-            15,
-            10,
-        ),
+        st.session_state["peer_review_activity"],
+        st.session_state["journal_editing_activity"],
     ]
+
+# Create peer review and journal editorial variables.
+if "journal_submissions" not in st.session_state:
+    st.session_state["journal_submissions"]: int = 1
+if "review_rounds" not in st.session_state:
+    st.session_state["review_rounds"]: int = 3
 
 if "cost_list" not in st.session_state:
     st.session_state["cost_list"]: list[DirectCost] = [
@@ -265,9 +283,7 @@ def add_person(key: str | None = None):
             for person in st.session_state["people"].values()
             if person.unique_key.isdigit()
         ]
-        key = str(
-            max(person_key_list) + 1
-        )
+        key = str(max(person_key_list) + 1)
     st.session_state["people"][key] = Person(
         name="New person",
         unique_key=key,
@@ -335,6 +351,8 @@ def next_tool_step(current_step: str):
         and current_step == TOOL_STEPS[st.session_state["tool_step"]]
     ):
         st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
+    else:
+        st.rerun()  # Rerun script to close expandable.
 
 
 # Check if tool is at the people step, expand Roles expander if True.
@@ -438,7 +456,9 @@ def set_activity_person(activity: Activity, counter: int):
 
 
 def add_activity(phase: str):
-    activity_key_list: list[int] = [activity.unique_key for activity in st.session_state["activity_list"]]
+    activity_key_list: list[int] = [
+        activity.unique_key for activity in st.session_state["activity_list"]
+    ]
     st.session_state["activity_list"].append(
         Activity(
             "New Activity",
@@ -455,7 +475,9 @@ def delete_activity(activity: Activity):
 
 
 def add_direct_cost(phase: str):
-    cost_key_list: list[int] = [direct_cost.unique_key for direct_cost in st.session_state["cost_list"]]
+    cost_key_list: list[int] = [
+        direct_cost.unique_key for direct_cost in st.session_state["cost_list"]
+    ]
     st.session_state["cost_list"].append(
         DirectCost("New Cost", phase, 0.0, max(cost_key_list) + 1)
     )
@@ -476,108 +498,200 @@ with main_left:
                 has been divided between four distinct phases: incubation, data collection and analysis, manuscript
                 preparation, and peer review and journal editorial work.
                 """)
-    
+
     for phase, phase_name in RESEARCH_PHASES.items():
         # Expand expander if the current tool step is the current phase.
         phase_expand: bool = (
             True if TOOL_STEPS[st.session_state["tool_step"]] == phase else False
         )
 
-        # TODO: Highlight new activities and costs (have $0 cost)
-        with st.expander(phase_name, expanded=phase_expand):
-            phase_activities: list[Activity] = [
-                activity
-                for activity in st.session_state["activity_list"]
-                if activity.phase == phase
-            ]
-            for phase_activity in phase_activities:
-                try:  # Get index of person in list of people.
-                    activity_person_index: int = list(
-                        st.session_state["people"].keys()
-                    ).index(phase_activity.person.unique_key)
-                except ValueError:
-                    activity_person_index: int = 2
+        # Handle special phases.
+        if phase == "editing":
+            with st.expander(phase_name, expanded=phase_expand):
+                st.markdown("""
+                            The cost of peer review and journal editorial work is based on the number of journals
+                            submitted to and the average number of review rounds across journal submissions. We
+                            assume that peer reviewers and journal editors have an average hourly rate of labour
+                            equivalent to the loaded rate of a mid-career associate professor, though you may change
+                            this rate below.
+                            """)
 
-                with st.container(border=True):
-                    phase_activity.name: str = st.text_input(
-                        "Activity",
-                        key=f"activity-name-{phase_activity.unique_key}",
-                        value=phase_activity.name,
+                st.session_state["review_rounds"]: int = st.slider(
+                    "Average number of review rounds per journal submission",
+                    min_value=1,
+                    max_value=20,
+                    value=st.session_state["review_rounds"],
+                    step=1,
+                    key="review-rounds",
+                )
+                st.session_state[
+                    "peer_review_activity"
+                ].review_rounds: int = st.session_state["review_rounds"]
+
+                st.session_state["journal_submissions"]: int = st.slider(
+                    "Number of journals submitted to",
+                    min_value=1,
+                    max_value=20,
+                    value=st.session_state["journal_submissions"],
+                    step=1,
+                    key="journal-submissions",
+                )
+                st.session_state[
+                    "peer_review_activity"
+                ].journal_submissions: int = st.session_state["journal_submissions"]
+                st.session_state[
+                    "journal_editing_activity"
+                ].journal_submissions: int = st.session_state["journal_submissions"]
+
+                st.session_state["peer_reviewer"].hourly_rate: int | float = (
+                    st.number_input(
+                        "Hourly rate of peer reviewer",
+                        value=st.session_state["peer_reviewer"].hourly_rate,
                     )
-                    st.session_state["update_activity_person"]: str = st.selectbox(
-                        "Assigned person",
-                        st.session_state["people"].keys(),
-                        key=f"activity-person-{phase_activity.unique_key}",
-                        index=activity_person_index,
-                        format_func=person_option_display,
-                        on_change=set_activity_person,
-                        args=[phase_activity, phase_activity.unique_key],
+                )
+                st.session_state["journal_editor"].hourly_rate: int | float = (
+                    st.number_input(
+                        "Hourly rate of journal editor",
+                        value=st.session_state["journal_editor"].hourly_rate,
                     )
-                    phase_activity.hours: float = st.number_input(
-                        "Total hours",
-                        key=f"activity-hours-{phase_activity.unique_key}",
-                        min_value=0.0,
-                        step=0.5,
-                        value=float(phase_activity.hours),
+                )
+                with st.container(horizontal=True, horizontal_alignment="left"):
+                    st.button(
+                        "Finalise cost calculation",
+                        key=f"next-phase-{phase}",
+                        icon=":material/check:",
+                        type="primary",
+                        on_click=next_tool_step,
+                        args=[phase],
+                    )
+        else:
+            with st.expander(phase_name, expanded=phase_expand):
+                phase_activities: list[Activity] = [
+                    activity
+                    for activity in st.session_state["activity_list"]
+                    if isinstance(activity, Activity) and activity.get_phase() == phase
+                ]
+                for phase_activity in phase_activities:
+                    try:  # Get index of person in list of people.
+                        activity_person_index: int = list(
+                            st.session_state["people"].keys()
+                        ).index(phase_activity.person.unique_key)
+                    except ValueError:
+                        activity_person_index: int = 2
+
+                    with st.container(border=True):
+                        phase_activity.name: str = st.text_input(
+                            "Activity",
+                            key=f"activity-name-{phase_activity.unique_key}",
+                            value=phase_activity.name,
+                        )
+                        # Create badge if new activity
+                        if phase_activity.name == "New Activity":
+                            st.badge(
+                                "New activity, fill in details",
+                                icon=":material/exclamation:",
+                                color="orange",
+                            )
+
+                        st.session_state["update_activity_person"]: str = st.selectbox(
+                            "Assigned person",
+                            st.session_state["people"].keys(),
+                            key=f"activity-person-{phase_activity.unique_key}",
+                            index=activity_person_index,
+                            format_func=person_option_display,
+                            on_change=set_activity_person,
+                            args=[phase_activity, phase_activity.unique_key],
+                        )
+
+                        phase_activity.hours: float = st.number_input(
+                            "Total hours",
+                            key=f"activity-hours-{phase_activity.unique_key}",
+                            min_value=0.0,
+                            step=0.5,
+                            value=float(phase_activity.get_hours()),
+                        )
+                        # Show badge if hours is 0.
+                        if phase_activity.get_hours() == 0.0:
+                            st.badge(
+                                "Hours are set to 0",
+                                icon=":material/exclamation:",
+                                color="orange",
+                            )
+
+                        st.button(
+                            "Delete activity",
+                            key=f"delete-activity-{phase_activity.unique_key}",
+                            icon=":material/delete:",
+                            on_click=delete_activity,
+                            args=[phase_activity],
+                        )
+
+                phase_costs: list[DirectCost] = [
+                    direct_cost
+                    for direct_cost in st.session_state["cost_list"]
+                    if direct_cost.phase == phase
+                ]
+                for phase_cost in phase_costs:
+                    with st.container(border=True):
+                        phase_cost.name: str = st.text_input(
+                            "Cost",
+                            key=f"directcost-name-{phase_cost.unique_key}",
+                            value=phase_cost.name,
+                        )
+                        # Create badge if new cost
+                        if phase_cost.name == "New Cost":
+                            st.badge(
+                                "New cost, fill in details",
+                                icon=":material/exclamation:",
+                                color="orange",
+                            )
+
+                        phase_cost.cost: float = st.number_input(
+                            "Cost US$",
+                            key=f"directcost-cost-{phase_cost.unique_key}",
+                            min_value=0.0,
+                            step=0.50,
+                            value=float(phase_cost.cost),
+                        )
+                        # Show badge if hours is 0.
+                        if phase_cost.cost == 0.0:
+                            st.badge(
+                                "Cost is set to $0",
+                                icon=":material/exclamation:",
+                                color="orange",
+                            )
+
+                        st.button(
+                            "Delete direct cost",
+                            key=f"delete-direct-cost-{phase_cost.unique_key}",
+                            icon=":material/delete:",
+                            on_click=delete_direct_cost,
+                            args=[phase_cost],
+                        )
+
+                with st.container(horizontal=True, horizontal_alignment="left"):
+                    st.button(
+                        "Add Activity",
+                        key=f"add-activity-{phase}",
+                        icon=":material/sprint:",
+                        on_click=add_activity,
+                        args=[phase],
                     )
                     st.button(
-                        "Delete activity",
-                        key=f"delete-activity-{phase_activity.unique_key}",
-                        icon=":material/delete:",
-                        on_click=delete_activity,
-                        args=[phase_activity],
-                    )
-
-            phase_costs: list[DirectCost] = [
-                direct_cost
-                for direct_cost in st.session_state["cost_list"]
-                if direct_cost.phase == phase
-            ]
-            for phase_cost in phase_costs:
-                with st.container(border=True):
-                    phase_cost.name: str = st.text_input(
-                        "Cost",
-                        key=f"directcost-name-{phase_cost.unique_key}",
-                        value=phase_cost.name,
-                    )
-                    phase_cost.cost: float = st.number_input(
-                        "Cost US$",
-                        key=f"directcost-cost-{phase_cost.unique_key}",
-                        min_value=0.0,
-                        step=0.50,
-                        value=float(phase_cost.cost),
+                        "Add Direct Cost",
+                        key=f"add-direct-cost-{phase}",
+                        icon=":material/request_quote:",
+                        on_click=add_direct_cost,
+                        args=[phase],
                     )
                     st.button(
-                        "Delete direct cost",
-                        key=f"delete-direct-cost-{phase_cost.unique_key}",
-                        icon=":material/delete:",
-                        on_click=delete_direct_cost,
-                        args=[phase_cost],
+                        "Next Phase",
+                        key=f"next-phase-{phase}",
+                        icon=":material/check:",
+                        type="primary",
+                        on_click=next_tool_step,
+                        args=[phase],
                     )
-
-            with st.container(horizontal=True, horizontal_alignment="left"):
-                st.button(
-                    "Add Activity",
-                    key=f"add-activity-{phase}",
-                    icon=":material/sprint:",
-                    on_click=add_activity,
-                    args=[phase],
-                )
-                st.button(
-                    "Add Direct Cost",
-                    key=f"add-direct-cost-{phase}",
-                    icon=":material/request_quote:",
-                    on_click=add_direct_cost,
-                    args=[phase],
-                )
-                st.button(
-                    "Next Phase",
-                    key=f"next-phase-{phase}",
-                    icon=":material/check:",
-                    type="primary",
-                    on_click=next_tool_step,
-                    args=[phase],
-                )
 
 # Visualisation pane
 
@@ -618,35 +732,40 @@ with main_right:
             ],
         }
     )
-    pie = px.pie(phase_df, names="Phase", values="Cost (USD)", title="Total Cost Breakdown")
+    pie = px.pie(
+        phase_df, names="Phase", values="Cost (USD)", title="Total Cost Breakdown"
+    )
     st.plotly_chart(pie, width="stretch")
 
     # Labour cost bar chart
     labour_df = pd.DataFrame(
         {
             "Activity": [
-                activity.name for activity in st.session_state["activity_list"]
+                activity.get_name() for activity in st.session_state["activity_list"]
             ],
             "Cost (USD)": [
                 activity.get_total_cost()
                 for activity in st.session_state["activity_list"]
             ],
-            "Hours": [activity.hours for activity in st.session_state["activity_list"]],
+            "Hours": [
+                activity.get_hours() for activity in st.session_state["activity_list"]
+            ],
             "Phase": [
-                RESEARCH_PHASES[activity.phase]
+                RESEARCH_PHASES[activity.get_phase()]
                 for activity in st.session_state["activity_list"]
             ],
             "Person": [
-                activity.person.name for activity in st.session_state["activity_list"]
+                activity.get_person().name
+                for activity in st.session_state["activity_list"]
             ],
         }
     )
 
     sunburst = px.sunburst(
         labour_df,
-        path=['Phase', 'Person', 'Activity'],
+        path=["Phase", "Person", "Activity"],
         values="Cost (USD)",
-        title="Cost of Labor Breakdown by Phase, Role and Activity"
+        title="Cost of Labor Breakdown by Phase, Role and Activity",
     )
     sunburst.update_layout(height=800)
     st.plotly_chart(sunburst, width="stretch")

@@ -16,6 +16,7 @@ limitations under the License.
 """
 
 from typing import Protocol
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 
@@ -87,8 +88,25 @@ class Cost(Protocol):
     def get_total_cost(self) -> int | float: ...
 
 
+class BaseActivity(ABC):
+    @abstractmethod
+    def get_name(self) -> str: ...
+
+    @abstractmethod
+    def get_person(self) -> Person: ...
+
+    @abstractmethod
+    def get_hours(self) -> int | float: ...
+
+    @abstractmethod
+    def get_total_cost(self) -> int | float: ...
+
+    @abstractmethod
+    def get_phase(self) -> str: ...
+
+
 @dataclass
-class Activity:
+class Activity(BaseActivity):
     """Represents a labour-based activity.
     Assigned to a Person and cost is calculated based on Person's hourly_rate.
 
@@ -106,10 +124,26 @@ class Activity:
     hours: int | float
     unique_key: int
 
+    def get_name(self) -> str:
+        """Returns name of this activity."""
+        return self.name
+    
+    def get_person(self) -> Person:
+        """Returns person attached to this activity."""
+        return self.person
+
+    def get_hours(self) -> int | float:
+        """Returns the total hours associated with this activity."""
+        return self.hours
+
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this activity in dollars."""
         total_cost: int | float = self.person.hourly_rate * self.hours
         return total_cost
+    
+    def get_phase(self) -> str:
+        """Returns the phase of journal publication preparation this is assigned to."""
+        return self.phase
 
 
 @dataclass
@@ -131,3 +165,98 @@ class DirectCost:
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this direct cost in dollars."""
         return self.cost
+    
+    def get_phase(self) -> str:
+        """Returns the phase of journal publication preparation this is assigned to."""
+        return self.phase
+
+
+@dataclass
+class PeerReview(BaseActivity):
+    """Represents peer review activities.
+    Assigned to a Person and cost is calculated based on Person's hourly_rate.
+
+    Attributes:
+        name: Name of the activity.
+        person: Person to who this activity is assigned.
+        phase: Phase of research this activity belongs to.
+        hours: Number of hours allocated to this activity, used to calculate the total cost.
+        unique_key: Unique numerical identifier for this activity.
+    """
+
+    person: Person
+    review_rounds: int
+    journal_submissions: int
+    name: str = "Journal editorial work"
+    phase: str = "editing"
+    initial_round_hours: int | float = 4
+    subsequent_round_hours: int | float = 2
+    unique_key: int = 1
+
+    def get_name(self) -> str:
+        """Returns name of this activity."""
+        return self.name
+    
+    def get_person(self) -> Person:
+        """Returns person attached to this activity."""
+        return self.person
+
+    def get_hours(self) -> int | float:
+        """Returns the total hours associated with this activity."""
+        hours_per_submission: int | float = self.initial_round_hours + (
+            self.subsequent_round_hours * (self.review_rounds - 1)
+        )
+        hours: int | float = self.journal_submissions * hours_per_submission
+        return hours
+
+    def get_total_cost(self) -> int | float:
+        """Returns the total cost of this activity in dollars."""
+        total_cost: int | float = self.person.hourly_rate * self.get_hours()
+        return total_cost
+    
+    def get_phase(self) -> str:
+        """Returns the phase of journal publication preparation this is assigned to."""
+        return self.phase
+
+
+@dataclass
+class JournalEditing(BaseActivity):
+    """Represents journal editorial work activities.
+    Assigned to a Person and cost is calculated based on Person's hourly_rate.
+
+    Attributes:
+        name: Name of the activity.
+        person: Person to who this activity is assigned.
+        phase: Phase of research this activity belongs to.
+        hours: Number of hours allocated to this activity, used to calculate the total cost.
+        unique_key: Unique numerical identifier for this activity.
+    """
+
+    person: Person
+    journal_submissions: int
+    name: str = "Journal editorial work"
+    phase: str = "editing"
+    hours_per_submission: int | float = 15
+    unique_key: int = 1
+
+    def get_name(self) -> str:
+        """Returns name of this activity."""
+        return self.name
+    
+    def get_person(self) -> Person:
+        """Returns person attached to this activity."""
+        return self.person
+
+    def get_hours(self) -> int | float:
+        """Returns the total hours associated with this activity."""
+        hours: int | float = self.journal_submissions * self.hours_per_submission
+        return hours
+
+    def get_total_cost(self) -> int | float:
+        """Returns the total cost of this activity in dollars."""
+        total_cost: int | float = self.person.hourly_rate * self.get_hours()
+        return total_cost
+    
+    def get_phase(self) -> str:
+        """Returns the phase of journal publication preparation this is assigned to."""
+        return self.phase

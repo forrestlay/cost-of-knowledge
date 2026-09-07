@@ -17,6 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import math
 import streamlit as st
 import graphviz
 
@@ -25,7 +26,7 @@ import graphviz
 st.set_page_config(layout="wide")
 st.title("Cost of Knowledge Diagram")
 
-mcr_hourly_wage = 90  # Current default hourly cost
+mcr_hourly_wage = 85  # Current default hourly cost
 
 # Helper classes to simplify generating HTML labels for Graphviz and help calculate totals.
 
@@ -70,7 +71,7 @@ class ActivityNode:
         """
         Returns the total cost of the activity, calculated as hours * hourly_cost.
         """
-        return int(self.hours * self.hourly_cost)
+        return math.ceil(self.hours * self.hourly_cost)
 
     def generate_label_html(self) -> str:
         """
@@ -188,7 +189,7 @@ class TotalNode:
         for activity in self.nodes:
             if isinstance(activity, ActivityNode):
                 hour_count += activity.hours
-        return int(hour_count)
+        return round(hour_count)
 
     def total_cost(self) -> int:
         """
@@ -244,29 +245,29 @@ grants_node = ActivityNode(
 
 data_collection_node = ActivityNode(
     heading="Data collection - Interviews and focus groups",
-    hours=34,
+    hours=48.5,
     hourly_cost=mcr_hourly_wage,
-    hours_calculation="26 interviews x 79 minutes",
+    hours_calculation="26 interviews x 111.5 minutes",
 )
 
 participant_incentives_node = CostNode(
     heading="Participant incentivisation",
-    cost=246,
-    cost_calculation="34 participant-hrs x $7.25",
+    cost=352,
+    cost_calculation="48.5 participant-hrs x $7.25",
 )
 
 interview_transcription_node = ActivityNode(
     heading="Transcription verification",
-    hours=42.5,
+    hours=60.5,
     hourly_cost=mcr_hourly_wage,
-    hours_calculation="34 interview hrs x 75 min/hr",
+    hours_calculation="48.5 interview hrs x 75 min/hr",
 )
 
 data_analysis_node = ActivityNode(
     heading="Data analysis",
-    hours=112.5,
+    hours=157.5,
     hourly_cost=mcr_hourly_wage,
-    hours_calculation="Midpoint of 38 (rapid analysis) and 187 (thematic analysis) hrs",
+    hours_calculation="Midpoint of 51.5 (rapid analysis) and 266.5 (thematic analysis) hrs",
 )
 
 manu_prep_node = ActivityNode(

@@ -20,6 +20,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from collections.abc import Sequence
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -70,7 +72,6 @@ RESEARCH_PHASES: dict[str, str] = {
 
 # TODO: Add sharing of PDF and PNG, put names on PDF
 
-# TODO: Add dict of lists with preset activities and costs.
 ACTIVITY_OPTIONS: dict[str, list[str]] = {
     "incubation": [
         "Ideation and conception",
@@ -95,9 +96,11 @@ COST_OPTIONS: dict[str, list[str]] = {
     "data": [
         "Software",
         "Databases",
+        "Participant incentivization",
     ],
     "writing": [
         "Proofreading and Editing Services",
+        "Conferencing (direct costs)",
     ],
 }
 
@@ -106,7 +109,7 @@ if "tool_step" not in st.session_state:
     st.session_state["tool_step"]: int = 0
 
 
-def compute_costs(costs: list[Cost], phase: str | None = None) -> float:
+def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
     """Calculates the total cost of activities and direct costs in the given list.
 
     Args:
@@ -120,7 +123,9 @@ def compute_costs(costs: list[Cost], phase: str | None = None) -> float:
     return total_cost
 
 
-def compute_hours(activities: list[BaseActivity], phase: str | None = None) -> float:
+def compute_hours(
+    activities: Sequence[BaseActivity], phase: str | None = None
+) -> float:
     """Calculates the total labour hours of activities in the given list.
 
     Args:
@@ -650,10 +655,19 @@ with main_left:
 
                 for group_key, group_activities in activity_groups.items():
                     with st.container(border=True):
-                        activity_name: str = st.text_input(
+                        # Offer the phase's preset activities, keeping any current custom name selectable.
+                        current_activity_name: str = group_activities[0].name
+                        activity_options: list[str] = ACTIVITY_OPTIONS.get(phase, [])
+                        if current_activity_name not in activity_options:
+                            activity_options = [
+                                current_activity_name
+                            ] + activity_options
+                        activity_name: str = st.selectbox(
                             "Activity",
+                            options=activity_options,
+                            index=activity_options.index(current_activity_name),
+                            accept_new_options=True,
                             key=f"activity-name-{group_key}",
-                            value=group_activities[0].name,
                         )
                         # Keep the name of every person's Activity in step with the renamed activity.
                         for group_activity in group_activities:
@@ -743,10 +757,16 @@ with main_left:
                 ]
                 for phase_cost in phase_costs:
                     with st.container(border=True):
-                        phase_cost.name: str = st.text_input(
+                        # Offer the phase's preset direct costs, keeping any current custom name selectable.
+                        cost_options: list[str] = COST_OPTIONS.get(phase, [])
+                        if phase_cost.name not in cost_options:
+                            cost_options = [phase_cost.name] + cost_options
+                        phase_cost.name: str = st.selectbox(
                             "Cost",
+                            options=cost_options,
+                            index=cost_options.index(phase_cost.name),
+                            accept_new_options=True,
                             key=f"directcost-name-{phase_cost.unique_key}",
-                            value=phase_cost.name,
                         )
                         # Create badge if new cost
                         if phase_cost.name == "New Cost":
@@ -818,7 +838,7 @@ with main_right:
     k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
     k3.metric(
         "Estimated direct costs",
-        format_usd(compute_costs(st.session_state["cost_list"])),  # ty:ignore[invalid-argument-type]
+        format_usd(compute_costs(st.session_state["cost_list"])),
     )
 
     st.markdown("""

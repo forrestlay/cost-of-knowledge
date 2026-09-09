@@ -189,6 +189,8 @@ if "journal_editing_activity" not in st.session_state:
     )
 
 if "activity_list" not in st.session_state:
+    # Each Activity below is one person's share of an activity. Activities sharing a group_key form a single activity
+    # in the calculator, so the initial activities each start with one person and a group_key matching their key.
     st.session_state["activity_list"]: list[BaseActivity] = [
         Activity(
             "Ideation and conception",
@@ -196,27 +198,46 @@ if "activity_list" not in st.session_state:
             "incubation",
             55,
             1,
+            1,
         ),
         Activity(
-            "Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2
+            "Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2, 2
         ),
         Activity(
-            "Grant applications", st.session_state["people"]["1"], "incubation", 171, 3
+            "Grant applications",
+            st.session_state["people"]["1"],
+            "incubation",
+            171,
+            3,
+            3,
         ),
-        Activity("Data collection", st.session_state["people"]["1"], "data", 48.5, 4),
         Activity(
-            "Interview transcription", st.session_state["people"]["1"], "data", 60.5, 5
+            "Data collection", st.session_state["people"]["1"], "data", 48.5, 4, 4
         ),
-        Activity("Data analysis", st.session_state["people"]["1"], "data", 157.5, 6),
+        Activity(
+            "Interview transcription",
+            st.session_state["people"]["1"],
+            "data",
+            60.5,
+            5,
+            5,
+        ),
+        Activity("Data analysis", st.session_state["people"]["1"], "data", 157.5, 6, 6),
         Activity(
             "Writing and manuscript preparation",
             st.session_state["people"]["1"],
             "writing",
             100,
             7,
+            7,
         ),
         Activity(
-            "Conferencing (labor)", st.session_state["people"]["1"], "writing", 123, 8
+            "Conferencing (labor)",
+            st.session_state["people"]["1"],
+            "writing",
+            123,
+            8,
+            8,
         ),
         st.session_state["peer_review_activity"],
         st.session_state["journal_editing_activity"],
@@ -456,23 +477,70 @@ def set_activity_person(activity: Activity, counter: int):
     activity.person: Person = st.session_state["people"][people_key]
 
 
-def add_activity(phase: str):
+def next_activity_key() -> int:
+    """Returns an unused unique_key for a new Activity."""
     activity_key_list: list[int] = [
         activity.unique_key for activity in st.session_state["activity_list"]
     ]
+    return max(activity_key_list, default=0) + 1
+
+
+def next_activity_group_key() -> int:
+    """Returns an unused group_key, identifying a new activity rather than a person within one."""
+    group_key_list: list[int] = [
+        activity.group_key
+        for activity in st.session_state["activity_list"]
+        if isinstance(activity, Activity)
+    ]
+    return max(group_key_list, default=0) + 1
+
+
+def add_activity(phase: str):
+    """Adds a new activity to the given phase with a single person assigned to it."""
     st.session_state["activity_list"].append(
         Activity(
             "New Activity",
             st.session_state["people"]["1"],
             phase,
             0.0,
-            max(activity_key_list) + 1,
+            next_activity_key(),
+            next_activity_group_key(),
         )
     )
 
 
-def delete_activity(activity: Activity):
+def add_activity_person(activity: Activity):
+    """Assigns another person to an existing activity.
+
+    Args:
+        activity: Any Activity belonging to the activity the person is added to. The new person shares its name,
+            phase and group_key.
+    """
+    st.session_state["activity_list"].append(
+        Activity(
+            activity.name,
+            st.session_state["people"]["1"],
+            activity.phase,
+            0.0,
+            next_activity_key(),
+            activity.group_key,
+        )
+    )
+
+
+def delete_activity_person(activity: Activity):
+    """Removes a single person from an activity, leaving the other people assigned to it in place."""
     st.session_state["activity_list"].remove(activity)
+
+
+def delete_activity(activities: list[Activity]):
+    """Deletes an activity, removing every person assigned to it.
+
+    Args:
+        activities: Every Activity sharing the deleted activity's group_key.
+    """
+    for activity in activities:
+        st.session_state["activity_list"].remove(activity)
 
 
 def add_direct_cost(phase: str):
@@ -572,60 +640,101 @@ with main_left:
                     for activity in st.session_state["activity_list"]
                     if isinstance(activity, Activity) and activity.get_phase() == phase
                 ]
+                # Group the phase's activities by group_key, as every person assigned to an activity is held as a
+                # separate Activity sharing that key.
+                activity_groups: dict[int, list[Activity]] = {}
                 for phase_activity in phase_activities:
-                    try:  # Get index of person in list of people.
-                        activity_person_index: int = list(
-                            st.session_state["people"].keys()
-                        ).index(phase_activity.person.unique_key)
-                    except ValueError:
-                        activity_person_index: int = 2
+                    activity_groups.setdefault(phase_activity.group_key, []).append(
+                        phase_activity
+                    )
 
+                for group_key, group_activities in activity_groups.items():
                     with st.container(border=True):
-                        phase_activity.name: str = st.text_input(
+                        activity_name: str = st.text_input(
                             "Activity",
-                            key=f"activity-name-{phase_activity.unique_key}",
-                            value=phase_activity.name,
+                            key=f"activity-name-{group_key}",
+                            value=group_activities[0].name,
                         )
+                        # Keep the name of every person's Activity in step with the renamed activity.
+                        for group_activity in group_activities:
+                            group_activity.name: str = activity_name
+
                         # Create badge if new activity
-                        if phase_activity.name == "New Activity":
+                        if activity_name == "New Activity":
                             st.badge(
                                 "New activity, fill in details",
                                 icon=":material/exclamation:",
                                 color="orange",
                             )
 
-                        st.session_state["update_activity_person"]: str = st.selectbox(
-                            "Assigned person",
-                            st.session_state["people"].keys(),
-                            key=f"activity-person-{phase_activity.unique_key}",
-                            index=activity_person_index,
-                            format_func=person_option_display,
-                            on_change=set_activity_person,
-                            args=[phase_activity, phase_activity.unique_key],
-                        )
+                        # One row of inputs per person assigned to this activity.
+                        for person_index, group_activity in enumerate(group_activities):
+                            try:  # Get index of person in list of people.
+                                activity_person_index: int = list(
+                                    st.session_state["people"].keys()
+                                ).index(group_activity.person.unique_key)
+                            except ValueError:
+                                activity_person_index: int = 0
 
-                        phase_activity.hours: float = st.number_input(
-                            "Total hours",
-                            key=f"activity-hours-{phase_activity.unique_key}",
-                            min_value=0.0,
-                            step=0.5,
-                            value=float(phase_activity.get_hours()),
-                        )
-                        # Show badge if hours is 0.
-                        if phase_activity.get_hours() == 0.0:
+                            # Only label the first row so the rows below it read as a list.
+                            row_label_visibility: str = (
+                                "visible" if person_index == 0 else "collapsed"
+                            )
+                            person_column, hours_column, delete_column = st.columns(
+                                [4, 3, 2], vertical_alignment="bottom"
+                            )
+                            person_column.selectbox(
+                                "Assigned person",
+                                st.session_state["people"].keys(),
+                                key=f"activity-person-{group_activity.unique_key}",
+                                index=activity_person_index,
+                                format_func=person_option_display,
+                                label_visibility=row_label_visibility,
+                                on_change=set_activity_person,
+                                args=[group_activity, group_activity.unique_key],
+                            )
+                            group_activity.hours: float = hours_column.number_input(
+                                "Hours",
+                                key=f"activity-hours-{group_activity.unique_key}",
+                                min_value=0.0,
+                                step=0.5,
+                                value=float(group_activity.get_hours()),
+                                label_visibility=row_label_visibility,
+                            )
+                            # An activity always keeps its first person, so that row has no delete button.
+                            if person_index > 0:
+                                delete_column.button(
+                                    "Remove",
+                                    key=f"delete-activity-person-{group_activity.unique_key}",
+                                    help=f"Remove {group_activity.person.name} from this activity",
+                                    icon=":material/delete:",
+                                    on_click=delete_activity_person,
+                                    args=[group_activity],
+                                )
+
+                        # Show badge if nobody assigned to the activity has been given any hours.
+                        if compute_hours(group_activities) == 0.0:
                             st.badge(
                                 "Hours are set to 0",
                                 icon=":material/exclamation:",
                                 color="orange",
                             )
 
-                        st.button(
-                            "Delete activity",
-                            key=f"delete-activity-{phase_activity.unique_key}",
-                            icon=":material/delete:",
-                            on_click=delete_activity,
-                            args=[phase_activity],
-                        )
+                        with st.container(horizontal=True, horizontal_alignment="left"):
+                            st.button(
+                                "Add person",
+                                key=f"add-activity-person-{group_key}",
+                                icon=":material/person_add:",
+                                on_click=add_activity_person,
+                                args=[group_activities[0]],
+                            )
+                            st.button(
+                                "Delete activity",
+                                key=f"delete-activity-{group_key}",
+                                icon=":material/delete:",
+                                on_click=delete_activity,
+                                args=[group_activities],
+                            )
 
                 phase_costs: list[DirectCost] = [
                     direct_cost

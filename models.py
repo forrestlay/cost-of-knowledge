@@ -112,8 +112,11 @@ class BaseActivity(ABC):
 
 @dataclass
 class Activity(BaseActivity):
-    """Represents a labour-based activity.
+    """Represents the labour of one Person on an activity.
     Assigned to a Person and cost is calculated based on Person's hourly_rate.
+
+    An activity can involve several people, each working their own number of hours. Every person on an activity is
+    represented by a separate Activity sharing the same name, phase and group_key.
 
     Attributes:
         name: Name of the activity.
@@ -121,6 +124,7 @@ class Activity(BaseActivity):
         phase: Phase of research this activity belongs to.
         hours: Number of hours allocated to this activity, used to calculate the total cost.
         unique_key: Unique numerical identifier for this activity.
+        group_key: Numerical identifier shared by every person assigned to the same activity.
     """
 
     name: str
@@ -128,11 +132,12 @@ class Activity(BaseActivity):
     phase: str
     hours: int | float
     unique_key: int
+    group_key: int
 
     def get_name(self) -> str:
         """Returns name of this activity."""
         return self.name
-    
+
     def get_person(self) -> Person:
         """Returns person attached to this activity."""
         return self.person
@@ -145,7 +150,7 @@ class Activity(BaseActivity):
         """Returns the total cost of this activity in dollars."""
         total_cost: int | float = self.person.hourly_rate * self.hours
         return total_cost
-    
+
     def get_phase(self) -> str:
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
@@ -173,7 +178,7 @@ class DirectCost:
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this direct cost in dollars."""
         return self.cost
-    
+
     def get_phase(self) -> str:
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
@@ -204,7 +209,7 @@ class PeerReview(BaseActivity):
     def get_name(self) -> str:
         """Returns name of this activity."""
         return self.name
-    
+
     def get_person(self) -> Person:
         """Returns person attached to this activity."""
         return self.person
@@ -221,7 +226,7 @@ class PeerReview(BaseActivity):
         """Returns the total cost of this activity in dollars."""
         total_cost: int | float = self.person.hourly_rate * self.get_hours()
         return total_cost
-    
+
     def get_phase(self) -> str:
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
@@ -250,7 +255,7 @@ class JournalEditing(BaseActivity):
     def get_name(self) -> str:
         """Returns name of this activity."""
         return self.name
-    
+
     def get_person(self) -> Person:
         """Returns person attached to this activity."""
         return self.person
@@ -264,7 +269,7 @@ class JournalEditing(BaseActivity):
         """Returns the total cost of this activity in dollars."""
         total_cost: int | float = self.person.hourly_rate * self.get_hours()
         return total_cost
-    
+
     def get_phase(self) -> str:
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase

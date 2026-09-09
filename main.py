@@ -23,6 +23,7 @@ limitations under the License.
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import drawsvg as draw
 
 from models import (
     BaseActivity,
@@ -715,27 +716,24 @@ with main_right:
                 Click on the phases and people in the charts below to see the breakdown of costs within each.
                 """)
 
-    # Pie chart
-    phase_df = pd.DataFrame(
+    # Costs pie chart
+    costs_df = pd.DataFrame(
         {
+            "Item": [item.get_name() for item in combined_costs_list],
+            "Cost": [item.get_total_cost() for item in combined_costs_list],
             "Phase": [
-                "Incubation",
-                "Data collection and analysis",
-                "Manuscript preparation",
-                "Peer review and journal editorial work",
-            ],
-            "Cost (USD)": [
-                compute_costs(combined_costs_list, "incubation"),
-                compute_costs(combined_costs_list, "data"),
-                compute_costs(combined_costs_list, "writing"),
-                compute_costs(combined_costs_list, "editing"),
+                RESEARCH_PHASES[item.get_phase()] for item in combined_costs_list
             ],
         }
     )
-    pie = px.pie(
-        phase_df, names="Phase", values="Cost (USD)", title="Total Cost Breakdown"
+
+    costs_pie = px.pie(
+        costs_df,
+        values="Cost",
+        names="Item",
+        title="Total Cost Breakdown",
     )
-    st.plotly_chart(pie, width="stretch")
+    st.plotly_chart(costs_pie, width="stretch")
 
     # Labour cost bar chart
     labour_df = pd.DataFrame(
@@ -793,6 +791,50 @@ with main_right:
 
 
 # -----------------------------------------------
+# Social media sharing
+# -----------------------------------------------
+def create_social_media_svg(total_cost: str) -> draw.Drawing:
+    image: draw.Drawing = draw.Drawing(1080, 1360, id_prefix="socmed")
+
+    gradient = draw.LinearGradient(200, 0, 800, 1360)
+    gradient.add_stop(0, "lightskyblue")
+    gradient.add_stop(1, "lightsteelblue")
+    image.append(draw.Rectangle(0, 0, 1080, 1360, fill=gradient))
+
+    image.append(draw.Text("Estimated total cost", 40, 20, 50, font_family="Arial"))
+    image.append(draw.Text(total_cost, 90, 20, 130, font_family="Arial"))
+
+    # Streamlit sets plotly colours to black and white by default. Set colours manually before embedding chart.
+    costs_pie.update_traces(marker_colors=px.colors.qualitative.Light24)
+    costs_pie.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", width=1080, height=640, font_size=20
+    )
+    image.append(
+        draw.Image(
+            0,
+            620,
+            1080,
+            640,
+            data=costs_pie.to_image(format="svg"),
+            mime_type="image/svg+xml",
+            embed=True,
+        )
+    )
+
+    image.append(
+        draw.Text(
+            "The University of Sydney Cost of Knowledge Team (Alam et al.) and SPARC.",
+            24,
+            1060,
+            1320,
+            text_anchor="End",
+            font_family="Arial",
+        )
+    )
+    return image
+
+
+# -----------------------------------------------
 # Conclusion
 # -----------------------------------------------
 
@@ -802,12 +844,16 @@ st.markdown("""
             Share your result using the buttons below.
             """)
 
+with st.container(horizontal=True, horizontal_alignment="center"):
+    st.image(create_social_media_svg(format_usd(total_cost)).as_svg(), width=540)
+
 with st.container(horizontal=True, horizontal_alignment="left"):
     st.button("Email result", icon=":material/email:")
 
 # TODO: Determine licensing of this code.
 st.markdown("""
-            :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh, Ben Lay,
-            Chang-yuan Loh, and Farzana Tanima.
-            :material/license: The Cost of Knowledge Tool is licensed under the Apache License, Version 2.0.]
+            :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,
+            Ben Lay, Chang-yuan Loh, and Farzana Tanima.
+            :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+            International License](https://creativecommons.org/licenses/by/4.0/).]
             """)

@@ -86,7 +86,11 @@ class Cost(Protocol):
 
     phase: str
 
+    def get_name(self) -> str: ...
+
     def get_total_cost(self) -> int | float: ...
+
+    def get_phase(self) -> str: ...
 
 
 class BaseActivity(ABC):
@@ -162,6 +166,9 @@ class DirectCost:
     phase: str
     cost: int | float
     unique_key: int
+
+    def get_name(self) -> str:
+        return self.name
 
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this direct cost in dollars."""

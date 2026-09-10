@@ -985,6 +985,12 @@ phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values())
 item_color_map: dict[str, str] = build_color_map(
     [item.get_name() or "Unnamed" for item in combined_costs_list]
 )
+person_color_map: dict[str, str] = build_color_map(
+    [
+        activity.get_person().name or "Unnamed"
+        for activity in st.session_state["activity_list"]
+    ]
+)
 
 with main_right:
     k1, k2, k3 = st.columns(3)
@@ -1084,6 +1090,28 @@ with main_right:
         "paper, including direct costs that are not shown in this chart."
     )
 
+    # Hours of labour per person bar chart
+    hours_per_person_df = (
+        labour_df.groupby("Person", as_index=False)["Hours"]
+        .sum()
+        .sort_values("Hours", ascending=False)
+    )
+
+    hours_per_person_chart = px.bar(
+        hours_per_person_df,
+        x="Person",
+        y="Hours",
+        color="Person",
+        color_discrete_map=person_color_map,
+        title="Hours of Labor per Person",
+        text_auto=True,
+    )
+    hours_per_person_chart.update_traces(
+        texttemplate="%{y:.1f} hours", textposition="outside"
+    )
+    hours_per_person_chart.update_layout(showlegend=False)
+    st.plotly_chart(hours_per_person_chart, width="stretch")
+
     labour_chart_selection = st.pills(
         "**Show labor as**", ["Cost (USD)", "Hours"], default="Cost (USD)"
     )
@@ -1099,11 +1127,11 @@ with main_right:
     )
     if labour_chart_selection == "Cost (USD)":
         labour_chart.update_traces(texttemplate="%{y:$.2f}", textposition="outside")
+        labour_chart.update_yaxes(tickprefix="$")
     else:
         labour_chart.update_traces(
             texttemplate="%{y:.1f} hours", textposition="outside"
         )
-    labour_chart.update_yaxes(tickprefix="$")
     st.plotly_chart(labour_chart, width="stretch")
 
 
@@ -1184,7 +1212,7 @@ def create_social_media_svg(
     blurb_top: int = 152
     blurb_line_height: float = 1.3
     blurb_lines: list[str] = _wrap_text(
-        "Using the Cost of Knowledge Tool, I estimated the following cost for my research project:",
+        "Using the Cost of Knowledge Calculator, I estimated the following cost for my research project:",
         74,
     )
     image.append(
@@ -1208,9 +1236,7 @@ def create_social_media_svg(
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
-    title_top: float = (
-        blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1) + 82
-    )
+    title_top: float = blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1) + 82
     image.append(
         draw.Text(
             title_lines,
@@ -1285,7 +1311,12 @@ def create_social_media_svg(
     )
     image.append(
         draw.Text(
-            "Estimated total cost", 30, margin, figures_y, fill=muted, font_family="Arial"
+            "Estimated total cost",
+            30,
+            margin,
+            figures_y,
+            fill=muted,
+            font_family="Arial",
         )
     )
     image.append(
@@ -1343,9 +1374,7 @@ def create_social_media_svg(
             cursor += segment
     else:
         image.append(
-            draw.Rectangle(
-                bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4
-            )
+            draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4)
         )
     image.append(
         draw.Rectangle(
@@ -1372,9 +1401,7 @@ def create_social_media_svg(
             draw.Rectangle(margin, row_y - 26, 34, 34, rx=7, fill=palette[name])
         )
         image.append(
-            draw.Text(
-                name, 30, margin + 52, row_y, fill=ink, font_family="Arial"
-            )
+            draw.Text(name, 30, margin + 52, row_y, fill=ink, font_family="Arial")
         )
         image.append(
             draw.Text(
@@ -1427,10 +1454,13 @@ social_media_svg: str = create_social_media_svg(
     },
 ).as_svg()
 
-_svg_slug: str = "".join(
-    char if char.isalnum() else "-"
-    for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
-).strip("-") or "cost-of-knowledge"
+_svg_slug: str = (
+    "".join(
+        char if char.isalnum() else "-"
+        for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
+    ).strip("-")
+    or "cost-of-knowledge"
+)
 
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg, width=540)

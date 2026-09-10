@@ -19,6 +19,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
+from typing import Literal
 
 from collections.abc import Sequence
 
@@ -39,6 +40,12 @@ from models import (
 )
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
+
+# Placeholder hex values that Streamlit's frontend swaps for its theme's categorical
+# colour palette (see streamlit/elements/lib/streamlit_plotly_theme.py). Assigning one
+# of these to a category keeps that phase or activity on the same Streamlit colour in
+# every chart. Charts with more than 10 categories fall back to px.colors.qualitative.Light24.
+STREAMLIT_CATEGORICAL_COLORS: list[str] = [f"#{n:06d}" for n in range(1, 11)]
 
 TOOL_STEPS: list[str] = [
     "people",
@@ -718,7 +725,7 @@ with main_left:
                             # An activity always keeps its first person, so that row has no delete button.
                             if person_index > 0:
                                 delete_column.button(
-                                    "Remove",
+                                    "Del",
                                     key=f"delete-activity-person-{group_activity.unique_key}",
                                     help=f"Remove {group_activity.person.name} from this activity",
                                     icon=":material/delete:",
@@ -832,6 +839,36 @@ combined_costs_list: list[Cost] = (
 total_cost: float = compute_costs(combined_costs_list)
 total_hours: float = compute_hours(st.session_state["activity_list"])
 
+
+def build_color_map(
+    names: Sequence[str], palette: Sequence[str] | None = None
+) -> dict[str, str]:
+    """Assigns each distinct name a stable colour so a phase or activity keeps the
+    same colour across every chart.
+
+    Args:
+        names: Category names, in the order they should claim colours.
+        palette: Colours to draw from. Defaults to Streamlit's categorical palette
+            when it has enough colours, otherwise px.colors.qualitative.Light24.
+    """
+    distinct: list[str] = list(dict.fromkeys(names))
+    if palette is None:
+        palette = (
+            STREAMLIT_CATEGORICAL_COLORS
+            if len(distinct) <= len(STREAMLIT_CATEGORICAL_COLORS)
+            else px.colors.qualitative.Light24
+        )
+    return {name: palette[i % len(palette)] for i, name in enumerate(distinct)}
+
+
+# Colour maps shared by the charts below. Derived fresh each run (rather than persisted)
+# so newly added activities always get a colour; phases always take the same colours and
+# activity/direct-cost names keep a consistent colour wherever they appear.
+phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
+item_color_map: dict[str, str] = build_color_map(
+    [item.get_name() for item in combined_costs_list]
+)
+
 with main_right:
     k1, k2, k3 = st.columns(3)
     k1.metric("Estimated total cost", format_usd(total_cost))
@@ -841,11 +878,14 @@ with main_right:
         format_usd(compute_costs(st.session_state["cost_list"])),
     )
 
-    st.markdown("""
-                Click on the phases and people in the charts below to see the breakdown of costs within each.
-                """)
-
     # Costs pie chart
+    st.subheader("Total cost breakdown")
+
+    costs_chart_selection = st.pills(
+        "**Show cost breakdown for**", ["phases", "activities and direct costs"], default="phases"
+    )
+    costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection=="phases" else "Item"
+
     costs_df = pd.DataFrame(
         {
             "Item": [item.get_name() for item in combined_costs_list],
@@ -859,12 +899,22 @@ with main_right:
     costs_pie = px.pie(
         costs_df,
         values="Cost",
-        names="Item",
+        names=costs_pie_names,
+        color=costs_pie_names,
+        color_discrete_map={**phase_color_map, **item_color_map},
         title="Total Cost Breakdown",
     )
+    costs_pie.update_layout(height=720)
     st.plotly_chart(costs_pie, width="stretch")
 
     # Labour cost bar chart
+    st.subheader("Labor activity breakdown")
+
+    st.markdown("""
+                Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
+                the phase or person again to return to the parent view.
+                """)
+
     labour_df = pd.DataFrame(
         {
             "Activity": [
@@ -892,10 +942,25 @@ with main_right:
         labour_df,
         path=["Phase", "Person", "Activity"],
         values="Cost (USD)",
+        color="Phase",
+        color_discrete_map=phase_color_map,
         title="Cost of Labor Breakdown by Phase, Role and Activity",
     )
-    sunburst.update_layout(height=800)
+    # Label each segment with its cost as a percentage of the overall total cost.
+    # total_cost includes direct costs, which are not shown in this sunburst, so
+    # the percentages of the top-level segments will not sum to 100%.
+    node_costs: list[float] = list(sunburst.data[0].values)
+    sunburst.data[0].text = [
+        f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%"
+        for cost in node_costs
+    ]
+    sunburst.data[0].texttemplate = "%{label}<br>%{text}"
+    sunburst.update_layout(height=720)
     st.plotly_chart(sunburst, width="stretch")
+    st.caption(
+        "Percentages are calculated as a percentage of the total cost of the "
+        "paper, including direct costs that are not shown in this chart."
+    )
 
     labour_chart_selection = st.pills(
         "**Show labor as**", ["Cost (USD)", "Hours"], default="Cost (USD)"
@@ -906,6 +971,7 @@ with main_right:
         x="Activity",
         y=labour_chart_selection,
         color="Phase",
+        color_discrete_map=phase_color_map,
         title="Cost of and Time Spent on Labor Activities",
         text_auto=True,
     )
@@ -933,8 +999,16 @@ def create_social_media_svg(total_cost: str) -> draw.Drawing:
     image.append(draw.Text("Estimated total cost", 40, 20, 50, font_family="Arial"))
     image.append(draw.Text(total_cost, 90, 20, 130, font_family="Arial"))
 
-    # Streamlit sets plotly colours to black and white by default. Set colours manually before embedding chart.
-    costs_pie.update_traces(marker_colors=px.colors.qualitative.Light24)
+    # Kaleido renders this export, not Streamlit's frontend, so the placeholder palette
+    # would come out black. Re-map the slices to real Light24 colours, keeping each
+    # phase/item on a colour consistent with the charts above.
+    export_labels: list[str] = list(costs_pie.data[0].labels)
+    export_colors: dict[str, str] = build_color_map(
+        export_labels, palette=px.colors.qualitative.Light24
+    )
+    costs_pie.update_traces(
+        marker_colors=[export_colors[label] for label in export_labels]
+    )
     costs_pie.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", width=1080, height=640, font_size=20
     )

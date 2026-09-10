@@ -189,6 +189,9 @@ if "user_name_input" not in st.session_state:
 if "user_country" not in st.session_state:
     st.session_state["user_country"]: str = "us"
 
+if "international_collaborators" not in st.session_state:
+    st.session_state["international_collaborators"]: bool = False
+
 if "project_name" not in st.session_state:
     st.session_state["project_name"]: str | None = None
 
@@ -386,10 +389,17 @@ with st.expander("You and your project", expanded=project_step):
         on_change=update_default_person_name,
     )
     st.session_state["user_country"] = st.selectbox(
-        "Your country",
+        "The country your research project is primarily associated with/where most of the costs are incurred",
         COUNTRY_CODES,
         index=COUNTRY_CODES.index(st.session_state["user_country"]),
         format_func=lambda code: COUNTRY_NAMES[code],
+    )
+    st.session_state["international_collaborators"] = st.radio(
+        "Does your project have international collaborators outside of the primary country?",
+        [False, True],
+        index=int(st.session_state["international_collaborators"]),
+        format_func=lambda answer: "Yes" if answer else "No",
+        horizontal=True,
     )
     st.session_state["project_name"] = st.text_input(
         "Name of your paper/project", value=st.session_state["project_name"]
@@ -1161,6 +1171,7 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
 
 def create_social_media_svg(
     country: str,
+    international_collaborators: bool,
     project_name: str,
     project_field: str,
     total_cost: float,
@@ -1174,6 +1185,8 @@ def create_social_media_svg(
 
     Args:
         country: Display name of the researcher's country.
+        international_collaborators: Whether the project has collaborators from
+            other countries; appends "+ others" after the country name.
         project_name: Title of the paper/project ("" if the user left it blank).
         project_field: Field of science the project sits in.
         total_cost: Estimated total cost in USD.
@@ -1238,7 +1251,10 @@ def create_social_media_svg(
     )
     subtitle: str = project_field
     if country.strip():
-        subtitle = f"{project_field}  ·  {country.strip()}"
+        country_text: str = country.strip()
+        if international_collaborators:
+            country_text = f"{country_text} + others"
+        subtitle = f"{project_field}  ·  {country_text}"
     image.append(
         draw.Text(
             subtitle,
@@ -1463,6 +1479,7 @@ st.markdown("""
 # so it never needs its own st.session_state entry.
 social_media_svg: str = create_social_media_svg(
     country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+    international_collaborators=st.session_state["international_collaborators"],
     project_name=st.session_state["project_name"] or "",
     project_field=st.session_state["project_field"],
     total_cost=total_cost,

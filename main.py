@@ -1185,6 +1185,7 @@ def create_social_media_svg(
     margin: int = 72
     ink: str = "#16263a"
     muted: str = "#3f5064"
+    accent: str = "#d6336c"
 
     image: draw.Drawing = draw.Drawing(width, height, id_prefix="socmed")
 
@@ -1208,25 +1209,6 @@ def create_social_media_svg(
         )
     )
 
-    # Blurb
-    blurb_top: int = 152
-    blurb_line_height: float = 1.3
-    blurb_lines: list[str] = _wrap_text(
-        "Using the Cost of Knowledge Calculator, I estimated the following cost for my research project:",
-        74,
-    )
-    image.append(
-        draw.Text(
-            blurb_lines,
-            26,
-            margin,
-            blurb_top,
-            fill=muted,
-            font_family="Arial",
-            line_height=blurb_line_height,
-        )
-    )
-
     # Project title (wrapped, capped at three lines)
     title_size: int = 62
     title_line_height: float = 1.15
@@ -1236,7 +1218,7 @@ def create_social_media_svg(
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
-    title_top: float = blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1) + 82
+    title_top: float = 184
     image.append(
         draw.Text(
             title_lines,
@@ -1279,6 +1261,26 @@ def create_social_media_svg(
         )
     )
 
+    # Blurb, sitting between the divider and the headline cost figures.
+    blurb_line_height: float = 1.3
+    blurb_lines: list[str] = _wrap_text(
+        "Using the Cost of Knowledge Calculator, I estimated the following cost for my research publication to be:",
+        74,
+    )
+    blurb_top: float = subtitle_y + 34 + 60
+    image.append(
+        draw.Text(
+            blurb_lines,
+            26,
+            margin,
+            blurb_top,
+            fill=muted,
+            font_family="Arial",
+            line_height=blurb_line_height,
+        )
+    )
+    blurb_bottom: float = blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1)
+
     # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
     # library is needed. The block is anchored to the bottom of the card so the
     # layout stays balanced whatever the title length. Streamlit's placeholder
@@ -1293,8 +1295,11 @@ def create_social_media_svg(
         name for name in phase_names if phase_costs[name] > 0
     ] or phase_names
 
-    legend_row_h: int = 56
-    legend_last_y: float = height - 120
+    legend_row_h: int = 48
+    legend_font: int = 28
+    # Bottom of the legend sits above the two footer lines, with generous padding
+    # around the larger, centred call-to-action line that follows it.
+    legend_last_y: float = height - 150
     legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h
     bar_x: int = margin
     bar_w: int = width - 2 * margin
@@ -1302,9 +1307,9 @@ def create_social_media_svg(
     bar_y: float = legend_first_y - 26 - 46 - bar_h
     bar_label_y: float = bar_y - 24
 
-    # Headline figures, vertically centred between the divider and the breakdown.
+    # Headline figures, vertically centred between the blurb and the breakdown.
     figures_block_h: int = 286
-    zone_top: float = subtitle_y + 60
+    zone_top: float = blurb_bottom + 60
     zone_bottom: float = bar_label_y - 40
     figures_y: float = zone_top + max(
         0.0, (zone_bottom - zone_top - figures_block_h) / 2
@@ -1398,15 +1403,17 @@ def create_social_media_svg(
         row_y: float = legend_first_y + row_index * legend_row_h
         share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
         image.append(
-            draw.Rectangle(margin, row_y - 26, 34, 34, rx=7, fill=palette[name])
+            draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=palette[name])
         )
         image.append(
-            draw.Text(name, 30, margin + 52, row_y, fill=ink, font_family="Arial")
+            draw.Text(
+                name, legend_font, margin + 48, row_y, fill=ink, font_family="Arial"
+            )
         )
         image.append(
             draw.Text(
                 f"{format_usd(amount)}  ({share:.0f}%)",
-                30,
+                legend_font,
                 width - margin,
                 row_y,
                 fill=muted,
@@ -1416,6 +1423,18 @@ def create_social_media_svg(
         )
         row_index += 1
 
+    image.append(
+        draw.Text(
+            "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
+            30,
+            width / 2,
+            height - 86,
+            text_anchor="middle",
+            fill=accent,
+            font_weight="bold",
+            font_family="Arial",
+        )
+    )
     image.append(
         draw.Text(
             "The University of Sydney Cost of Knowledge Team (Alam et al.) and SPARC.",

@@ -1110,49 +1110,293 @@ with main_right:
 # -----------------------------------------------
 # Social media sharing
 # -----------------------------------------------
-def create_social_media_svg(total_cost: str) -> draw.Drawing:
-    image: draw.Drawing = draw.Drawing(1080, 1360, id_prefix="socmed")
+def _wrap_text(text: str, max_chars: int) -> list[str]:
+    """Greedily wraps text into lines of at most ``max_chars`` characters.
 
-    gradient = draw.LinearGradient(200, 0, 800, 1360)
+    drawsvg does no line wrapping of its own, so long project titles are split
+    here before being handed to a multi-line ``draw.Text``.
+    """
+    words: list[str] = text.split()
+    lines: list[str] = []
+    current: str = ""
+    for word in words:
+        candidate: str = f"{current} {word}".strip()
+        if not current or len(candidate) <= max_chars:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def create_social_media_svg(
+    country: str,
+    project_name: str,
+    project_field: str,
+    total_cost: float,
+    total_hours: float,
+    phase_costs: dict[str, float],
+) -> draw.Drawing:
+    """Builds a portrait social-media card summarising a cost estimate.
+
+    The cost breakdown is drawn as a plain SVG stacked bar (no Plotly/Kaleido),
+    so the card renders identically wherever the SVG is displayed.
+
+    Args:
+        country: Display name of the researcher's country.
+        project_name: Title of the paper/project ("" if the user left it blank).
+        project_field: Field of science the project sits in.
+        total_cost: Estimated total cost in USD.
+        total_hours: Estimated total hours of labour.
+        phase_costs: Cost in USD per research phase, keyed by phase display name.
+    """
+    width: int = 1080
+    height: int = 1360
+    margin: int = 72
+    ink: str = "#16263a"
+    muted: str = "#3f5064"
+
+    image: draw.Drawing = draw.Drawing(width, height, id_prefix="socmed")
+
+    # Background
+    gradient = draw.LinearGradient(200, 0, 800, height)
     gradient.add_stop(0, "lightskyblue")
     gradient.add_stop(1, "lightsteelblue")
-    image.append(draw.Rectangle(0, 0, 1080, 1360, fill=gradient))
+    image.append(draw.Rectangle(0, 0, width, height, fill=gradient))
 
-    image.append(draw.Text("Estimated total cost", 40, 20, 50, font_family="Arial"))
-    image.append(draw.Text(total_cost, 90, 20, 130, font_family="Arial"))
+    # Eyebrow
+    image.append(
+        draw.Text(
+            "THE COST OF KNOWLEDGE",
+            30,
+            margin,
+            110,
+            fill=muted,
+            font_family="Arial",
+            font_weight="bold",
+            letter_spacing=4,
+        )
+    )
 
-    # Kaleido renders this export, not Streamlit's frontend, so the placeholder palette
-    # would come out black. Re-map the slices to real Light24 colours, keeping each
-    # phase/item on a colour consistent with the charts above.
-    export_labels: list[str] = list(costs_pie.data[0].labels)
-    export_colors: dict[str, str] = build_color_map(
-        export_labels, palette=px.colors.qualitative.Light24
-    )
-    costs_pie.update_traces(
-        marker_colors=[export_colors[label] for label in export_labels]
-    )
-    costs_pie.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", width=1080, height=640, font_size=20
+    # Blurb
+    blurb_top: int = 152
+    blurb_line_height: float = 1.3
+    blurb_lines: list[str] = _wrap_text(
+        "Using the Cost of Knowledge Tool, I estimated the following cost for my research project:",
+        74,
     )
     image.append(
-        draw.Image(
-            0,
-            620,
-            1080,
-            640,
-            data=costs_pie.to_image(format="svg"),
-            mime_type="image/svg+xml",
-            embed=True,
+        draw.Text(
+            blurb_lines,
+            26,
+            margin,
+            blurb_top,
+            fill=muted,
+            font_family="Arial",
+            line_height=blurb_line_height,
+        )
+    )
+
+    # Project title (wrapped, capped at three lines)
+    title_size: int = 62
+    title_line_height: float = 1.15
+    wrapped_title: list[str] = _wrap_text(
+        project_name.strip() or "Untitled research project", 26
+    )
+    title_lines: list[str] = wrapped_title[:3]
+    if len(wrapped_title) > 3:
+        title_lines[-1] = title_lines[-1].rstrip(".") + "…"
+    title_top: float = (
+        blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1) + 82
+    )
+    image.append(
+        draw.Text(
+            title_lines,
+            title_size,
+            margin,
+            title_top,
+            fill=ink,
+            font_family="Arial",
+            font_weight="bold",
+            line_height=title_line_height,
+        )
+    )
+
+    # Field of science and country
+    subtitle_y: float = (
+        title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
+    )
+    subtitle: str = project_field
+    if country.strip():
+        subtitle = f"{project_field}  ·  {country.strip()}"
+    image.append(
+        draw.Text(
+            subtitle,
+            34,
+            margin,
+            subtitle_y,
+            fill=muted,
+            font_family="Arial",
+        )
+    )
+    image.append(
+        draw.Line(
+            margin,
+            subtitle_y + 34,
+            width - margin,
+            subtitle_y + 34,
+            stroke="#ffffff",
+            stroke_width=2,
+            stroke_opacity=0.6,
+        )
+    )
+
+    # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
+    # library is needed. The block is anchored to the bottom of the card so the
+    # layout stays balanced whatever the title length. Streamlit's placeholder
+    # palette renders near-black outside the app, so choose real colours here,
+    # one stable colour per phase.
+    phase_names: list[str] = list(phase_costs.keys())
+    palette: dict[str, str] = build_color_map(
+        phase_names, palette=px.colors.qualitative.Bold
+    )
+    breakdown_total: float = sum(phase_costs.values())
+    visible_phases: list[str] = [
+        name for name in phase_names if phase_costs[name] > 0
+    ] or phase_names
+
+    legend_row_h: int = 56
+    legend_last_y: float = height - 120
+    legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h
+    bar_x: int = margin
+    bar_w: int = width - 2 * margin
+    bar_h: int = 88
+    bar_y: float = legend_first_y - 26 - 46 - bar_h
+    bar_label_y: float = bar_y - 24
+
+    # Headline figures, vertically centred between the divider and the breakdown.
+    figures_block_h: int = 286
+    zone_top: float = subtitle_y + 60
+    zone_bottom: float = bar_label_y - 40
+    figures_y: float = zone_top + max(
+        0.0, (zone_bottom - zone_top - figures_block_h) / 2
+    )
+    image.append(
+        draw.Text(
+            "Estimated total cost", 30, margin, figures_y, fill=muted, font_family="Arial"
+        )
+    )
+    image.append(
+        draw.Text(
+            format_usd(total_cost),
+            88,
+            margin,
+            figures_y + 96,
+            fill=ink,
+            font_family="Arial",
+            font_weight="bold",
+        )
+    )
+    image.append(
+        draw.Text(
+            "Estimated hours of labour",
+            30,
+            margin,
+            figures_y + 190,
+            fill=muted,
+            font_family="Arial",
+        )
+    )
+    image.append(
+        draw.Text(
+            f"{total_hours:,.0f} hours",
+            88,
+            margin,
+            figures_y + 286,
+            fill=ink,
+            font_family="Arial",
+            font_weight="bold",
         )
     )
 
     image.append(
         draw.Text(
+            "Where the cost goes",
+            30,
+            margin,
+            bar_label_y,
+            fill=muted,
+            font_family="Arial",
+        )
+    )
+    if breakdown_total > 0:
+        cursor: float = bar_x
+        for name in phase_names:
+            segment: float = bar_w * (phase_costs[name] / breakdown_total)
+            if segment <= 0:
+                continue
+            image.append(
+                draw.Rectangle(cursor, bar_y, segment, bar_h, fill=palette[name])
+            )
+            cursor += segment
+    else:
+        image.append(
+            draw.Rectangle(
+                bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4
+            )
+        )
+    image.append(
+        draw.Rectangle(
+            bar_x,
+            bar_y,
+            bar_w,
+            bar_h,
+            rx=10,
+            fill="none",
+            stroke="#ffffff",
+            stroke_width=3,
+        )
+    )
+
+    # Legend: one row per phase that has a cost.
+    row_index: int = 0
+    for name in phase_names:
+        amount: float = phase_costs[name]
+        if amount <= 0:
+            continue
+        row_y: float = legend_first_y + row_index * legend_row_h
+        share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
+        image.append(
+            draw.Rectangle(margin, row_y - 26, 34, 34, rx=7, fill=palette[name])
+        )
+        image.append(
+            draw.Text(
+                name, 30, margin + 52, row_y, fill=ink, font_family="Arial"
+            )
+        )
+        image.append(
+            draw.Text(
+                f"{format_usd(amount)}  ({share:.0f}%)",
+                30,
+                width - margin,
+                row_y,
+                fill=muted,
+                text_anchor="end",
+                font_family="Arial",
+            )
+        )
+        row_index += 1
+
+    image.append(
+        draw.Text(
             "The University of Sydney Cost of Knowledge Team (Alam et al.) and SPARC.",
             24,
-            1060,
-            1320,
-            text_anchor="End",
+            width - margin,
+            height - 40,
+            text_anchor="end",
+            fill=muted,
             font_family="Arial",
         )
     )
@@ -1169,10 +1413,36 @@ st.markdown("""
             Share your result using the buttons below.
             """)
 
+# Rendered fresh each run from the (persisted) project inputs and computed totals,
+# so it never needs its own st.session_state entry.
+social_media_svg: str = create_social_media_svg(
+    country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+    project_name=st.session_state["project_name"] or "",
+    project_field=st.session_state["project_field"],
+    total_cost=total_cost,
+    total_hours=total_hours,
+    phase_costs={
+        label: compute_costs(combined_costs_list, phase=key)
+        for key, label in RESEARCH_PHASES.items()
+    },
+).as_svg()
+
+_svg_slug: str = "".join(
+    char if char.isalnum() else "-"
+    for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
+).strip("-") or "cost-of-knowledge"
+
 with st.container(horizontal=True, horizontal_alignment="center"):
-    st.image(create_social_media_svg(format_usd(total_cost)).as_svg(), width=540)
+    st.image(social_media_svg, width=540)
 
 with st.container(horizontal=True, horizontal_alignment="left"):
+    st.download_button(
+        "Download image",
+        data=social_media_svg,
+        file_name=f"{_svg_slug}-cost-estimate.svg",
+        mime="image/svg+xml",
+        icon=":material/download:",
+    )
     st.button("Email result", icon=":material/email:")
 
 # TODO: Determine licensing of this code.

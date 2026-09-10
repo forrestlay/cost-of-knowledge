@@ -32,13 +32,13 @@ class Person:
     of labour.
 
     Attributes:
-        name: Person's name (for research team members) or role.
+        name: Person's name (for research team members) or role. May be None while a newly added person is unnamed.
         unique_key: Unique identifier for this person.
         person_type: Whether person is a research team member or other.
         hourly_rate: Cost of person's labour per hour.
     """
 
-    name: str
+    name: str | None
     unique_key: str
     person_type: PersonType
     hourly_rate: int | float
@@ -86,7 +86,7 @@ class Cost(Protocol):
 
     phase: str
 
-    def get_name(self) -> str: ...
+    def get_name(self) -> str | None: ...
 
     def get_total_cost(self) -> int | float: ...
 
@@ -95,7 +95,7 @@ class Cost(Protocol):
 
 class BaseActivity(ABC):
     @abstractmethod
-    def get_name(self) -> str: ...
+    def get_name(self) -> str | None: ...
 
     @abstractmethod
     def get_person(self) -> Person: ...
@@ -119,7 +119,7 @@ class Activity(BaseActivity):
     represented by a separate Activity sharing the same name, phase and group_key.
 
     Attributes:
-        name: Name of the activity.
+        name: Name of the activity. May be None while a newly added activity is unnamed.
         person: Person to who this activity is assigned.
         phase: Phase of research this activity belongs to.
         hours: Number of hours allocated to this activity, used to calculate the total cost.
@@ -127,14 +127,14 @@ class Activity(BaseActivity):
         group_key: Numerical identifier shared by every person assigned to the same activity.
     """
 
-    name: str
+    name: str | None
     person: Person
     phase: str
     hours: int | float
     unique_key: int
     group_key: int
 
-    def get_name(self) -> str:
+    def get_name(self) -> str | None:
         """Returns name of this activity."""
         return self.name
 
@@ -161,18 +161,18 @@ class DirectCost:
     """Represents a direct cost.
 
     Attributes:
-        name: Name of this cost.
+        name: Name of this cost. May be None while a newly added cost is unnamed.
         phase: Phase of research this cost belongs to.
         cost: Value of this cost in dollars.
         unique_key: Unique numerical identifier for this direct cost.
     """
 
-    name: str
+    name: str | None
     phase: str
     cost: int | float
     unique_key: int
 
-    def get_name(self) -> str:
+    def get_name(self) -> str | None:
         return self.name
 
     def get_total_cost(self) -> int | float:

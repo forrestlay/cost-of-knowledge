@@ -1,12 +1,13 @@
 # Cost of Knowledge Visualisation Tool
 
+The Cost of Knowledge Visualisation Tool, allows an academic to estimate the total cost of producing
+and publishing an academic research article.
+
+This repository is part of the Cost of Knowledge research project conducted by academics from The University of Sydney
+School of Accounting, Governance and Regulation in collaboration with [SPARC](https://sparcopen.org).
 Cost of Knowledge Project Team: Nurul Alam, Jane Andrew, Max BAker, Janine Coupe, Tai-Joo Koh, Ben Lay,
 Chang-yuan Loh, Farzana Tanima
 Primary tool contributors: Nurul Alam, Ben Lay
-
-This repository is part of the Cost of Knowledge research project conducted by various AGR academics. It primarily
-contains the Cost of Knowledge Visualisation Tool, which allows an academic to estimate the total cost of producing
-and publishing an academic research article.
 
 ## Tool details
 
@@ -17,6 +18,10 @@ to run.
 
 Running this streamlit application is best done with [Astral UV](https://github.com/astral-sh/uv). To run the streamlit
 app locally, use `uv run streamlit run ./main.py` in the terminal.
+
+## Attributions
+
+Country data and flag assets sourced from [lipis/flag-icons](https://github.com/lipis/flag-icons).
 
 ## License
 

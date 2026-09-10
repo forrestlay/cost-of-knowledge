@@ -19,6 +19,11 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
+
+import json
+
+from pathlib import Path
+
 from typing import Literal
 
 from collections.abc import Sequence
@@ -48,6 +53,7 @@ st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 STREAMLIT_CATEGORICAL_COLORS: list[str] = [f"#{n:06d}" for n in range(1, 11)]
 
 TOOL_STEPS: list[str] = [
+    "project",
     "people",
     "incubation",
     "data",
@@ -55,6 +61,23 @@ TOOL_STEPS: list[str] = [
     "editing",
     "end",
 ]
+
+SCIENTIFIC_FIELDS: list[str] = [
+    "Natural sciences",
+    "Formal sciences",
+    "Social sciences",
+    "Applied sciences/engineering",
+]
+
+# Country list loaded from data/country.json. The selectbox shows the country name
+# but stores the lowercase country code (e.g. "us") as the value.
+_COUNTRY_DATA: list[dict[str, object]] = json.loads(
+    (Path(__file__).parent / "data" / "country.json").read_text(encoding="utf-8")
+)
+COUNTRY_NAMES: dict[str, str] = {
+    str(country["code"]): str(country["name"]) for country in _COUNTRY_DATA
+}
+COUNTRY_CODES: list[str] = sorted(COUNTRY_NAMES, key=lambda code: COUNTRY_NAMES[code])
 
 ROLES: list[str] = [
     "Professor",
@@ -154,6 +177,23 @@ def format_usd(x: int | float) -> str:
 # -----------------------------------------------
 # Model variables
 # -----------------------------------------------
+
+# Create project variables
+if "user_name" not in st.session_state:
+    st.session_state["user_name"]: str | None = None
+
+# Backs the "Your name" text_input widget; kept in sync with "user_name" via its on_change callback.
+if "user_name_input" not in st.session_state:
+    st.session_state["user_name_input"]: str = st.session_state["user_name"] or ""
+
+if "user_country" not in st.session_state:
+    st.session_state["user_country"]: str = "us"
+
+if "project_name" not in st.session_state:
+    st.session_state["project_name"]: str | None = None
+
+if "project_field" not in st.session_state:
+    st.session_state["project_field"]: str = "Social sciences"
 
 # Create initial people roles.
 if "people" not in st.session_state:
@@ -292,6 +332,83 @@ with st.expander("About the data", expanded=False):
                 """)
 
 # -----------------------------------------------
+# User and Project
+# -----------------------------------------------
+st.subheader("You and Your Project")
+st.markdown("""
+            Please fill in some details about you and the research publication or project you want to estimate the cost
+            of.
+            """)
+
+
+def next_tool_step(current_step: str):
+    """Navigates to the next step in the tool, opening the relevant expander.
+
+    Args:
+        current_step: The current step, matching a string in TOOL_STEPS.
+    """
+    if (
+        st.session_state["tool_step"] < len(TOOL_STEPS) - 1
+        and current_step == TOOL_STEPS[st.session_state["tool_step"]]
+    ):
+        st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
+    else:
+        st.rerun()  # Rerun script to close expandable.
+
+
+def update_default_person_name():
+    """Syncs the default person's name with the user's name input.
+
+    The default person (unique_key "1") represents the tool user, so keep its name in
+    st.session_state["people"] in step with the "Your name" field. Does nothing if the
+    user has deleted the default person.
+    """
+    st.session_state["user_name"] = st.session_state["user_name_input"]
+    default_person: Person | None = st.session_state["people"].get("1")
+    if default_person is not None:
+        default_person.name = st.session_state["user_name"] or "Associate Professor"
+        # Also push the new name into the "People or Roles" selectbox widget state;
+        # once that widget has a stored value it ignores its index= argument, so
+        # updating only default_person.name would not move the displayed selection.
+        st.session_state[f"person-name-{default_person.unique_key}"] = (
+            default_person.name
+        )
+
+
+project_step: bool = (
+    True if TOOL_STEPS[st.session_state["tool_step"]] == "project" else False
+)
+
+with st.expander("You and your project", expanded=project_step):
+    st.session_state["user_name"] = st.text_input(
+        "Your name",
+        key="user_name_input",
+        on_change=update_default_person_name,
+    )
+    st.session_state["user_country"] = st.selectbox(
+        "Your country",
+        COUNTRY_CODES,
+        index=COUNTRY_CODES.index(st.session_state["user_country"]),
+        format_func=lambda code: COUNTRY_NAMES[code],
+    )
+    st.session_state["project_name"] = st.text_input(
+        "Name of your paper/project", value=st.session_state["project_name"]
+    )
+    st.session_state["project_field"] = st.selectbox(
+        "Field of science your paper/project is located in",
+        SCIENTIFIC_FIELDS,
+        index=SCIENTIFIC_FIELDS.index(st.session_state["project_field"]),
+    )
+    st.button(
+        "Next step",
+        key="confirm-project",
+        type="primary",
+        icon=":material/check:",
+        on_click=next_tool_step,
+        args=["project"],
+    )
+
+# -----------------------------------------------
 # Study team
 # -----------------------------------------------
 
@@ -319,7 +436,7 @@ def add_person(key: str | None = None):
         ]
         key = str(max(person_key_list) + 1)
     st.session_state["people"][key] = Person(
-        name="New person",
+        name=None,
         unique_key=key,
         person_type=PersonType.RESEARCH_TEAM,
         hourly_rate=85,
@@ -328,13 +445,6 @@ def add_person(key: str | None = None):
 
 def delete_person(key: str):
     del st.session_state["people"][key]
-
-
-# Create session variables to track if the salary calculation dialog has run.
-if "salary_calculation_result" not in st.session_state:
-    st.session_state["salary_calculation_result"]: int | float | None = None
-if "salary_calculation_person" not in st.session_state:
-    st.session_state["salary_calculation_person"]: Person | None = None
 
 
 @st.dialog("Calculate your hourly rate")
@@ -361,32 +471,13 @@ def calculate_hourly_rate(person: Person, key: str):
     )
     indirect_cost_multiplier: float = 1 + (indirect_cost_percentage / 100)
     if st.button("Calculate"):
-        st.session_state["salary_calculation_result"] = Person.salary_to_hourly_rate(
+        # Write the computed rate straight into the number_input's widget state so
+        # it shows on the next run. Once the widget exists its value can only be
+        # changed through its own session_state entry, not via its value= default.
+        st.session_state[f"person-rate-{key}"] = Person.salary_to_hourly_rate(
             salary, weekly_hours, months, indirect_cost_multiplier
         )
-        st.session_state["salary_calculation_person"] = person
-
-        # Hack to get salary calculation to stick. The default value on the st.number_input overrides the calculated
-        # value, which makes it difficult to change this variable outside of the input itself.
-        st.session_state[f"person-rate-{key}"] = st.session_state[
-            "salary_calculation_result"
-        ]
         st.rerun()
-
-
-def next_tool_step(current_step: str):
-    """Navigates to the next step in the tool, opening the relevant expander.
-
-    Args:
-        current_step: The current step, matching a string in TOOL_STEPS.
-    """
-    if (
-        st.session_state["tool_step"] < len(TOOL_STEPS) - 1
-        and current_step == TOOL_STEPS[st.session_state["tool_step"]]
-    ):
-        st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
-    else:
-        st.rerun()  # Rerun script to close expandable.
 
 
 # Check if tool is at the people step, expand Roles expander if True.
@@ -394,27 +485,51 @@ people_step: bool = (
     True if TOOL_STEPS[st.session_state["tool_step"]] == "people" else False
 )
 
-with st.expander("Roles", expanded=people_step):
+with st.expander("People or Roles", expanded=people_step):
     for key, person in st.session_state["people"].items():
         with st.container(border=True):
-            # Check if person name is in the roles list.
-            try:
+            # Show the person's current name in the selectbox even when it is a
+            # custom value not in ROLES (e.g. a name synced from the "Your name"
+            # field). A newly added person has no name yet, so leave the selectbox
+            # unselected (index=None).
+            name_options: list[str] = ROLES
+            person_name_index: int | None
+            if person.name is None:
+                person_name_index = None
+            elif person.name in ROLES:
                 person_name_index = ROLES.index(person.name)
-            except ValueError:
-                person_name_index = 1
+            else:
+                name_options = ROLES + [person.name]
+                person_name_index = len(ROLES)
+
+            # If person.name widget already has been set in session state, set index to zero as a default value is no
+            # longer needed.
+            person_name_key: str = f"person-name-{person.unique_key}"
+            if person_name_key in st.session_state:
+                person_name_index = None
 
             # Inputs
-            person.name: str = st.selectbox(
+            person.name: str | None = st.selectbox(
                 "Name",
-                options=ROLES,
+                options=name_options,
                 index=person_name_index,
                 accept_new_options=True,
-                key=f"person-name-{person.unique_key}",
+                key=person_name_key,
+            )
+            # Once the widget has its own session_state entry (e.g. after the
+            # "Calculate your hourly rate" dialog writes the computed rate into
+            # it) that value wins and value= is ignored, so pass the "min"
+            # sentinel instead of a default to avoid Streamlit's "created with a
+            # default value but also had its value set via the Session State API"
+            # warning.
+            person_rate_key: str = f"person-rate-{person.unique_key}"
+            person_rate_value: float | Literal["min"] = (
+                "min" if person_rate_key in st.session_state else person.hourly_rate
             )
             person.hourly_rate: int | float = st.number_input(
                 "Hourly rate of labor including indirect on-costs",
-                value=person.hourly_rate,
-                key=f"person-rate-{person.unique_key}",
+                value=person_rate_value,
+                key=person_rate_key,
             )
             with st.container(horizontal=True, horizontal_alignment="left"):
                 if st.button(
@@ -427,24 +542,12 @@ with st.expander("Roles", expanded=people_step):
                     and int(person.unique_key) > 1
                 ):
                     st.button(
-                        f"Delete {person.name}",
+                        f"Delete {person.name or 'person'}",
                         key=f"delete-person-{person.unique_key}",
                         icon=":material/delete:",
                         on_click=delete_person,
                         args=[person.unique_key],
                     )
-
-            # Check if the calculation dialog was run
-            if (
-                st.session_state["salary_calculation_person"] is not None
-                and st.session_state["salary_calculation_person"] == person
-                and st.session_state["salary_calculation_result"] is not None
-            ):
-                person.hourly_rate: int | float = st.session_state[
-                    "salary_calculation_result"
-                ]
-                st.session_state["salary_calculation_person"] = None
-                st.session_state["salary_calculation_result"] = None
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.button(
@@ -471,7 +574,7 @@ def person_option_display(key: str):
     """Converts a st.session_state["people"] key to a st.selectbox display name."""
     person: Person = st.session_state["people"][key]
     if person.person_type == PersonType.RESEARCH_TEAM:
-        return f"{key}: {person.name}"
+        return f"{key}: {person.name or 'Unnamed'}"
     else:
         return key
 
@@ -511,7 +614,7 @@ def add_activity(phase: str):
     """Adds a new activity to the given phase with a single person assigned to it."""
     st.session_state["activity_list"].append(
         Activity(
-            "New Activity",
+            None,
             st.session_state["people"]["1"],
             phase,
             0.0,
@@ -560,7 +663,7 @@ def add_direct_cost(phase: str):
         direct_cost.unique_key for direct_cost in st.session_state["cost_list"]
     ]
     st.session_state["cost_list"].append(
-        DirectCost("New Cost", phase, 0.0, max(cost_key_list) + 1)
+        DirectCost(None, phase, 0.0, max(cost_key_list) + 1)
     )
 
 
@@ -663,25 +766,33 @@ with main_left:
                 for group_key, group_activities in activity_groups.items():
                     with st.container(border=True):
                         # Offer the phase's preset activities, keeping any current custom name selectable.
-                        current_activity_name: str = group_activities[0].name
+                        # A newly added activity has no name yet, so leave the selectbox unselected.
+                        current_activity_name: str | None = group_activities[0].name
                         activity_options: list[str] = ACTIVITY_OPTIONS.get(phase, [])
-                        if current_activity_name not in activity_options:
-                            activity_options = [
+                        activity_name_index: int | None
+                        if current_activity_name is None:
+                            activity_name_index = None
+                        else:
+                            if current_activity_name not in activity_options:
+                                activity_options = [
+                                    current_activity_name
+                                ] + activity_options
+                            activity_name_index = activity_options.index(
                                 current_activity_name
-                            ] + activity_options
-                        activity_name: str = st.selectbox(
+                            )
+                        activity_name: str | None = st.selectbox(
                             "Activity",
                             options=activity_options,
-                            index=activity_options.index(current_activity_name),
+                            index=activity_name_index,
                             accept_new_options=True,
                             key=f"activity-name-{group_key}",
                         )
                         # Keep the name of every person's Activity in step with the renamed activity.
                         for group_activity in group_activities:
-                            group_activity.name: str = activity_name
+                            group_activity.name: str | None = activity_name
 
                         # Create badge if new activity
-                        if activity_name == "New Activity":
+                        if activity_name is None:
                             st.badge(
                                 "New activity, fill in details",
                                 icon=":material/exclamation:",
@@ -727,7 +838,7 @@ with main_left:
                                 delete_column.button(
                                     "Del",
                                     key=f"delete-activity-person-{group_activity.unique_key}",
-                                    help=f"Remove {group_activity.person.name} from this activity",
+                                    help=f"Remove {group_activity.person.name or 'this person'} from this activity",
                                     icon=":material/delete:",
                                     on_click=delete_activity_person,
                                     args=[group_activity],
@@ -765,18 +876,24 @@ with main_left:
                 for phase_cost in phase_costs:
                     with st.container(border=True):
                         # Offer the phase's preset direct costs, keeping any current custom name selectable.
+                        # A newly added cost has no name yet, so leave the selectbox unselected.
                         cost_options: list[str] = COST_OPTIONS.get(phase, [])
-                        if phase_cost.name not in cost_options:
-                            cost_options = [phase_cost.name] + cost_options
-                        phase_cost.name: str = st.selectbox(
+                        cost_name_index: int | None
+                        if phase_cost.name is None:
+                            cost_name_index = None
+                        else:
+                            if phase_cost.name not in cost_options:
+                                cost_options = [phase_cost.name] + cost_options
+                            cost_name_index = cost_options.index(phase_cost.name)
+                        phase_cost.name: str | None = st.selectbox(
                             "Cost",
                             options=cost_options,
-                            index=cost_options.index(phase_cost.name),
+                            index=cost_name_index,
                             accept_new_options=True,
                             key=f"directcost-name-{phase_cost.unique_key}",
                         )
                         # Create badge if new cost
-                        if phase_cost.name == "New Cost":
+                        if phase_cost.name is None:
                             st.badge(
                                 "New cost, fill in details",
                                 icon=":material/exclamation:",
@@ -866,7 +983,7 @@ def build_color_map(
 # activity/direct-cost names keep a consistent colour wherever they appear.
 phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
 item_color_map: dict[str, str] = build_color_map(
-    [item.get_name() for item in combined_costs_list]
+    [item.get_name() or "Unnamed" for item in combined_costs_list]
 )
 
 with main_right:
@@ -882,13 +999,17 @@ with main_right:
     st.subheader("Total cost breakdown")
 
     costs_chart_selection = st.pills(
-        "**Show cost breakdown for**", ["phases", "activities and direct costs"], default="phases"
+        "**Show cost breakdown for**",
+        ["phases", "activities and direct costs"],
+        default="phases",
     )
-    costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection=="phases" else "Item"
+    costs_pie_names: Literal["Phase", "Item"] = (
+        "Phase" if costs_chart_selection == "phases" else "Item"
+    )
 
     costs_df = pd.DataFrame(
         {
-            "Item": [item.get_name() for item in combined_costs_list],
+            "Item": [item.get_name() or "Unnamed" for item in combined_costs_list],
             "Cost": [item.get_total_cost() for item in combined_costs_list],
             "Phase": [
                 RESEARCH_PHASES[item.get_phase()] for item in combined_costs_list
@@ -918,7 +1039,8 @@ with main_right:
     labour_df = pd.DataFrame(
         {
             "Activity": [
-                activity.get_name() for activity in st.session_state["activity_list"]
+                activity.get_name() or "Unnamed"
+                for activity in st.session_state["activity_list"]
             ],
             "Cost (USD)": [
                 activity.get_total_cost()
@@ -932,7 +1054,7 @@ with main_right:
                 for activity in st.session_state["activity_list"]
             ],
             "Person": [
-                activity.get_person().name
+                activity.get_person().name or "Unnamed"
                 for activity in st.session_state["activity_list"]
             ],
         }

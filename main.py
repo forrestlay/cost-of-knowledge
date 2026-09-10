@@ -347,16 +347,24 @@ st.markdown("""
 def next_tool_step(current_step: str):
     """Navigates to the next step in the tool, opening the relevant expander.
 
+    Each step's expander is keyed as ``f"{step}-expander"`` in st.session_state.
+    When ``current_step`` is the active step, its expander is collapsed,
+    ``tool_step`` advances and the next step's expander is expanded. When
+    ``current_step`` is not the active step (its "Next step" button was pressed
+    from an expander the user re-opened after moving on), that expander is simply
+    collapsed.
+
     Args:
         current_step: The current step, matching a string in TOOL_STEPS.
     """
+    st.session_state[f"{current_step}-expander"]: bool = False
     if (
         st.session_state["tool_step"] < len(TOOL_STEPS) - 1
         and current_step == TOOL_STEPS[st.session_state["tool_step"]]
     ):
         st.session_state["tool_step"]: int = 1 + st.session_state["tool_step"]
-    else:
-        st.rerun()  # Rerun script to close expandable.
+        next_step: str = TOOL_STEPS[st.session_state["tool_step"]]
+        st.session_state[f"{next_step}-expander"]: bool = True
 
 
 def update_default_person_name():
@@ -382,7 +390,12 @@ project_step: bool = (
     True if TOOL_STEPS[st.session_state["tool_step"]] == "project" else False
 )
 
-with st.expander("You and your project", expanded=project_step):
+with st.expander(
+    "You and your project",
+    expanded=project_step,
+    key="project-expander",
+    on_change="rerun",
+):
     st.session_state["user_name"] = st.text_input(
         "Your name",
         key="user_name_input",
@@ -495,7 +508,12 @@ people_step: bool = (
     True if TOOL_STEPS[st.session_state["tool_step"]] == "people" else False
 )
 
-with st.expander("People or Roles", expanded=people_step):
+with st.expander(
+    "People or Roles",
+    expanded=people_step,
+    key="people-expander",
+    on_change="rerun",
+):
     for key, person in st.session_state["people"].items():
         with st.container(border=True):
             # Show the person's current name in the selectbox even when it is a
@@ -538,6 +556,7 @@ with st.expander("People or Roles", expanded=people_step):
             )
             person.hourly_rate: int | float = st.number_input(
                 "Hourly rate of labor including indirect on-costs",
+                min_value=0,
                 value=person_rate_value,
                 key=person_rate_key,
             )
@@ -701,7 +720,12 @@ with main_left:
 
         # Handle special phases.
         if phase == "editing":
-            with st.expander(phase_name, expanded=phase_expand):
+            with st.expander(
+                phase_name,
+                expanded=phase_expand,
+                key=f"{phase}-expander",
+                on_change="rerun",
+            ):
                 st.markdown("""
                             The cost of peer review and journal editorial work is based on the number of journals
                             submitted to and the average number of review rounds across journal submissions. We
@@ -740,12 +764,14 @@ with main_left:
                 st.session_state["peer_reviewer"].hourly_rate: int | float = (
                     st.number_input(
                         "Hourly rate of peer reviewer",
+                        min_value=0,
                         value=st.session_state["peer_reviewer"].hourly_rate,
                     )
                 )
                 st.session_state["journal_editor"].hourly_rate: int | float = (
                     st.number_input(
                         "Hourly rate of journal editor",
+                        min_value=0,
                         value=st.session_state["journal_editor"].hourly_rate,
                     )
                 )
@@ -759,7 +785,12 @@ with main_left:
                         args=[phase],
                     )
         else:
-            with st.expander(phase_name, expanded=phase_expand):
+            with st.expander(
+                phase_name,
+                expanded=phase_expand,
+                key=f"{phase}-expander",
+                on_change="rerun",
+            ):
                 phase_activities: list[Activity] = [
                     activity
                     for activity in st.session_state["activity_list"]
@@ -1324,8 +1355,12 @@ def create_social_media_svg(
     bar_label_y: float = bar_y - 24
 
     # Headline figures, vertically centred between the blurb and the breakdown.
-    figures_block_h: int = 286
-    zone_top: float = blurb_bottom + 60
+    # The two metrics are stacked with a deliberately tight gap and the block is
+    # pushed down from the blurb so a three-line project title still leaves the
+    # "Estimated total cost" line clear of the text above it.
+    metric_gap: int = 140
+    figures_block_h: int = 96 + metric_gap
+    zone_top: float = blurb_bottom + 90
     zone_bottom: float = bar_label_y - 40
     figures_y: float = zone_top + max(
         0.0, (zone_bottom - zone_top - figures_block_h) / 2
@@ -1345,7 +1380,7 @@ def create_social_media_svg(
             format_usd(total_cost),
             88,
             margin,
-            figures_y + 96,
+            figures_y + 84,
             fill=ink,
             font_family="Arial",
             font_weight="bold",
@@ -1356,7 +1391,7 @@ def create_social_media_svg(
             "Estimated hours of labour",
             30,
             margin,
-            figures_y + 190,
+            figures_y + metric_gap,
             fill=muted,
             font_family="Arial",
         )
@@ -1366,7 +1401,7 @@ def create_social_media_svg(
             f"{total_hours:,.0f} hours",
             88,
             margin,
-            figures_y + 286,
+            figures_y + metric_gap + 84,
             fill=ink,
             font_family="Arial",
             font_weight="bold",
@@ -1442,7 +1477,7 @@ def create_social_media_svg(
     image.append(
         draw.Text(
             "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
-            30,
+            28,
             width / 2,
             height - 86,
             text_anchor="middle",

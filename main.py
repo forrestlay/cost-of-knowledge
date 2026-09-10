@@ -337,7 +337,7 @@ with st.expander("About the data", expanded=False):
 # -----------------------------------------------
 # User and Project
 # -----------------------------------------------
-st.subheader("You and Your Project")
+st.header(":material/article_person: You and Your Project")
 st.markdown("""
             Please fill in some details about you and the research publication or project you want to estimate the cost
             of.
@@ -435,7 +435,7 @@ with st.expander(
 # Study team
 # -----------------------------------------------
 
-st.subheader("People Involved in the Article Preparation Process")
+st.header(":material/groups: People Involved in the Article Preparation Process")
 st.markdown("""
             Fill in the details of the people on your study team or who are otherwise involved in the preparation of
             your journal article in the incubation, data collection and analysis, and manuscript preparation phases.
@@ -700,7 +700,7 @@ def delete_direct_cost(direct_cost: DirectCost):
     st.session_state["cost_list"].remove(direct_cost)
 
 
-st.subheader("Calculator")
+st.header(":material/request_quote: Calculator")
 
 main_left, main_right = st.columns([1, 2])
 
@@ -854,7 +854,7 @@ with main_left:
                                 "visible" if person_index == 0 else "collapsed"
                             )
                             person_column, hours_column, delete_column = st.columns(
-                                [4, 3, 2], vertical_alignment="bottom"
+                                [2, 1 ,1], vertical_alignment="bottom"
                             )
                             person_column.selectbox(
                                 "Assigned person",
@@ -1504,7 +1504,7 @@ def create_social_media_svg(
 # Conclusion
 # -----------------------------------------------
 
-st.subheader("Share your result")
+st.header(":material/share: Share your result")
 
 st.markdown("""
             Share your result using the buttons below.

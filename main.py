@@ -1559,10 +1559,7 @@ def facebook_share_url() -> str:
 
 
 def email_share_url(total_cost: float, total_hours: float) -> str:
-    """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate.
-
-    mailto links cannot attach files, so the user attaches the downloaded image themselves.
-    """
+    """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
     body: str = (
@@ -1615,6 +1612,7 @@ with st.container(horizontal=True, horizontal_alignment="left"):
         file_name=f"{_svg_slug}-cost-estimate.png",
         mime="image/png",
         icon=":material/image:",
+        type="primary",
     )
     st.link_button(
         "Share on LinkedIn",

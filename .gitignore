@@ -36,3 +36,7 @@ MANIFEST
 !.vscode/extensions.json
 !.vscode/*.code-snippets
 !*.code-workspace
+
+# AI Agents
+.agents/
+.claude/

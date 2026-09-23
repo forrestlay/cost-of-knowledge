@@ -24,6 +24,8 @@ import json
 
 from pathlib import Path
 
+from urllib.parse import quote
+
 from typing import Literal
 
 from collections.abc import Sequence
@@ -32,6 +34,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 import drawsvg as draw
+import resvg_py
 
 from models import (
     BaseActivity,
@@ -45,6 +48,8 @@ from models import (
 )
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
+
+COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 
 # Placeholder hex values that Streamlit's frontend swaps for its theme's categorical
 # colour palette (see streamlit/elements/lib/streamlit_plotly_theme.py). Assigning one
@@ -854,7 +859,7 @@ with main_left:
                                 "visible" if person_index == 0 else "collapsed"
                             )
                             person_column, hours_column, delete_column = st.columns(
-                                [2, 1 ,1], vertical_alignment="bottom"
+                                [2, 1, 1], vertical_alignment="bottom"
                             )
                             person_column.selectbox(
                                 "Assigned person",
@@ -1179,6 +1184,11 @@ with main_right:
 # -----------------------------------------------
 # Social media sharing
 # -----------------------------------------------
+# Arial is the intended face; the generic fallback lets the PNG renderer substitute a metric-compatible font
+# (Liberation Sans, installed in the Docker image) on hosts without Arial.
+SOCIAL_MEDIA_FONT: str = "Arial, sans-serif"
+
+
 def _wrap_text(text: str, max_chars: int) -> list[str]:
     """Greedily wraps text into lines of at most ``max_chars`` characters.
 
@@ -1247,7 +1257,7 @@ def create_social_media_svg(
             margin,
             110,
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
             letter_spacing=4,
         )
@@ -1270,7 +1280,7 @@ def create_social_media_svg(
             margin,
             title_top,
             fill=ink,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
             line_height=title_line_height,
         )
@@ -1293,7 +1303,7 @@ def create_social_media_svg(
             margin,
             subtitle_y,
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
         )
     )
     image.append(
@@ -1322,7 +1332,7 @@ def create_social_media_svg(
             margin,
             blurb_top,
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
             line_height=blurb_line_height,
         )
     )
@@ -1372,7 +1382,7 @@ def create_social_media_svg(
             margin,
             figures_y,
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
         )
     )
     image.append(
@@ -1382,7 +1392,7 @@ def create_social_media_svg(
             margin,
             figures_y + 84,
             fill=ink,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
         )
     )
@@ -1393,7 +1403,7 @@ def create_social_media_svg(
             margin,
             figures_y + metric_gap,
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
         )
     )
     image.append(
@@ -1403,7 +1413,7 @@ def create_social_media_svg(
             margin,
             figures_y + metric_gap + 84,
             fill=ink,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
         )
     )
@@ -1415,7 +1425,7 @@ def create_social_media_svg(
             margin,
             bar_label_y,
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
         )
     )
     if breakdown_total > 0:
@@ -1458,7 +1468,12 @@ def create_social_media_svg(
         )
         image.append(
             draw.Text(
-                name, legend_font, margin + 48, row_y, fill=ink, font_family="Arial"
+                name,
+                legend_font,
+                margin + 48,
+                row_y,
+                fill=ink,
+                font_family=SOCIAL_MEDIA_FONT,
             )
         )
         image.append(
@@ -1469,7 +1484,7 @@ def create_social_media_svg(
                 row_y,
                 fill=muted,
                 text_anchor="end",
-                font_family="Arial",
+                font_family=SOCIAL_MEDIA_FONT,
             )
         )
         row_index += 1
@@ -1483,7 +1498,7 @@ def create_social_media_svg(
             text_anchor="middle",
             fill=accent,
             font_weight="bold",
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
         )
     )
     image.append(
@@ -1494,10 +1509,67 @@ def create_social_media_svg(
             height - 40,
             text_anchor="end",
             fill=muted,
-            font_family="Arial",
+            font_family=SOCIAL_MEDIA_FONT,
         )
     )
     return image
+
+
+@st.cache_data(show_spinner=False)
+def social_media_svg_to_png(svg: str) -> bytes:
+    """Rasterises the social-media card for platforms that do not accept SVG uploads (e.g. LinkedIn, X, Facebook).
+
+    Cached on the SVG markup, so the card is only re-rendered when its content changes.
+    """
+    return resvg_py.svg_to_bytes(svg_string=svg, sans_serif_family="Liberation Sans")
+
+
+def share_summary(total_cost: float, total_hours: float) -> str:
+    """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
+    return (
+        f"Using the Cost of Knowledge Calculator, I estimated that my research publication cost "
+        f"{format_usd(total_cost)} and {total_hours:,.0f} hours of labor."
+    )
+
+
+# None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
+def linkedin_share_url(total_cost: float, total_hours: float) -> str:
+    """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
+    text: str = (
+        f"{share_summary(total_cost, total_hours)}\n\n"
+        f"Estimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
+    )
+    return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
+
+
+def x_share_url(total_cost: float, total_hours: float) -> str:
+    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to the tool."""
+    text: str = (
+        f"{share_summary(total_cost, total_hours)} Estimate your own Cost of Knowledge:"
+    )
+    return f"https://x.com/intent/post?text={quote(text)}&url={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
+
+
+def facebook_share_url() -> str:
+    """Builds a link that opens Facebook's share dialog for the tool.
+
+    Facebook's share dialog only accepts a URL; it does not allow pre-filled post text.
+    """
+    return f"https://www.facebook.com/sharer/sharer.php?u={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
+
+
+def email_share_url(total_cost: float, total_hours: float) -> str:
+    """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate.
+
+    mailto links cannot attach files, so the user attaches the downloaded image themselves.
+    """
+    subject: str = "The Cost of Knowledge of my research publication"
+    # RFC 6068 recommends CRLF line breaks in mailto bodies.
+    body: str = (
+        f"{share_summary(total_cost, total_hours)}\r\n\r\n"
+        f"Estimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
+    )
+    return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 
 # -----------------------------------------------
@@ -1539,14 +1611,36 @@ with st.container(horizontal=True, horizontal_alignment="center"):
 with st.container(horizontal=True, horizontal_alignment="left"):
     st.download_button(
         "Download image",
-        data=social_media_svg,
-        file_name=f"{_svg_slug}-cost-estimate.svg",
-        mime="image/svg+xml",
-        icon=":material/download:",
+        data=social_media_svg_to_png(social_media_svg),
+        file_name=f"{_svg_slug}-cost-estimate.png",
+        mime="image/png",
+        icon=":material/image:",
     )
-    st.button("Email result", icon=":material/email:")
+    st.link_button(
+        "Share on LinkedIn",
+        linkedin_share_url(total_cost, total_hours),
+        icon=":material/share:",
+        help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
+    )
+    st.link_button(
+        "Share on X",
+        x_share_url(total_cost, total_hours),
+        icon=":material/share:",
+        help="Share this tool on X. Download the image first and attach it to your post.",
+    )
+    st.link_button(
+        "Share on Facebook",
+        facebook_share_url(),
+        icon=":material/share:",
+        help="Share this tool on Facebook. Download the image first and attach it to your post.",
+    )
+    st.link_button(
+        "Share via email",
+        email_share_url(total_cost, total_hours),
+        icon=":material/email:",
+        help="Share this tool via email. Download the image first and attach it to your email.",
+    )
 
-# TODO: Determine licensing of this code.
 st.markdown("""
             :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,
             Ben Lay, Chang-yuan Loh, and Farzana Tanima.

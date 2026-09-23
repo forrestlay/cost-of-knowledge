@@ -3,6 +3,11 @@ FROM ghcr.io/astral-sh/uv:python3.14-trixie
 
 WORKDIR /
 
+# Arial-compatible fonts for rendering the social media share image to PNG
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . /app
 
 # Disable development dependencies

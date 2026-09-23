@@ -1388,7 +1388,7 @@ def create_social_media_svg(
     )
     image.append(
         draw.Text(
-            "Estimated hours of labour",
+            "Estimated hours of labor",
             30,
             margin,
             figures_y + metric_gap,

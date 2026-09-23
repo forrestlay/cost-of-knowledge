@@ -23,6 +23,12 @@ app locally, use `uv run streamlit run ./main.py` in the terminal.
 
 Country data and flag assets sourced from [lipis/flag-icons](https://github.com/lipis/flag-icons).
 
+## LLM Use Disclosure
+
+LLMs were used to assist with the coding of this tool. Specifically, LLMs were used to generate the initial proof of
+concept, which was used as the basis for manual development of the tool, before LLM assistant was used again to
+implement certain features (beginning with commit 8cfd02835d2c14a01154de5b1352fc696af23bb7).
+
 ## License
 
 Copyright 2026 Nurul Alam, Ben Lay

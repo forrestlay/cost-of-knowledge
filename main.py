@@ -21,31 +21,29 @@ limitations under the License.
 """
 
 import json
-
 from pathlib import Path
-
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
 
-from typing import Literal
-
-from collections.abc import Sequence
-
+import drawsvg as draw
 import pandas as pd
 import plotly.express as px
-import streamlit as st
-import drawsvg as draw
 import resvg_py
+import streamlit as st
 
 from models import (
-    BaseActivity,
-    Person,
-    PersonType,
-    Cost,
     Activity,
+    BaseActivity,
+    Cost,
     DirectCost,
     JournalEditing,
     PeerReview,
+    Person,
+    PersonType,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
@@ -321,7 +319,8 @@ if "cost_list" not in st.session_state:
 
 st.title("Cost of Knowledge Calculator")
 st.caption(
-    "The tool will enable you to calculate the approximate cost of preparing a refereed journal article from conception to publication."
+    "The tool will enable you to calculate the approximate cost of preparing a refereed journal article from conception"
+    " to publication."
 )
 
 st.markdown("""
@@ -392,7 +391,7 @@ def update_default_person_name():
 
 
 project_step: bool = (
-    True if TOOL_STEPS[st.session_state["tool_step"]] == "project" else False
+    TOOL_STEPS[st.session_state["tool_step"]] == "project"
 )
 
 with st.expander(
@@ -510,7 +509,7 @@ def calculate_hourly_rate(person: Person, key: str):
 
 # Check if tool is at the people step, expand Roles expander if True.
 people_step: bool = (
-    True if TOOL_STEPS[st.session_state["tool_step"]] == "people" else False
+    TOOL_STEPS[st.session_state["tool_step"]] == "people"
 )
 
 with st.expander(
@@ -609,8 +608,7 @@ def person_option_display(key: str):
     person: Person = st.session_state["people"][key]
     if person.person_type == PersonType.RESEARCH_TEAM:
         return f"{key}: {person.name or 'Unnamed'}"
-    else:
-        return key
+    return key
 
 
 def person_option_decode(display_string: str):
@@ -720,7 +718,7 @@ with main_left:
     for phase, phase_name in RESEARCH_PHASES.items():
         # Expand expander if the current tool step is the current phase.
         phase_expand: bool = (
-            True if TOOL_STEPS[st.session_state["tool_step"]] == phase else False
+            TOOL_STEPS[st.session_state["tool_step"]] == phase
         )
 
         # Handle special phases.

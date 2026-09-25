@@ -15,10 +15,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from typing import Protocol
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+
+def _resolve_person(data: Mapping[str, Any], people: Mapping[str, Person]) -> Person:
+    """Looks up the Person referenced by a serialised activity's ``person_key``.
+
+    Raises:
+        ValueError: If no Person with that key exists in ``people``.
+    """
+    person_key: str = str(data["person_key"])
+    if person_key not in people:
+        raise ValueError(f"Activity references unknown person_key {person_key!r}.")
+    return people[person_key]
 
 
 class PersonType(Enum):
@@ -68,17 +85,24 @@ class Person:
         else:
             return 0
 
-    def to_str(self) -> str:
-        return_str: str = f"{self.name},{str(self.hourly_rate)}"
-        return return_str
+    def to_dict(self) -> dict[str, Any]:
+        """Returns a JSON-serialisable dict of this person."""
+        return {
+            "name": self.name,
+            "unique_key": self.unique_key,
+            "person_type": self.person_type.name,
+            "hourly_rate": self.hourly_rate,
+        }
 
     @classmethod
-    def from_str(input: str) -> Person:
-        values: list[str] = input.split(",")
-        name: str = values[0]
-        unique_key: str = values[1]
-        hourly_rate: float = float(values[2])
-        return Person(name, unique_key, PersonType.RESEARCH_TEAM, hourly_rate)
+    def from_dict(cls, data: Mapping[str, Any]) -> Person:
+        """Creates a Person from a dict produced by ``to_dict``."""
+        return cls(
+            name=data["name"],
+            unique_key=str(data["unique_key"]),
+            person_type=PersonType[data["person_type"]],
+            hourly_rate=data["hourly_rate"],
+        )
 
 
 class Cost(Protocol):
@@ -155,6 +179,35 @@ class Activity(BaseActivity):
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
 
+    def to_dict(self) -> dict[str, Any]:
+        """Returns a JSON-serialisable dict of this activity. The person is stored by its unique_key."""
+        return {
+            "kind": "activity",
+            "name": self.name,
+            "person_key": self.person.unique_key,
+            "phase": self.phase,
+            "hours": self.hours,
+            "unique_key": self.unique_key,
+            "group_key": self.group_key,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], people: Mapping[str, Person]) -> Activity:
+        """Creates an Activity from a dict produced by ``to_dict``.
+
+        Args:
+            data: The serialised activity.
+            people: Every Person the activity could be assigned to, keyed by unique_key.
+        """
+        return cls(
+            name=data["name"],
+            person=_resolve_person(data, people),
+            phase=data["phase"],
+            hours=data["hours"],
+            unique_key=int(data["unique_key"]),
+            group_key=int(data["group_key"]),
+        )
+
 
 @dataclass
 class DirectCost:
@@ -182,6 +235,25 @@ class DirectCost:
     def get_phase(self) -> str:
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
+
+    def to_dict(self) -> dict[str, Any]:
+        """Returns a JSON-serialisable dict of this direct cost."""
+        return {
+            "name": self.name,
+            "phase": self.phase,
+            "cost": self.cost,
+            "unique_key": self.unique_key,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> DirectCost:
+        """Creates a DirectCost from a dict produced by ``to_dict``."""
+        return cls(
+            name=data["name"],
+            phase=data["phase"],
+            cost=data["cost"],
+            unique_key=int(data["unique_key"]),
+        )
 
 
 @dataclass
@@ -231,6 +303,39 @@ class PeerReview(BaseActivity):
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
 
+    def to_dict(self) -> dict[str, Any]:
+        """Returns a JSON-serialisable dict of this activity. The person is stored by its unique_key."""
+        return {
+            "kind": "peer_review",
+            "name": self.name,
+            "person_key": self.person.unique_key,
+            "phase": self.phase,
+            "review_rounds": self.review_rounds,
+            "journal_submissions": self.journal_submissions,
+            "initial_round_hours": self.initial_round_hours,
+            "subsequent_round_hours": self.subsequent_round_hours,
+            "unique_key": self.unique_key,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], people: Mapping[str, Person]) -> PeerReview:
+        """Creates a PeerReview from a dict produced by ``to_dict``.
+
+        Args:
+            data: The serialised activity.
+            people: Every Person the activity could be assigned to, keyed by unique_key.
+        """
+        return cls(
+            person=_resolve_person(data, people),
+            review_rounds=int(data["review_rounds"]),
+            journal_submissions=int(data["journal_submissions"]),
+            name=data["name"],
+            phase=data["phase"],
+            initial_round_hours=data["initial_round_hours"],
+            subsequent_round_hours=data["subsequent_round_hours"],
+            unique_key=int(data["unique_key"]),
+        )
+
 
 @dataclass
 class JournalEditing(BaseActivity):
@@ -273,3 +378,32 @@ class JournalEditing(BaseActivity):
     def get_phase(self) -> str:
         """Returns the phase of journal publication preparation this is assigned to."""
         return self.phase
+
+    def to_dict(self) -> dict[str, Any]:
+        """Returns a JSON-serialisable dict of this activity. The person is stored by its unique_key."""
+        return {
+            "kind": "journal_editing",
+            "name": self.name,
+            "person_key": self.person.unique_key,
+            "phase": self.phase,
+            "journal_submissions": self.journal_submissions,
+            "hours_per_submission": self.hours_per_submission,
+            "unique_key": self.unique_key,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], people: Mapping[str, Person]) -> JournalEditing:
+        """Creates a JournalEditing from a dict produced by ``to_dict``.
+
+        Args:
+            data: The serialised activity.
+            people: Every Person the activity could be assigned to, keyed by unique_key.
+        """
+        return cls(
+            person=_resolve_person(data, people),
+            journal_submissions=int(data["journal_submissions"]),
+            name=data["name"],
+            phase=data["phase"],
+            hours_per_submission=data["hours_per_submission"],
+            unique_key=int(data["unique_key"]),
+        )

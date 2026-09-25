@@ -31,20 +31,19 @@ import plotly.express as px
 import resvg_py
 import streamlit as st
 
+from calculator_state import CalculatorState, compute_costs, compute_hours
 from currencyrates import convert_currency
 from models import (
     Activity,
-    BaseActivity,
-    Cost,
     DirectCost,
-    JournalEditing,
-    PeerReview,
     Person,
     PersonType,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from models import Cost
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
@@ -147,38 +146,6 @@ COST_OPTIONS: dict[str, list[str]] = {
     ],
 }
 
-# Setup session variable to track progress through CoK tool.
-if "tool_step" not in st.session_state:
-    st.session_state["tool_step"]: int = 0
-
-
-def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
-    """Calculates the total cost of activities and direct costs in the given list.
-
-    Args:
-        costs: A list of Cost items (Activities or DirectCosts).
-        phase: If not None (default), only calculates costs for the given RESEARCH_PHASE key.
-    """
-    total_cost: float = 0.0
-    for cost_item in costs:
-        if phase is None or phase == cost_item.phase:
-            total_cost += cost_item.get_total_cost()
-    return total_cost
-
-
-def compute_hours(activities: Sequence[BaseActivity], phase: str | None = None) -> float:
-    """Calculates the total labour hours of activities in the given list.
-
-    Args:
-        costs: A list of Activity items.
-        phase: If not None (default), only calculates hours for the given RESEARCH_PHASE key.
-    """
-    total_hours: float = 0.0
-    for activity in activities:
-        if phase is None or phase == activity.get_phase():
-            total_hours += activity.get_hours()
-    return total_hours
-
 
 def currency_code() -> str:
     """ISO 4217 code (e.g. "USD") of the currency of the country chosen by the user."""
@@ -203,137 +170,11 @@ def format_currency(x: int | float) -> str:
 # Model variables
 # -----------------------------------------------
 
-# Create project variables
-if "user_name" not in st.session_state:
-    st.session_state["user_name"]: str | None = None
-
-# Backs the "Your name" text_input widget; kept in sync with "user_name" via its on_change callback.
-if "user_name_input" not in st.session_state:
-    st.session_state["user_name_input"]: str = st.session_state["user_name"] or ""
-
-if "user_country" not in st.session_state:
-    st.session_state["user_country"]: str = "us"
-
-# Backs the country selectbox; "user_country" is updated from it by convert_monetary_values once values are converted.
-if "user_country_select" not in st.session_state:
-    st.session_state["user_country_select"]: str = st.session_state["user_country"]
-
-if "international_collaborators" not in st.session_state:
-    st.session_state["international_collaborators"]: bool = False
-
-if "project_name" not in st.session_state:
-    st.session_state["project_name"]: str | None = None
-
-if "project_field" not in st.session_state:
-    st.session_state["project_field"]: str = "Social sciences"
-
-# Create initial people roles.
-if "people" not in st.session_state:
-    default_person: Person = Person(
-        name="Associate Professor",
-        unique_key="1",
-        person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
-    )
-
-    st.session_state["people"]: dict[str, Person] = {
-        default_person.unique_key: default_person,
-    }
-
-if "peer_reviewer" not in st.session_state:
-    st.session_state["peer_reviewer"]: Person = Person(
-        name="Peer reviewer",
-        unique_key="Peer reviewer",
-        person_type=PersonType.OTHER,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
-    )
-
-if "journal_editor" not in st.session_state:
-    st.session_state["journal_editor"]: Person = Person(
-        name="Journal editor",
-        unique_key="Journal editor",
-        person_type=PersonType.OTHER,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
-    )
-
-# Populate initial list of activities and costs.
-if "peer_review_activity" not in st.session_state:
-    st.session_state["peer_review_activity"]: PeerReview = PeerReview(
-        person=st.session_state["peer_reviewer"],
-        review_rounds=3,
-        journal_submissions=1,
-        unique_key=9,
-    )
-
-if "journal_editing_activity" not in st.session_state:
-    st.session_state["journal_editing_activity"]: JournalEditing = JournalEditing(
-        person=st.session_state["journal_editor"],
-        journal_submissions=1,
-        unique_key=10,
-    )
-
+# Populate every calculator input (project details, people, activities, direct costs and progress through the tool)
+# with the default state on the first run. CalculatorState.apply_to_session_state is also how a serialised
+# calculator is imported, so the defaults and the serialised fields are defined in one place (calculator_state.py).
 if "activity_list" not in st.session_state:
-    # Each Activity below is one person's share of an activity. Activities sharing a group_key form a single activity
-    # in the calculator, so the initial activities each start with one person and a group_key matching their key.
-    st.session_state["activity_list"]: list[BaseActivity] = [
-        Activity(
-            "Ideation and conception",
-            st.session_state["people"]["1"],
-            "incubation",
-            55,
-            1,
-            1,
-        ),
-        Activity("Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2, 2),
-        Activity(
-            "Grant applications",
-            st.session_state["people"]["1"],
-            "incubation",
-            171,
-            3,
-            3,
-        ),
-        Activity("Data collection", st.session_state["people"]["1"], "data", 48.5, 4, 4),
-        Activity(
-            "Interview transcription",
-            st.session_state["people"]["1"],
-            "data",
-            60.5,
-            5,
-            5,
-        ),
-        Activity("Data analysis", st.session_state["people"]["1"], "data", 157.5, 6, 6),
-        Activity(
-            "Writing and manuscript preparation",
-            st.session_state["people"]["1"],
-            "writing",
-            100,
-            7,
-            7,
-        ),
-        Activity(
-            "Conferencing (labor)",
-            st.session_state["people"]["1"],
-            "writing",
-            123,
-            8,
-            8,
-        ),
-        st.session_state["peer_review_activity"],
-        st.session_state["journal_editing_activity"],
-    ]
-
-# Create peer review and journal editorial variables.
-if "journal_submissions" not in st.session_state:
-    st.session_state["journal_submissions"]: int = 1
-if "review_rounds" not in st.session_state:
-    st.session_state["review_rounds"]: int = 3
-
-if "cost_list" not in st.session_state:
-    st.session_state["cost_list"]: list[DirectCost] = [
-        DirectCost("Participant incentivization", "data", 246, 1),
-        DirectCost("Conferencing (direct costs)", "writing", 3400, 2),
-    ]
+    CalculatorState.default().apply_to_session_state(st.session_state)
 
 # -----------------------------------------------
 # Header
@@ -1016,7 +857,9 @@ with main_left:
 # Visualisation pane
 
 # Calculate total costs and total hours.
-combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]  # ty:ignore[invalid-assignment]
+combined_costs_list: list[Cost] = (
+    st.session_state["activity_list"] + st.session_state["cost_list"]
+)
 total_cost: float = compute_costs(combined_costs_list)
 total_hours: float = compute_hours(st.session_state["activity_list"])
 

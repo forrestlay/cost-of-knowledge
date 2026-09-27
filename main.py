@@ -31,6 +31,7 @@ import plotly.express as px
 import resvg_py
 import streamlit as st
 
+from currencyrates import convert_currency
 from models import (
     Activity,
     BaseActivity,
@@ -54,6 +55,9 @@ COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # of these to a category keeps that phase or activity on the same Streamlit colour in
 # every chart. Charts with more than 10 categories fall back to px.colors.qualitative.Light24.
 STREAMLIT_CATEGORICAL_COLORS: list[str] = [f"#{n:06d}" for n in range(1, 11)]
+
+# Default hourly rate of labour for new people, in USD. Converted to the user's currency when a person is added.
+DEFAULT_HOURLY_RATE_USD: float = 85.0
 
 TOOL_STEPS: list[str] = [
     "project",
@@ -214,6 +218,10 @@ if "user_name_input" not in st.session_state:
 if "user_country" not in st.session_state:
     st.session_state["user_country"]: str = "us"
 
+# Backs the country selectbox; "user_country" is updated from it by convert_monetary_values once values are converted.
+if "user_country_select" not in st.session_state:
+    st.session_state["user_country_select"]: str = st.session_state["user_country"]
+
 if "international_collaborators" not in st.session_state:
     st.session_state["international_collaborators"]: bool = False
 
@@ -229,7 +237,7 @@ if "people" not in st.session_state:
         name="Associate Professor",
         unique_key="1",
         person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=85,
+        hourly_rate=DEFAULT_HOURLY_RATE_USD,
     )
 
     st.session_state["people"]: dict[str, Person] = {
@@ -241,7 +249,7 @@ if "peer_reviewer" not in st.session_state:
         name="Peer reviewer",
         unique_key="Peer reviewer",
         person_type=PersonType.OTHER,
-        hourly_rate=85,
+        hourly_rate=DEFAULT_HOURLY_RATE_USD,
     )
 
 if "journal_editor" not in st.session_state:
@@ -249,7 +257,7 @@ if "journal_editor" not in st.session_state:
         name="Journal editor",
         unique_key="Journal editor",
         person_type=PersonType.OTHER,
-        hourly_rate=85,
+        hourly_rate=DEFAULT_HOURLY_RATE_USD,
     )
 
 # Populate initial list of activities and costs.
@@ -427,11 +435,48 @@ with st.expander(
         key="user_name_input",
         on_change=update_default_person_name,
     )
-    st.session_state["user_country"] = st.selectbox(
+
+    def convert_monetary_values():
+        """Converts every monetary value to the currency of the newly selected country, then updates user_country."""
+        from_code: str = currency_code()
+        to_code: str = COUNTRY_CURRENCIES[st.session_state["user_country_select"]][0]
+        st.session_state["user_country"] = st.session_state["user_country_select"]
+        if from_code == to_code:
+            return
+
+        def convert(amount: int | float) -> float:
+            converted: float | None = convert_currency(amount, from_code, to_code)
+            return 0.0 if converted is None else round(converted, 2)
+
+        # Check a rate exists for both currencies before changing anything, so values are never left half-converted.
+        if convert(1) is None:
+            st.toast(
+                f"Exchange rates for {from_code} to {to_code} are unavailable, so costs have not been converted.",
+                icon=":material/currency_exchange:",
+            )
+            return
+
+        people: list[Person] = [
+            *st.session_state["people"].values(),
+            st.session_state["peer_reviewer"],
+            st.session_state["journal_editor"],
+        ]
+        for person in people:
+            person.hourly_rate = convert(person.hourly_rate)
+            # Drop the widget's state so the number_input picks up the converted rate as its value.
+            st.session_state.pop(f"person-rate-{person.unique_key}", None)
+        for direct_cost in st.session_state["cost_list"]:
+            direct_cost.cost = convert(direct_cost.cost)
+            st.session_state.pop(f"directcost-cost-{direct_cost.unique_key}", None)
+
+        st.toast(f"Costs converted from {from_code} to {to_code}.", icon=":material/currency_exchange:")
+
+    st.selectbox(
         "The country your research project is primarily associated with/where most of the costs are incurred",
         COUNTRY_CODES,
-        index=COUNTRY_CODES.index(st.session_state["user_country"]),
         format_func=lambda code: COUNTRY_NAMES[code],
+        key="user_country_select",
+        on_change=convert_monetary_values,
     )
     st.session_state["international_collaborators"] = st.radio(
         "Does your project have international collaborators outside of the primary country?",
@@ -484,11 +529,13 @@ def add_person(key: str | None = None):
             if person.unique_key.isdigit()
         ]
         key = str(max(person_key_list) + 1)
+    # Start new people at the default rate in the user's currency, or in USD if no exchange rate is available.
+    hourly_rate: float | None = convert_currency(DEFAULT_HOURLY_RATE_USD, "USD", currency_code())
     st.session_state["people"][key] = Person(
         name=None,
         unique_key=key,
         person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=85,
+        hourly_rate=DEFAULT_HOURLY_RATE_USD if hourly_rate is None else round(hourly_rate, 2),
     )
 
 
@@ -578,11 +625,11 @@ with st.expander(
             # warning.
             person_rate_key: str = f"person-rate-{person.unique_key}"
             person_rate_value: float | Literal["min"] = (
-                "min" if person_rate_key in st.session_state else person.hourly_rate
+                "min" if person_rate_key in st.session_state else float(person.hourly_rate)
             )
             person.hourly_rate: int | float = st.number_input(
                 f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
-                min_value=0,
+                min_value=0.0,
                 value=person_rate_value,
                 key=person_rate_key,
             )
@@ -788,16 +835,16 @@ with main_left:
 
                 st.session_state["peer_reviewer"].hourly_rate: int | float = (
                     st.number_input(
-                        "Hourly rate of peer reviewer",
-                        min_value=0,
-                        value=st.session_state["peer_reviewer"].hourly_rate,
+                        f"Hourly rate of peer reviewer (in {currency_code()})",
+                        min_value=0.0,
+                        value=float(st.session_state["peer_reviewer"].hourly_rate),
                     )
                 )
                 st.session_state["journal_editor"].hourly_rate: int | float = (
                     st.number_input(
-                        "Hourly rate of journal editor",
-                        min_value=0,
-                        value=st.session_state["journal_editor"].hourly_rate,
+                        f"Hourly rate of journal editor (in {currency_code()})",
+                        min_value=0.0,
+                        value=float(st.session_state["journal_editor"].hourly_rate),
                     )
                 )
                 with st.container(horizontal=True, horizontal_alignment="left"):

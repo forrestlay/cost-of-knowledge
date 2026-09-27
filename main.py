@@ -31,7 +31,6 @@ import plotly.express as px
 import resvg_py
 import streamlit as st
 
-from currencyrates import convert_currency
 from models import (
     Activity,
     BaseActivity,
@@ -55,9 +54,6 @@ COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # of these to a category keeps that phase or activity on the same Streamlit colour in
 # every chart. Charts with more than 10 categories fall back to px.colors.qualitative.Light24.
 STREAMLIT_CATEGORICAL_COLORS: list[str] = [f"#{n:06d}" for n in range(1, 11)]
-
-# Default hourly rate of labour for new people, in USD. Converted to the user's currency when a person is added.
-DEFAULT_HOURLY_RATE_USD: float = 85.0
 
 TOOL_STEPS: list[str] = [
     "project",
@@ -85,22 +81,6 @@ COUNTRY_NAMES: dict[str, str] = {
     str(country["code"]): str(country["name"]) for country in _COUNTRY_DATA
 }
 COUNTRY_CODES: list[str] = sorted(COUNTRY_NAMES, key=lambda code: COUNTRY_NAMES[code])
-# ISO 4217 currency code (e.g. "USD") and symbol (e.g. "$") for each country code.
-COUNTRY_CURRENCIES: dict[str, tuple[str, str]] = {
-    str(country["code"]): (
-        str(country["currency_code"]),
-        str(country["currency_symbol"]),
-    )
-    for country in _COUNTRY_DATA
-}
-# ISO 4217 currency code (e.g. "USD") and symbol (e.g. "$") for each country code.
-COUNTRY_CURRENCIES: dict[str, tuple[str, str]] = {
-    str(country["code"]): (
-        str(country["currency_code"]),
-        str(country["currency_symbol"]),
-    )
-    for country in _COUNTRY_DATA
-}
 
 ROLES: list[str] = [
     "Professor",
@@ -192,40 +172,9 @@ def compute_hours(
     return total_hours
 
 
-def currency_code() -> str:
-    """ISO 4217 code (e.g. "USD") of the currency of the country chosen by the user."""
-    return COUNTRY_CURRENCIES[st.session_state["user_country"]][0]
-
-
-def currency_prefix() -> str:
-    """Prefix put before amounts in the chosen country's currency.
-
-    The currency symbol (e.g. "$"), or the ISO code and a space (e.g. "AED ") for currencies without one.
-    """
-    code, symbol = COUNTRY_CURRENCIES[st.session_state["user_country"]]
-    return symbol if symbol != code else f"{code} "
-
-
-def format_currency(x: int | float) -> str:
-    """Formats an int or float to a string in the currency of the country chosen by the user."""
-    return f"{currency_prefix()}{x:,.0f} ({currency_code()})"
-def currency_code() -> str:
-    """ISO 4217 code (e.g. "USD") of the currency of the country chosen by the user."""
-    return COUNTRY_CURRENCIES[st.session_state["user_country"]][0]
-
-
-def currency_prefix() -> str:
-    """Prefix put before amounts in the chosen country's currency.
-
-    The currency symbol (e.g. "$"), or the ISO code and a space (e.g. "AED ") for currencies without one.
-    """
-    code, symbol = COUNTRY_CURRENCIES[st.session_state["user_country"]]
-    return symbol if symbol != code else f"{code} "
-
-
-def format_currency(x: int | float) -> str:
-    """Formats an int or float to a string in the currency of the country chosen by the user."""
-    return f"{currency_prefix()}{x:,.0f} ({currency_code()})"
+def format_usd(x: int | float) -> str:
+    """Formats an int or float to a string displaying US$."""
+    return f"US${x:,.0f}"
 
 
 # -----------------------------------------------
@@ -243,10 +192,6 @@ if "user_name_input" not in st.session_state:
 if "user_country" not in st.session_state:
     st.session_state["user_country"]: str = "us"
 
-# Backs the country selectbox; "user_country" is updated from it by convert_monetary_values once values are converted.
-if "user_country_select" not in st.session_state:
-    st.session_state["user_country_select"]: str = st.session_state["user_country"]
-
 if "international_collaborators" not in st.session_state:
     st.session_state["international_collaborators"]: bool = False
 
@@ -262,7 +207,7 @@ if "people" not in st.session_state:
         name="Associate Professor",
         unique_key="1",
         person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
+        hourly_rate=85,
     )
 
     st.session_state["people"]: dict[str, Person] = {
@@ -274,7 +219,7 @@ if "peer_reviewer" not in st.session_state:
         name="Peer reviewer",
         unique_key="Peer reviewer",
         person_type=PersonType.OTHER,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
+        hourly_rate=85,
     )
 
 if "journal_editor" not in st.session_state:
@@ -282,7 +227,7 @@ if "journal_editor" not in st.session_state:
         name="Journal editor",
         unique_key="Journal editor",
         person_type=PersonType.OTHER,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
+        hourly_rate=85,
     )
 
 # Populate initial list of activities and costs.
@@ -460,48 +405,11 @@ with st.expander(
         key="user_name_input",
         on_change=update_default_person_name,
     )
-
-    def convert_monetary_values():
-        """Converts every monetary value to the currency of the newly selected country, then updates user_country."""
-        from_code: str = currency_code()
-        to_code: str = COUNTRY_CURRENCIES[st.session_state["user_country_select"]][0]
-        st.session_state["user_country"] = st.session_state["user_country_select"]
-        if from_code == to_code:
-            return
-
-        def convert(amount: int | float) -> float:
-            converted: float | None = convert_currency(amount, from_code, to_code)
-            return 0.0 if converted is None else round(converted, 2)
-
-        # Check a rate exists for both currencies before changing anything, so values are never left half-converted.
-        if convert(1) is None:
-            st.toast(
-                f"Exchange rates for {from_code} to {to_code} are unavailable, so costs have not been converted.",
-                icon=":material/currency_exchange:",
-            )
-            return
-
-        people: list[Person] = [
-            *st.session_state["people"].values(),
-            st.session_state["peer_reviewer"],
-            st.session_state["journal_editor"],
-        ]
-        for person in people:
-            person.hourly_rate = convert(person.hourly_rate)
-            # Drop the widget's state so the number_input picks up the converted rate as its value.
-            st.session_state.pop(f"person-rate-{person.unique_key}", None)
-        for direct_cost in st.session_state["cost_list"]:
-            direct_cost.cost = convert(direct_cost.cost)
-            st.session_state.pop(f"directcost-cost-{direct_cost.unique_key}", None)
-
-        st.toast(f"Costs converted from {from_code} to {to_code}.", icon=":material/currency_exchange:")
-
-    st.selectbox(
+    st.session_state["user_country"] = st.selectbox(
         "The country your research project is primarily associated with/where most of the costs are incurred",
         COUNTRY_CODES,
+        index=COUNTRY_CODES.index(st.session_state["user_country"]),
         format_func=lambda code: COUNTRY_NAMES[code],
-        key="user_country_select",
-        on_change=convert_monetary_values,
     )
     st.session_state["international_collaborators"] = st.radio(
         "Does your project have international collaborators outside of the primary country?",
@@ -554,13 +462,11 @@ def add_person(key: str | None = None):
             if person.unique_key.isdigit()
         ]
         key = str(max(person_key_list) + 1)
-    # Start new people at the default rate in the user's currency, or in USD if no exchange rate is available.
-    hourly_rate: float | None = convert_currency(DEFAULT_HOURLY_RATE_USD, "USD", currency_code())
     st.session_state["people"][key] = Person(
         name=None,
         unique_key=key,
         person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD if hourly_rate is None else round(hourly_rate, 2),
+        hourly_rate=85,
     )
 
 
@@ -570,8 +476,7 @@ def delete_person(key: str):
 
 @st.dialog("Calculate your hourly rate")
 def calculate_hourly_rate(person: Person, key: str):
-    salary: int = st.number_input(f"What is your salary in {currency_code()}?", step=1, min_value=0)
-    salary: int = st.number_input(f"What is your salary in {currency_code()}?", step=1, min_value=0)
+    salary: int = st.number_input("What is your salary?", step=1, min_value=0)
     months: int = st.number_input(
         "What is the period for which that salary is paid in months?",
         step=1,
@@ -651,11 +556,11 @@ with st.expander(
             # warning.
             person_rate_key: str = f"person-rate-{person.unique_key}"
             person_rate_value: float | Literal["min"] = (
-                "min" if person_rate_key in st.session_state else float(person.hourly_rate)
+                "min" if person_rate_key in st.session_state else person.hourly_rate
             )
             person.hourly_rate: int | float = st.number_input(
-                f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
-                min_value=0.0,
+                "Hourly rate of labor including indirect on-costs",
+                min_value=0,
                 value=person_rate_value,
                 key=person_rate_key,
             )
@@ -861,16 +766,16 @@ with main_left:
 
                 st.session_state["peer_reviewer"].hourly_rate: int | float = (
                     st.number_input(
-                        f"Hourly rate of peer reviewer (in {currency_code()})",
-                        min_value=0.0,
-                        value=float(st.session_state["peer_reviewer"].hourly_rate),
+                        "Hourly rate of peer reviewer",
+                        min_value=0,
+                        value=st.session_state["peer_reviewer"].hourly_rate,
                     )
                 )
                 st.session_state["journal_editor"].hourly_rate: int | float = (
                     st.number_input(
-                        f"Hourly rate of journal editor (in {currency_code()})",
-                        min_value=0.0,
-                        value=float(st.session_state["journal_editor"].hourly_rate),
+                        "Hourly rate of journal editor",
+                        min_value=0,
+                        value=st.session_state["journal_editor"].hourly_rate,
                     )
                 )
                 with st.container(horizontal=True, horizontal_alignment="left"):
@@ -1040,8 +945,7 @@ with main_left:
                             )
 
                         phase_cost.cost: float = st.number_input(
-                            f"Cost ({currency_code()})",
-                            f"Cost ({currency_code()})",
+                            "Cost US$",
                             key=f"directcost-cost-{phase_cost.unique_key}",
                             min_value=0.0,
                             step=0.50,
@@ -1050,8 +954,7 @@ with main_left:
                         # Show badge if hours is 0.
                         if phase_cost.cost == 0.0:
                             st.badge(
-                                f"Cost is set to {format_currency(0)}",
-                                f"Cost is set to {format_currency(0)}",
+                                "Cost is set to $0",
                                 icon=":material/exclamation:",
                                 color="orange",
                             )
@@ -1135,13 +1038,11 @@ person_color_map: dict[str, str] = build_color_map(
 
 with main_right:
     k1, k2, k3 = st.columns(3)
-    k1.metric("Estimated total cost", format_currency(total_cost))
-    k1.metric("Estimated total cost", format_currency(total_cost))
+    k1.metric("Estimated total cost", format_usd(total_cost))
     k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
     k3.metric(
         "Estimated direct costs",
-        format_currency(compute_costs(st.session_state["cost_list"])),
-        format_currency(compute_costs(st.session_state["cost_list"])),
+        format_usd(compute_costs(st.session_state["cost_list"])),
     )
 
     # Costs pie chart
@@ -1191,8 +1092,7 @@ with main_right:
                 activity.get_name() or "Unnamed"
                 for activity in st.session_state["activity_list"]
             ],
-            "Cost": [
-            "Cost": [
+            "Cost (USD)": [
                 activity.get_total_cost()
                 for activity in st.session_state["activity_list"]
             ],
@@ -1213,11 +1113,8 @@ with main_right:
     sunburst = px.sunburst(
         labour_df,
         path=["Phase", "Person", "Activity"],
-        values="Cost",
-        values="Cost",
+        values="Cost (USD)",
         color="Phase",
-        labels={"Cost": f"Cost ({currency_code()})"},
-        labels={"Cost": f"Cost ({currency_code()})"},
         color_discrete_map=phase_color_map,
         title="Cost of Labor Breakdown by Phase, Role and Activity",
     )
@@ -1260,18 +1157,7 @@ with main_right:
     st.plotly_chart(hours_per_person_chart, width="stretch")
 
     labour_chart_selection = st.pills(
-        "**Show labor as**",
-        ["Cost", "Hours"],
-        default="Cost",
-        format_func=lambda option: (
-            f"Cost ({currency_code()})" if option == "Cost" else option
-        ),
-        "**Show labor as**",
-        ["Cost", "Hours"],
-        default="Cost",
-        format_func=lambda option: (
-            f"Cost ({currency_code()})" if option == "Cost" else option
-        ),
+        "**Show labor as**", ["Cost (USD)", "Hours"], default="Cost (USD)"
     )
 
     labour_chart = px.bar(
@@ -1282,19 +1168,10 @@ with main_right:
         color_discrete_map=phase_color_map,
         title="Cost of and Time Spent on Labor Activities",
         text_auto=True,
-        labels={"Cost": f"Cost ({currency_code()})"},
-        labels={"Cost": f"Cost ({currency_code()})"},
     )
-    if labour_chart_selection == "Cost":
-        labour_chart.update_traces(
-            texttemplate=f"{currency_prefix()}%{{y:,.2f}}", textposition="outside"
-        )
-        labour_chart.update_yaxes(tickprefix=currency_prefix())
-    if labour_chart_selection == "Cost":
-        labour_chart.update_traces(
-            texttemplate=f"{currency_prefix()}%{{y:,.2f}}", textposition="outside"
-        )
-        labour_chart.update_yaxes(tickprefix=currency_prefix())
+    if labour_chart_selection == "Cost (USD)":
+        labour_chart.update_traces(texttemplate="%{y:$.2f}", textposition="outside")
+        labour_chart.update_yaxes(tickprefix="$")
     else:
         labour_chart.update_traces(
             texttemplate="%{y:.1f} hours", textposition="outside"
@@ -1351,11 +1228,9 @@ def create_social_media_svg(
             other countries; appends "+ others" after the country name.
         project_name: Title of the paper/project ("" if the user left it blank).
         project_field: Field of science the project sits in.
-        total_cost: Estimated total cost in the chosen country's currency.
-        total_cost: Estimated total cost in the chosen country's currency.
+        total_cost: Estimated total cost in USD.
         total_hours: Estimated total hours of labour.
-        phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
-        phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
+        phase_costs: Cost in USD per research phase, keyed by phase display name.
     """
     width: int = 1080
     height: int = 1360
@@ -1510,8 +1385,7 @@ def create_social_media_svg(
     )
     image.append(
         draw.Text(
-            format_currency(total_cost),
-            format_currency(total_cost),
+            format_usd(total_cost),
             88,
             margin,
             figures_y + 84,
@@ -1602,8 +1476,7 @@ def create_social_media_svg(
         )
         image.append(
             draw.Text(
-                f"{format_currency(amount)}  ({share:.0f}%)",
-                f"{format_currency(amount)}  ({share:.0f}%)",
+                f"{format_usd(amount)}  ({share:.0f}%)",
                 legend_font,
                 width - margin,
                 row_y,
@@ -1653,8 +1526,7 @@ def share_summary(total_cost: float, total_hours: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
         f"Using the Cost of Knowledge Calculator, I estimated that my research publication cost "
-        f"{format_currency(total_cost)} and {total_hours:,.0f} hours of labor."
-        f"{format_currency(total_cost)} and {total_hours:,.0f} hours of labor."
+        f"{format_usd(total_cost)} and {total_hours:,.0f} hours of labor."
     )
 
 

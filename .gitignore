@@ -40,3 +40,10 @@ MANIFEST
 # AI Agents
 .agents/
 .claude/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# Daily exchange rates cache, created by currencyrates.py
+data/exchange_rates.json
+data/exchange_rates.json.tmp

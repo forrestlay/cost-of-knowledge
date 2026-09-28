@@ -176,6 +176,9 @@ def format_currency(x: int | float) -> str:
 if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
 
+if "user_country_select" not in st.session_state:
+    st.session_state["user_country_select"]: str = st.session_state["user_country"]
+
 # -----------------------------------------------
 # Header
 # -----------------------------------------------

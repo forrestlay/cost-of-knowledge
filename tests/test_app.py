@@ -64,7 +64,8 @@ def run_app() -> AppTest:
 
 def test_defaults_unchanged() -> None:
     at: AppTest = run_app()
-    assert metric_values(at) == ["US$71,518", "798 h", "US$3,646"]
+    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
+    assert at.selectbox(key="user_country_select").value == "us"
 
 
 def test_session_state_round_trip() -> None:
@@ -99,14 +100,15 @@ def test_import_replaces_edited_widgets() -> None:
     assert not at.exception
 
     assert metric_values(at) == [
-        f"US${restored.total_cost():,.0f}",
+        f"${restored.total_cost():,.0f} (USD)",
         f"{restored.total_hours():.0f} h",
-        "US$3,646",
+        "$3,646 (USD)",
     ]
     assert at.number_input(key="activity-hours-1").value == 55.0
     assert at.number_input(key="person-rate-1").value == 50.5
     assert at.number_input(key="person-rate-2").value == 40
     assert at.slider(key="review-rounds").value == 2
     assert at.text_input(key="user_name_input").value == "Ada"
+    assert at.selectbox(key="user_country_select").value == "us"
     assert at.session_state["project_name"] == "Imported project"
     assert CalculatorState.from_session_state(AppTestSessionState(at)) == restored

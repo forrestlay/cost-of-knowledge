@@ -59,6 +59,7 @@ WIDGET_KEY_PREFIXES: tuple[str, ...] = (
     "directcost-cost-",  # Calculator: direct cost number_input
 )
 WIDGET_KEYS: tuple[str, ...] = (
+    "user_country_select",  # You and your project: country selectbox
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
 )
@@ -360,6 +361,8 @@ class CalculatorState:
         session_state["user_name"] = self.user_name
         session_state["user_name_input"] = self.user_name or ""
         session_state["user_country"] = self.user_country
+        # The country selectbox has no index=, so seed its widget state or it would show the first country in the list.
+        session_state["user_country_select"] = self.user_country
         session_state["international_collaborators"] = self.international_collaborators
         session_state["project_name"] = self.project_name
         session_state["project_field"] = self.project_field

@@ -36,8 +36,8 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 EXCHANGE_RATES_API_URL: str = "https://api.exchangeratesapi.io/v1/latest"
 EXCHANGE_RATES_SECRET: str = "EXCHANGE_RATES_API_KEY"
-EXCHANGE_RATES_FILE: Path = Path(__file__).parent / "data" / "exchange_rates.json"
-DEFAULT_EXCHANGE_RATES_FILE: Path = Path(__file__).parent / "data" / "exchange_rates_default.json"
+EXCHANGE_RATES_FILE: Path = Path(__file__).parent.parent / "data" / "exchange_rates.json"
+DEFAULT_EXCHANGE_RATES_FILE: Path = Path(__file__).parent.parent / "data" / "exchange_rates_default.json"
 
 
 class RateLimitError(RuntimeError):

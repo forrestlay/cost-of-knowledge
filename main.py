@@ -21,6 +21,8 @@ limitations under the License.
 """
 
 import json
+import logging
+from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
@@ -31,20 +33,21 @@ import plotly.express as px
 import resvg_py
 import streamlit as st
 
-from currencyrates import convert_currency
-from models import (
+from src import database, sql_store
+from src.calculator_state import CalculatorState, compute_costs, compute_hours
+from src.currency_rates import convert_currency
+from src.database import DatabaseType, get_database_type, init_database
+from src.models import (
     Activity,
-    BaseActivity,
-    Cost,
     DirectCost,
-    JournalEditing,
-    PeerReview,
     Person,
     PersonType,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from src.models import Cost
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
@@ -66,6 +69,7 @@ TOOL_STEPS: list[str] = [
     "data",
     "writing",
     "editing",
+    "save",
     "end",
 ]
 
@@ -147,38 +151,6 @@ COST_OPTIONS: dict[str, list[str]] = {
     ],
 }
 
-# Setup session variable to track progress through CoK tool.
-if "tool_step" not in st.session_state:
-    st.session_state["tool_step"]: int = 0
-
-
-def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
-    """Calculates the total cost of activities and direct costs in the given list.
-
-    Args:
-        costs: A list of Cost items (Activities or DirectCosts).
-        phase: If not None (default), only calculates costs for the given RESEARCH_PHASE key.
-    """
-    total_cost: float = 0.0
-    for cost_item in costs:
-        if phase is None or phase == cost_item.phase:
-            total_cost += cost_item.get_total_cost()
-    return total_cost
-
-
-def compute_hours(activities: Sequence[BaseActivity], phase: str | None = None) -> float:
-    """Calculates the total labour hours of activities in the given list.
-
-    Args:
-        costs: A list of Activity items.
-        phase: If not None (default), only calculates hours for the given RESEARCH_PHASE key.
-    """
-    total_hours: float = 0.0
-    for activity in activities:
-        if phase is None or phase == activity.get_phase():
-            total_hours += activity.get_hours()
-    return total_hours
-
 
 def currency_code() -> str:
     """ISO 4217 code (e.g. "USD") of the currency of the country chosen by the user."""
@@ -203,137 +175,60 @@ def format_currency(x: int | float) -> str:
 # Model variables
 # -----------------------------------------------
 
-# Create project variables
-if "user_name" not in st.session_state:
-    st.session_state["user_name"]: str | None = None
+# Populate every calculator input (project details, people, activities, direct costs and progress through the tool)
+# with the default state on the first run. CalculatorState.apply_to_session_state is also how a serialised
+# calculator is imported, so the defaults and the serialised fields are defined in one place (calculator_state.py).
+if "activity_list" not in st.session_state:
+    CalculatorState.default().apply_to_session_state(st.session_state)
 
-# Backs the "Your name" text_input widget; kept in sync with "user_name" via its on_change callback.
-if "user_name_input" not in st.session_state:
-    st.session_state["user_name_input"]: str = st.session_state["user_name"] or ""
-
-if "user_country" not in st.session_state:
-    st.session_state["user_country"]: str = "us"
-
-# Backs the country selectbox; "user_country" is updated from it by convert_monetary_values once values are converted.
 if "user_country_select" not in st.session_state:
     st.session_state["user_country_select"]: str = st.session_state["user_country"]
 
-if "international_collaborators" not in st.session_state:
-    st.session_state["international_collaborators"]: bool = False
+# Create and initialise the database set by DATABASE_TYPE, if any. Saving is disabled when it is "none".
+DATABASE_TYPE: DatabaseType = get_database_type()
 
-if "project_name" not in st.session_state:
-    st.session_state["project_name"]: str | None = None
+# Tried once per session, so an unreachable database does not slow every rerun. Saving connects again, and reports
+# the error to the user if the database is still unreachable.
+if "database_initialised" not in st.session_state:
+    try:
+        init_database()
+    except database.DATABASE_ERRORS:
+        logging.getLogger(__name__).exception("Could not initialise the %s database.", DATABASE_TYPE)
+    st.session_state["database_initialised"] = True
 
-if "project_field" not in st.session_state:
-    st.session_state["project_field"]: str = "Social sciences"
+# Query parameter holding the public id of a project saved to the database, e.g. ?project_id=V1StGXR8_Z5jdHi6B-myT,
+# which is loaded on page load.
+PROJECT_ID_QUERY_PARAM: str = "project_id"
 
-# Create initial people roles.
-if "people" not in st.session_state:
-    default_person: Person = Person(
-        name="Associate Professor",
-        unique_key="1",
-        person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
-    )
 
-    st.session_state["people"]: dict[str, Person] = {
-        default_person.unique_key: default_person,
-    }
+def load_from_database(public_id: str) -> None:
+    """Replaces the calculator's inputs with the project saved in the database under the given public id.
 
-if "peer_reviewer" not in st.session_state:
-    st.session_state["peer_reviewer"]: Person = Person(
-        name="Peer reviewer",
-        unique_key="Peer reviewer",
-        person_type=PersonType.OTHER,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
-    )
+    Must run before any widget is rendered, as it replaces widget state. Later saves in the session update the loaded
+    project.
+    """
+    if DATABASE_TYPE == "none":
+        st.toast("Could not load the project: no database is configured.", icon=":material/error:")
+        return
+    try:
+        with closing(database.connect()) as conn:
+            state: CalculatorState = sql_store.load_project(conn, public_id)
+    except KeyError:
+        st.toast(f"Could not load the project: no project with id {public_id!r}.", icon=":material/error:")
+        return
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not load the project from the database: {error}", icon=":material/error:")
+        return
+    state.apply_to_session_state(st.session_state)
+    st.session_state["database_public_id"] = public_id
+    st.toast("Loaded the project from the database.", icon=":material/check_circle:")
 
-if "journal_editor" not in st.session_state:
-    st.session_state["journal_editor"]: Person = Person(
-        name="Journal editor",
-        unique_key="Journal editor",
-        person_type=PersonType.OTHER,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD,
-    )
 
-# Populate initial list of activities and costs.
-if "peer_review_activity" not in st.session_state:
-    st.session_state["peer_review_activity"]: PeerReview = PeerReview(
-        person=st.session_state["peer_reviewer"],
-        review_rounds=3,
-        journal_submissions=1,
-        unique_key=9,
-    )
-
-if "journal_editing_activity" not in st.session_state:
-    st.session_state["journal_editing_activity"]: JournalEditing = JournalEditing(
-        person=st.session_state["journal_editor"],
-        journal_submissions=1,
-        unique_key=10,
-    )
-
-if "activity_list" not in st.session_state:
-    # Each Activity below is one person's share of an activity. Activities sharing a group_key form a single activity
-    # in the calculator, so the initial activities each start with one person and a group_key matching their key.
-    st.session_state["activity_list"]: list[BaseActivity] = [
-        Activity(
-            "Ideation and conception",
-            st.session_state["people"]["1"],
-            "incubation",
-            55,
-            1,
-            1,
-        ),
-        Activity("Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2, 2),
-        Activity(
-            "Grant applications",
-            st.session_state["people"]["1"],
-            "incubation",
-            171,
-            3,
-            3,
-        ),
-        Activity("Data collection", st.session_state["people"]["1"], "data", 48.5, 4, 4),
-        Activity(
-            "Interview transcription",
-            st.session_state["people"]["1"],
-            "data",
-            60.5,
-            5,
-            5,
-        ),
-        Activity("Data analysis", st.session_state["people"]["1"], "data", 157.5, 6, 6),
-        Activity(
-            "Writing and manuscript preparation",
-            st.session_state["people"]["1"],
-            "writing",
-            100,
-            7,
-            7,
-        ),
-        Activity(
-            "Conferencing (labor)",
-            st.session_state["people"]["1"],
-            "writing",
-            123,
-            8,
-            8,
-        ),
-        st.session_state["peer_review_activity"],
-        st.session_state["journal_editing_activity"],
-    ]
-
-# Create peer review and journal editorial variables.
-if "journal_submissions" not in st.session_state:
-    st.session_state["journal_submissions"]: int = 1
-if "review_rounds" not in st.session_state:
-    st.session_state["review_rounds"]: int = 3
-
-if "cost_list" not in st.session_state:
-    st.session_state["cost_list"]: list[DirectCost] = [
-        DirectCost("Participant incentivization", "data", 246, 1),
-        DirectCost("Conferencing (direct costs)", "writing", 3400, 2),
-    ]
+# Load only when the query parameter changes, so the user's edits are not overwritten by the saved project every rerun.
+query_project_id: str | None = st.query_params.get(PROJECT_ID_QUERY_PARAM)
+if query_project_id is not None and query_project_id != st.session_state.get("loaded_query_project_id"):
+    st.session_state["loaded_query_project_id"] = query_project_id
+    load_from_database(query_project_id)
 
 # -----------------------------------------------
 # Header
@@ -743,6 +638,31 @@ def delete_direct_cost(direct_cost: DirectCost):
     st.session_state["cost_list"].remove(direct_cost)
 
 
+def save_to_database() -> None:
+    """Saves the calculator's current inputs to the configured database.
+
+    The first save creates a new project, and later saves in the same session update that project. Its public id is kept
+    in st.session_state["database_public_id"] so it persists across script reruns.
+    """
+    state: CalculatorState = CalculatorState.from_session_state(st.session_state)
+    public_id: str | None = st.session_state.get("database_public_id")
+    try:
+        with closing(database.connect()) as conn:
+            if public_id is not None:
+                try:
+                    sql_store.update_project(conn, public_id, state)
+                except KeyError:
+                    # The saved project was deleted from the database, so save it again as a new project.
+                    public_id = None
+            if public_id is None:
+                public_id = sql_store.save_project(conn, state)
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not save to the database: {error}", icon=":material/error:")
+        return
+    st.session_state["database_public_id"] = public_id
+    st.toast("Saved to the database.", icon=":material/check_circle:")
+
+
 st.header(":material/request_quote: Calculator")
 
 main_left, main_right = st.columns([1, 2])
@@ -1013,10 +933,45 @@ with main_left:
                         args=[phase],
                     )
 
+    # Special phase for saving to the database, shown only when a database is configured.
+    if DATABASE_TYPE in ("sqlite", "mysql"):
+        with st.expander(
+            "Save and share your result?",
+            expanded=TOOL_STEPS[st.session_state["tool_step"]] == "save",
+            key="save-expander",
+            on_change="rerun",
+        ):
+            st.markdown("""
+                        If you would like to share your result with others, we will require your permission to save
+                        the information you have input into this tool. If you are happy to do so, please click on the
+                        button below. You can then share your result with the buttons below.
+                        """)
+            with st.container(horizontal=True, horizontal_alignment="left"):
+                # The tool step advances in the on_click callback, as the expander's state cannot be changed once it
+                # is rendered. Saving is not done in the callback, as callbacks run before the script copies unkeyed
+                # widget values into session state.
+                if st.button(
+                    "Save your result to share",
+                    icon=":material/save:",
+                    type="primary",
+                    help="Save your inputs to the database. Saving again updates the same project.",
+                    on_click=next_tool_step,
+                    args=["save"],
+                ):
+                    save_to_database()
+                st.button(
+                    "Do not save my result",
+                    key="next-phase-save",
+                    icon=":material/close:",
+                    on_click=next_tool_step,
+                    args=["save"],
+                )
+
+
 # Visualisation pane
 
 # Calculate total costs and total hours.
-combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]  # ty:ignore[invalid-assignment]
+combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]
 total_cost: float = compute_costs(combined_costs_list)
 total_hours: float = compute_hours(st.session_state["activity_list"])
 
@@ -1505,38 +1460,130 @@ def share_summary(total_cost: float, total_hours: float) -> str:
     )
 
 
+def share_link(saved_url: str | None) -> tuple[str, str]:
+    """Returns the link shared on social media and by email, and the call to action introducing it.
+
+    Args:
+        saved_url: Link to the user's saved result, or None if it has not been saved, in which case the tool's own
+            link is shared.
+    """
+    if saved_url is None:
+        return COST_OF_KNOWLEDGE_URL, "Estimate your own Cost of Knowledge"
+    return saved_url, "See my result and estimate your own Cost of Knowledge"
+
+
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
-def linkedin_share_url(total_cost: float, total_hours: float) -> str:
+def linkedin_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
-    text: str = (
-        f"{share_summary(total_cost, total_hours)}\n\nEstimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
-    )
+    url, call_to_action = share_link(saved_url)
+    text: str = f"{share_summary(total_cost, total_hours)}\n\n{call_to_action} at {url}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
-def x_share_url(total_cost: float, total_hours: float) -> str:
-    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to the tool."""
-    text: str = f"{share_summary(total_cost, total_hours)} Estimate your own Cost of Knowledge:"
-    return f"https://x.com/intent/post?text={quote(text)}&url={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
+def x_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to share."""
+    url, call_to_action = share_link(saved_url)
+    text: str = f"{share_summary(total_cost, total_hours)} {call_to_action}:"
+    return f"https://x.com/intent/post?text={quote(text)}&url={quote(url, safe='')}"
 
 
-def facebook_share_url() -> str:
-    """Builds a link that opens Facebook's share dialog for the tool.
+def facebook_share_url(saved_url: str | None) -> str:
+    """Builds a link that opens Facebook's share dialog for the saved result, or for the tool if it is not saved.
 
     Facebook's share dialog only accepts a URL; it does not allow pre-filled post text.
     """
-    return f"https://www.facebook.com/sharer/sharer.php?u={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
+    url, _ = share_link(saved_url)
+    return f"https://www.facebook.com/sharer/sharer.php?u={quote(url, safe='')}"
 
 
-def email_share_url(total_cost: float, total_hours: float) -> str:
+def email_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
+    url, call_to_action = share_link(saved_url)
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = (
-        f"{share_summary(total_cost, total_hours)}\r\n\r\n"
-        f"Estimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
-    )
+    body: str = f"{share_summary(total_cost, total_hours)}\r\n\r\n{call_to_action} at {url}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
+
+
+# Streamlit has no native copy-to-clipboard button, so this inline component draws a button styled like st.link_button
+# that copies data["url"] to the clipboard. The browser only allows this on secure (https or localhost) pages.
+_COPY_LINK_BUTTON = st.components.v2.component(
+    "copy_link_button",
+    html="""
+<button type="button" class="copy-link-button">
+  <svg class="icon" viewBox="0 -960 960 960" aria-hidden="true">
+    <path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5
+      56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480
+      480Z"/>
+  </svg>
+  <span class="label"></span>
+</button>
+""",
+    css="""
+.copy-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--st-border-color);
+  border-radius: var(--st-button-radius);
+  background-color: var(--st-background-color);
+  color: var(--st-text-color);
+  font-family: var(--st-font);
+  font-size: var(--st-base-font-size);
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.copy-link-button:hover {
+  border-color: var(--st-primary-color);
+  color: var(--st-primary-color);
+}
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: currentColor;
+}
+""",
+    js="""
+export default function (component) {
+  const { data, parentElement } = component
+  const button = parentElement.querySelector(".copy-link-button")
+  const label = parentElement.querySelector(".label")
+  if (!button || !label) return
+
+  label.textContent = data.label
+  button.title = data.help
+  button.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(data.url)
+      label.textContent = data.copied_label
+    } catch {
+      // Clipboard access is blocked, e.g. on an insecure page, so let the user copy the link themselves.
+      window.prompt("Copy the link below.", data.url)
+    }
+    setTimeout(() => {
+      label.textContent = data.label
+    }, 2000)
+  }
+}
+""",
+)
+
+
+def saved_project_url(public_id: str) -> str:
+    """Builds the full link that loads the saved project with the given public id."""
+    return f"{st.context.url or ''}?{PROJECT_ID_QUERY_PARAM}={public_id}"
+
+
+def copy_link_button(label: str, url: str, copied_label: str, help: str, key: str) -> None:
+    """Draws a button that copies the given URL to the clipboard, showing copied_label for a moment afterwards."""
+    _COPY_LINK_BUTTON(
+        data={"label": label, "url": url, "copied_label": copied_label, "help": help},
+        key=key,
+        width="content",
+    )
 
 
 # -----------------------------------------------
@@ -1571,6 +1618,14 @@ _svg_slug: str = (
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg, width=540)
 
+# Link to the saved result, which the share buttons use in place of the tool's link once the result is saved. Saving
+# happens above in the setup pane, so the buttons update in the same run as the save.
+saved_result_url: str | None = (
+    saved_project_url(st.session_state["database_public_id"])
+    if st.session_state.get("database_public_id") is not None
+    else None
+)
+
 with st.container(horizontal=True, horizontal_alignment="left"):
     st.download_button(
         "Download image",
@@ -1582,28 +1637,38 @@ with st.container(horizontal=True, horizontal_alignment="left"):
     )
     st.link_button(
         "Share on LinkedIn",
-        linkedin_share_url(total_cost, total_hours),
+        linkedin_share_url(total_cost, total_hours, saved_result_url),
         icon=":material/share:",
         help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share on X",
-        x_share_url(total_cost, total_hours),
+        x_share_url(total_cost, total_hours, saved_result_url),
         icon=":material/share:",
         help="Share this tool on X. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share on Facebook",
-        facebook_share_url(),
+        facebook_share_url(saved_result_url),
         icon=":material/share:",
         help="Share this tool on Facebook. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share via email",
-        email_share_url(total_cost, total_hours),
+        email_share_url(total_cost, total_hours, saved_result_url),
         icon=":material/email:",
         help="Share this tool via email. Download the image first and attach it to your email.",
     )
+    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the save.
+    if saved_result_url is not None:
+        copy_link_button(
+            "Copy link to saved result",
+            saved_result_url,
+            copied_label="Link copied",
+            help="Copy a link to your saved result to share it, or to return to it later.",
+            key="copy-saved-project-link",
+        )
+
 
 st.markdown("""
             :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,

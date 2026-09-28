@@ -75,8 +75,8 @@ def modified_state() -> CalculatorState:
 
 def test_save_and_load(conn: Connection) -> None:
     state: CalculatorState = modified_state()
-    project_id: int = sql_store.save_project(conn, state)
-    restored: CalculatorState = sql_store.load_project(conn, project_id)
+    public_id: str = sql_store.save_project(conn, state)
+    restored: CalculatorState = sql_store.load_project(conn, public_id)
     assert restored == state
     assert restored.total_cost() == pytest.approx(state.total_cost())
     # Integer inputs stay integers, so the int-bounded Streamlit inputs accept them.
@@ -85,32 +85,41 @@ def test_save_and_load(conn: Connection) -> None:
 
 
 def test_update_project(conn: Connection) -> None:
-    project_id: int = sql_store.save_project(conn, CalculatorState.default())
+    public_id: str = sql_store.save_project(conn, CalculatorState.default())
     state: CalculatorState = modified_state()
-    sql_store.update_project(conn, project_id, state)
-    assert sql_store.load_project(conn, project_id) == state
+    sql_store.update_project(conn, public_id, state)
+    assert sql_store.load_project(conn, public_id) == state
     assert len(sql_store.list_projects(conn)) == 1
+
+
+def test_projects_are_found_by_public_id_only(conn: Connection) -> None:
+    public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    assert len(public_id) == sql_store.PUBLIC_ID_LENGTH
+    assert set(public_id) <= set(sql_store.PUBLIC_ID_ALPHABET)
+    [project] = sql_store.list_projects(conn)
+    with pytest.raises(KeyError):
+        sql_store.load_project(conn, str(project["id"]))
 
 
 def test_update_missing_project_raises(conn: Connection) -> None:
     with pytest.raises(KeyError):
-        sql_store.update_project(conn, 123, CalculatorState.default())
+        sql_store.update_project(conn, "missing", CalculatorState.default())
 
 
 def test_list_projects(conn: Connection) -> None:
     state: CalculatorState = modified_state()
-    project_id: int = sql_store.save_project(conn, state)
+    public_id: str = sql_store.save_project(conn, state)
     [project] = sql_store.list_projects(conn)
-    assert project["id"] == project_id
+    assert project["public_id"] == public_id
     assert project["project_name"] == "A study"
     assert project["total_cost"] == pytest.approx(state.total_cost())
 
 
 def test_delete_project_cascades(conn: Connection) -> None:
-    project_id: int = sql_store.save_project(conn, modified_state())
-    sql_store.delete_project(conn, project_id)
+    public_id: str = sql_store.save_project(conn, modified_state())
+    sql_store.delete_project(conn, public_id)
     assert sql_store.list_projects(conn) == []
     for table in ("people", "activities", "direct_costs"):
         assert count_rows(conn, table) == 0
     with pytest.raises(KeyError):
-        sql_store.load_project(conn, project_id)
+        sql_store.load_project(conn, public_id)

@@ -24,6 +24,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import secrets
 import sqlite3
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
@@ -43,6 +44,8 @@ if TYPE_CHECKING:
 SCHEMA: str = """
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY,
+    -- Non-sequential id that is safe to show in URLs, from generate_public_id.
+    public_id VARCHAR(21) NOT NULL UNIQUE,
     schema_version INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -104,6 +107,9 @@ MYSQL_SCHEMA: tuple[str, ...] = (
     """
     CREATE TABLE IF NOT EXISTS projects (
         id INTEGER PRIMARY KEY AUTO_INCREMENT,
+        -- Non-sequential id that is safe to show in URLs, from generate_public_id. Binary collation, as the default
+        -- collation is case-insensitive and the id's alphabet mixes cases.
+        public_id VARCHAR(21) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
         schema_version INTEGER NOT NULL,
         created_at VARCHAR(32) NOT NULL,
         updated_at VARCHAR(32) NOT NULL,
@@ -166,6 +172,10 @@ MYSQL_SCHEMA: tuple[str, ...] = (
     """,
 )
 
+# The URL-safe alphabet and default length of NanoID, giving about 126 bits of randomness per id.
+PUBLIC_ID_ALPHABET: str = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
+PUBLIC_ID_LENGTH: int = 21
+
 # Columns of the activities table that hold fields of a serialised activity, besides project_id and position.
 _ACTIVITY_COLUMNS: tuple[str, ...] = (
     "unique_key",
@@ -204,6 +214,11 @@ def init_db(conn: Connection) -> None:
         for statement in MYSQL_SCHEMA:
             cursor.execute(statement)
     conn.commit()
+
+
+def generate_public_id(size: int = PUBLIC_ID_LENGTH) -> str:
+    """Returns a random NanoID, for identifying a project in URLs without revealing how many projects are saved."""
+    return "".join(secrets.choice(PUBLIC_ID_ALPHABET) for _ in range(size))
 
 
 def _now() -> str:
@@ -309,36 +324,39 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     )
 
 
-def save_project(conn: Connection, state: CalculatorState) -> int:
-    """Saves a calculator state as a new project and returns its id."""
+def save_project(conn: Connection, state: CalculatorState) -> str:
+    """Saves a calculator state as a new project and returns its public id."""
     values: dict[str, Any] = _project_values(state)
+    public_id: str = generate_public_id()
     timestamp: str = _now()
     with _transaction(conn) as cursor:
         cursor.execute(
             _sql(
                 conn,
-                f"INSERT INTO projects (created_at, updated_at, {', '.join(values)})"
-                f" VALUES (?, ?, {', '.join('?' for _ in values)})",
+                f"INSERT INTO projects (public_id, created_at, updated_at, {', '.join(values)})"
+                f" VALUES (?, ?, ?, {', '.join('?' for _ in values)})",
             ),
-            (timestamp, timestamp, *values.values()),
+            (public_id, timestamp, timestamp, *values.values()),
         )
         project_id: int = cursor.lastrowid  # ty:ignore[invalid-assignment]
         _insert_children(conn, cursor, project_id, state)
-    return project_id
+    return public_id
 
 
-def update_project(conn: Connection, project_id: int, state: CalculatorState) -> None:
+def update_project(conn: Connection, public_id: str, state: CalculatorState) -> None:
     """Replaces a saved project's data with the given calculator state.
 
     Raises:
-        KeyError: If no project with that id exists.
+        KeyError: If no project with that public id exists.
     """
     values: dict[str, Any] = _project_values(state)
     with _transaction(conn) as cursor:
         # Checked with a SELECT, as MySQL's rowcount for an UPDATE counts only the rows whose values changed.
-        cursor.execute(_sql(conn, "SELECT 1 FROM projects WHERE id = ?"), (project_id,))
-        if cursor.fetchone() is None:
-            raise KeyError(f"No project with id {project_id}.")
+        cursor.execute(_sql(conn, "SELECT id FROM projects WHERE public_id = ?"), (public_id,))
+        row: tuple[Any, ...] | None = cursor.fetchone()
+        if row is None:
+            raise KeyError(f"No project with id {public_id!r}.")
+        project_id: int = row[0]
         cursor.execute(
             _sql(
                 conn,
@@ -352,23 +370,24 @@ def update_project(conn: Connection, project_id: int, state: CalculatorState) ->
         _insert_children(conn, cursor, project_id, state)
 
 
-def load_project(conn: Connection, project_id: int) -> CalculatorState:
+def load_project(conn: Connection, public_id: str) -> CalculatorState:
     """Loads a saved project as a CalculatorState, ready for CalculatorState.apply_to_session_state.
 
     Raises:
-        KeyError: If no project with that id exists.
+        KeyError: If no project with that public id exists.
     """
     with closing(conn.cursor()) as cursor:
-
-        def select_children(table: str) -> list[dict[str, Any]]:
-            cursor.execute(_sql(conn, f"SELECT * FROM {table} WHERE project_id = ? ORDER BY position"), (project_id,))
-            return _fetch_dicts(cursor)
-
-        cursor.execute(_sql(conn, "SELECT * FROM projects WHERE id = ?"), (project_id,))
+        cursor.execute(_sql(conn, "SELECT * FROM projects WHERE public_id = ?"), (public_id,))
         projects: list[dict[str, Any]] = _fetch_dicts(cursor)
         if not projects:
-            raise KeyError(f"No project with id {project_id}.")
+            raise KeyError(f"No project with id {public_id!r}.")
         project: dict[str, Any] = projects[0]
+
+        def select_children(table: str) -> list[dict[str, Any]]:
+            cursor.execute(
+                _sql(conn, f"SELECT * FROM {table} WHERE project_id = ? ORDER BY position"), (project["id"],)
+            )
+            return _fetch_dicts(cursor)
 
         people: dict[str, list[dict[str, Any]]] = {"team": [], "peer_reviewer": [], "journal_editor": []}
         for row in select_children("people"):
@@ -413,13 +432,13 @@ def list_projects(conn: Connection) -> list[dict[str, Any]]:
     """Lists saved projects, most recently updated first, without loading their full data."""
     with closing(conn.cursor()) as cursor:
         cursor.execute(
-            "SELECT id, created_at, updated_at, user_name, project_name, total_cost, total_hours"
+            "SELECT id, public_id, created_at, updated_at, user_name, project_name, total_cost, total_hours"
             " FROM projects ORDER BY updated_at DESC, id DESC"
         )
         return _fetch_dicts(cursor)
 
 
-def delete_project(conn: Connection, project_id: int) -> None:
+def delete_project(conn: Connection, public_id: str) -> None:
     """Deletes a saved project along with its people, activities and direct costs."""
     with _transaction(conn) as cursor:
-        cursor.execute(_sql(conn, "DELETE FROM projects WHERE id = ?"), (project_id,))
+        cursor.execute(_sql(conn, "DELETE FROM projects WHERE public_id = ?"), (public_id,))

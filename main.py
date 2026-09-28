@@ -196,12 +196,13 @@ if "database_initialised" not in st.session_state:
         logging.getLogger(__name__).exception("Could not initialise the %s database.", DATABASE_TYPE)
     st.session_state["database_initialised"] = True
 
-# Query parameter holding the id of a project saved to the database, e.g. ?project_id=3, which is loaded on page load.
+# Query parameter holding the public id of a project saved to the database, e.g. ?project_id=V1StGXR8_Z5jdHi6B-myT,
+# which is loaded on page load.
 PROJECT_ID_QUERY_PARAM: str = "project_id"
 
 
-def load_from_database(project_id_param: str) -> None:
-    """Replaces the calculator's inputs with the project saved in the database under the given id.
+def load_from_database(public_id: str) -> None:
+    """Replaces the calculator's inputs with the project saved in the database under the given public id.
 
     Must run before any widget is rendered, as it replaces widget state. Later saves in the session update the loaded
     project.
@@ -210,21 +211,16 @@ def load_from_database(project_id_param: str) -> None:
         st.toast("Could not load the project: no database is configured.", icon=":material/error:")
         return
     try:
-        project_id: int = int(project_id_param)
-    except ValueError:
-        st.toast(f"Could not load the project: {project_id_param!r} is not a valid id.", icon=":material/error:")
-        return
-    try:
         with closing(database.connect()) as conn:
-            state: CalculatorState = sql_store.load_project(conn, project_id)
+            state: CalculatorState = sql_store.load_project(conn, public_id)
     except KeyError:
-        st.toast(f"Could not load the project: no project with id {project_id}.", icon=":material/error:")
+        st.toast(f"Could not load the project: no project with id {public_id!r}.", icon=":material/error:")
         return
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not load the project from the database: {error}", icon=":material/error:")
         return
     state.apply_to_session_state(st.session_state)
-    st.session_state["database_project_id"] = project_id
+    st.session_state["database_public_id"] = public_id
     st.toast("Loaded the project from the database.", icon=":material/check_circle:")
 
 
@@ -645,25 +641,25 @@ def delete_direct_cost(direct_cost: DirectCost):
 def save_to_database() -> None:
     """Saves the calculator's current inputs to the configured database.
 
-    The first save creates a new project, and later saves in the same session update that project. Its id is kept in
-    st.session_state["database_project_id"] so it persists across script reruns.
+    The first save creates a new project, and later saves in the same session update that project. Its public id is kept
+    in st.session_state["database_public_id"] so it persists across script reruns.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
-    project_id: int | None = st.session_state.get("database_project_id")
+    public_id: str | None = st.session_state.get("database_public_id")
     try:
         with closing(database.connect()) as conn:
-            if project_id is not None:
+            if public_id is not None:
                 try:
-                    sql_store.update_project(conn, project_id, state)
+                    sql_store.update_project(conn, public_id, state)
                 except KeyError:
                     # The saved project was deleted from the database, so save it again as a new project.
-                    project_id = None
-            if project_id is None:
-                project_id = sql_store.save_project(conn, state)
+                    public_id = None
+            if public_id is None:
+                public_id = sql_store.save_project(conn, state)
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not save to the database: {error}", icon=":material/error:")
         return
-    st.session_state["database_project_id"] = project_id
+    st.session_state["database_public_id"] = public_id
     st.toast("Saved to the database.", icon=":material/check_circle:")
 
 
@@ -1576,9 +1572,9 @@ export default function (component) {
 )
 
 
-def saved_project_url(project_id: int) -> str:
-    """Builds the full link that loads the saved project with the given id."""
-    return f"{st.context.url or ''}?{PROJECT_ID_QUERY_PARAM}={project_id}"
+def saved_project_url(public_id: str) -> str:
+    """Builds the full link that loads the saved project with the given public id."""
+    return f"{st.context.url or ''}?{PROJECT_ID_QUERY_PARAM}={public_id}"
 
 
 def copy_link_button(label: str, url: str, copied_label: str, help: str, key: str) -> None:
@@ -1625,8 +1621,8 @@ with st.container(horizontal=True, horizontal_alignment="center"):
 # Link to the saved result, which the share buttons use in place of the tool's link once the result is saved. Saving
 # happens above in the setup pane, so the buttons update in the same run as the save.
 saved_result_url: str | None = (
-    saved_project_url(st.session_state["database_project_id"])
-    if st.session_state.get("database_project_id") is not None
+    saved_project_url(st.session_state["database_public_id"])
+    if st.session_state.get("database_public_id") is not None
     else None
 )
 

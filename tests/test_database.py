@@ -86,15 +86,15 @@ def test_save_button_saves_then_updates(monkeypatch: pytest.MonkeyPatch) -> None
 
     next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
-    project_id: int = at.session_state["database_project_id"]
+    public_id: str = at.session_state["database_public_id"]
     next(field for field in at.text_input if field.label == "Name of your paper/project").set_value("Renamed project")
     next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
 
-    assert at.session_state["database_project_id"] == project_id
+    assert at.session_state["database_public_id"] == public_id
     with closing(database.connect()) as conn:
         projects = sql_store.list_projects(conn)
-    assert [(project["id"], project["project_name"]) for project in projects] == [(project_id, "Renamed project")]
+    assert [(project["public_id"], project["project_name"]) for project in projects] == [(public_id, "Renamed project")]
 
 
 def copy_link_buttons(at: AppTest) -> list[dict[str, str]]:
@@ -114,10 +114,10 @@ def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> N
 
     next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
-    project_id: int = at.session_state["database_project_id"]
+    public_id: str = at.session_state["database_public_id"]
     [copy_link] = copy_link_buttons(at)
     assert copy_link["label"] == "Copy link to saved result"
-    assert copy_link["url"].endswith(f"?project_id={project_id}")
+    assert copy_link["url"].endswith(f"?project_id={public_id}")
 
 
 def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,12 +126,12 @@ def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
     state.project_name = "Saved project"
     state.user_name = "Ada"
     with closing(database.connect()) as conn:
-        project_id: int = sql_store.save_project(conn, state)
+        public_id: str = sql_store.save_project(conn, state)
 
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
-    at.query_params["project_id"] = str(project_id)
+    at.query_params["project_id"] = public_id
     run(at)
-    assert at.session_state["database_project_id"] == project_id
+    assert at.session_state["database_public_id"] == public_id
     assert at.text_input(key="user_name_input").value == "Ada"
     assert at.session_state["project_name"] == "Saved project"
 
@@ -141,13 +141,13 @@ def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
     assert at.session_state["project_name"] == "Edited"
 
 
-@pytest.mark.parametrize("project_id", ["999", "not-a-number"])
+@pytest.mark.parametrize("project_id", ["1", "V1StGXR8_Z5jdHi6B-myT"])
 def test_query_param_with_unknown_project_keeps_defaults(monkeypatch: pytest.MonkeyPatch, project_id: str) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     at.query_params["project_id"] = project_id
     run(at)
-    assert "database_project_id" not in at.session_state
+    assert "database_public_id" not in at.session_state
     assert at.toast[0].value.startswith("Could not load the project")
 
 
@@ -238,7 +238,7 @@ def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> 
 
     next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
-    project_id: int = at.session_state["database_project_id"]
+    public_id: str = at.session_state["database_public_id"]
     after: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
     assert len(after) == len(share_labels)
-    assert all(f"?project_id={project_id}" in unquote(url) for url in after)
+    assert all(f"?project_id={public_id}" in unquote(url) for url in after)

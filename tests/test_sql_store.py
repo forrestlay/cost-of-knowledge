@@ -8,6 +8,7 @@ dropped before and after each test, so use a database for testing only.
 from __future__ import annotations
 
 import os
+import sqlite3
 from contextlib import closing
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,25 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from src.sql_store import Connection
+
+# The SQLite projects table as it was before the parent_id column was added.
+SCHEMA_WITHOUT_PARENT_ID: str = """
+CREATE TABLE projects (
+    id INTEGER PRIMARY KEY,
+    public_id VARCHAR(21) NOT NULL UNIQUE,
+    schema_version INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    user_name TEXT,
+    user_country TEXT NOT NULL,
+    international_collaborators INTEGER NOT NULL,
+    project_name TEXT,
+    project_field TEXT NOT NULL,
+    tool_step INTEGER NOT NULL,
+    total_cost NUMERIC NOT NULL,
+    total_hours NUMERIC NOT NULL
+);
+"""
 
 # Child tables first, as they reference projects.
 TABLES: tuple[str, ...] = ("activities", "direct_costs", "people", "projects")
@@ -99,6 +119,42 @@ def test_projects_are_found_by_public_id_only(conn: Connection) -> None:
     [project] = sql_store.list_projects(conn)
     with pytest.raises(KeyError):
         sql_store.load_project(conn, str(project["id"]))
+
+
+def test_save_project_with_parent(conn: Connection) -> None:
+    parent_public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    state: CalculatorState = modified_state()
+    child_public_id: str = sql_store.save_project(conn, state, parent_public_id)
+    projects = {project["public_id"]: project for project in sql_store.list_projects(conn)}
+    assert projects[child_public_id]["parent_id"] == projects[parent_public_id]["id"]
+    assert projects[parent_public_id]["parent_id"] is None
+    assert sql_store.load_project(conn, child_public_id) == state
+    assert sql_store.load_project(conn, parent_public_id) == CalculatorState.default()
+
+
+def test_save_project_with_missing_parent_has_no_parent(conn: Connection) -> None:
+    sql_store.save_project(conn, CalculatorState.default(), "missing")
+    [project] = sql_store.list_projects(conn)
+    assert project["parent_id"] is None
+
+
+def test_deleting_parent_keeps_child(conn: Connection) -> None:
+    parent_public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    child_public_id: str = sql_store.save_project(conn, modified_state(), parent_public_id)
+    sql_store.delete_project(conn, parent_public_id)
+    [project] = sql_store.list_projects(conn)
+    assert project["public_id"] == child_public_id
+    assert project["parent_id"] is None
+
+
+def test_init_db_adds_parent_id_to_existing_table() -> None:
+    with closing(sqlite3.connect(":memory:")) as connection:
+        # The projects table as created before parent_id was added.
+        connection.executescript(SCHEMA_WITHOUT_PARENT_ID)
+        sql_store.init_db(connection)
+        parent_public_id: str = sql_store.save_project(connection, CalculatorState.default())
+        sql_store.save_project(connection, modified_state(), parent_public_id)
+        assert [project["parent_id"] is None for project in sql_store.list_projects(connection)] == [False, True]
 
 
 def test_update_missing_project_raises(conn: Connection) -> None:

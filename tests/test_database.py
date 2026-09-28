@@ -79,22 +79,46 @@ def test_save_button_hidden_without_database() -> None:
     assert not [button for button in at.button if button.label == "Save your result to share"]
 
 
-def test_save_button_saves_then_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+def click_save(at: AppTest) -> None:
+    next(button for button in at.button if button.label == "Save your result to share").click()
+    run(at)
+
+
+def test_save_button_saves_changes_as_child_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
 
-    next(button for button in at.button if button.label == "Save your result to share").click()
-    run(at)
+    click_save(at)
     public_id: str = at.session_state["database_public_id"]
     next(field for field in at.text_input if field.label == "Name of your paper/project").set_value("Renamed project")
-    next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
+    click_save(at)
+    child_public_id: str = at.session_state["database_public_id"]
+
+    assert child_public_id != public_id
+    with closing(database.connect()) as conn:
+        projects = {project["public_id"]: project for project in sql_store.list_projects(conn)}
+        original: CalculatorState = sql_store.load_project(conn, public_id)
+    assert projects.keys() == {public_id, child_public_id}
+    assert original.project_name != "Renamed project"
+    assert projects[child_public_id]["project_name"] == "Renamed project"
+    assert projects[child_public_id]["parent_id"] == projects[public_id]["id"]
+    assert projects[public_id]["parent_id"] is None
+
+
+def test_save_button_without_changes_keeps_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+
+    click_save(at)
+    public_id: str = at.session_state["database_public_id"]
+    click_save(at)
 
     assert at.session_state["database_public_id"] == public_id
     with closing(database.connect()) as conn:
-        projects = sql_store.list_projects(conn)
-    assert [(project["public_id"], project["project_name"]) for project in projects] == [(public_id, "Renamed project")]
+        assert [project["public_id"] for project in sql_store.list_projects(conn)] == [public_id]
 
 
 def copy_link_buttons(at: AppTest) -> list[dict[str, str]]:

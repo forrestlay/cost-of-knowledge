@@ -24,7 +24,7 @@ import json
 import logging
 from contextlib import closing
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
 
 import drawsvg as draw
@@ -201,11 +201,21 @@ if "database_initialised" not in st.session_state:
 PROJECT_ID_QUERY_PARAM: str = "project_id"
 
 
+def saved_inputs(state: CalculatorState) -> dict[str, Any]:
+    """Returns the inputs of a state that saving compares to decide whether it has changed since it was last saved.
+
+    Leaves out the tool step, which advances when the save button is clicked, and the summary, which is derived.
+    """
+    data: dict[str, Any] = state.to_dict()
+    del data["tool_step"], data["summary"]
+    return data
+
+
 def load_from_database(public_id: str) -> None:
     """Replaces the calculator's inputs with the project saved in the database under the given public id.
 
-    Must run before any widget is rendered, as it replaces widget state. Later saves in the session update the loaded
-    project.
+    Must run before any widget is rendered, as it replaces widget state. Saving changes later in the session creates a
+    new project, amended from the loaded one.
     """
     if DATABASE_TYPE == "none":
         st.toast("Could not load the project: no database is configured.", icon=":material/error:")
@@ -221,6 +231,7 @@ def load_from_database(public_id: str) -> None:
         return
     state.apply_to_session_state(st.session_state)
     st.session_state["database_public_id"] = public_id
+    st.session_state["database_saved_inputs"] = saved_inputs(state)
     st.toast("Loaded the project from the database.", icon=":material/check_circle:")
 
 
@@ -332,7 +343,7 @@ with st.expander(
             return 0.0 if converted is None else round(converted, 2)
 
         # Check a rate exists for both currencies before changing anything, so values are never left half-converted.
-        if convert(1) is None:
+        if convert_currency(1, from_code, to_code) is None:
             st.toast(
                 f"Exchange rates for {from_code} to {to_code} are unavailable, so costs have not been converted.",
                 icon=":material/currency_exchange:",
@@ -344,13 +355,15 @@ with st.expander(
             st.session_state["peer_reviewer"],
             st.session_state["journal_editor"],
         ]
+        # Keyed number_inputs keep their widget ID when value= changes, so the browser would keep showing (and send
+        # back) the old amount. Writing the converted amount into the widget's state makes Streamlit push it to the
+        # browser.
         for person in people:
             person.hourly_rate = convert(person.hourly_rate)
-            # Drop the widget's state so the number_input picks up the converted rate as its value.
-            st.session_state.pop(f"person-rate-{person.unique_key}", None)
+            st.session_state[f"person-rate-{person.unique_key}"] = person.hourly_rate
         for direct_cost in st.session_state["cost_list"]:
             direct_cost.cost = convert(direct_cost.cost)
-            st.session_state.pop(f"directcost-cost-{direct_cost.unique_key}", None)
+            st.session_state[f"directcost-cost-{direct_cost.unique_key}"] = direct_cost.cost
 
         st.toast(f"Costs converted from {from_code} to {to_code}.", icon=":material/currency_exchange:")
 
@@ -639,27 +652,28 @@ def delete_direct_cost(direct_cost: DirectCost):
 
 
 def save_to_database() -> None:
-    """Saves the calculator's current inputs to the configured database.
+    """Saves the calculator's current inputs to the configured database as a new project.
 
-    The first save creates a new project, and later saves in the same session update that project. Its public id is kept
-    in st.session_state["database_public_id"] so it persists across script reruns.
+    Saved projects are never overwritten, as their links may have been shared. Saving again after changing the inputs
+    creates a new project whose parent is the previously saved or loaded project, and saving again without changes
+    keeps the existing project. The public id of the latest project and its inputs are kept in
+    st.session_state["database_public_id"] and st.session_state["database_saved_inputs"], so they persist across script
+    reruns.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
-    public_id: str | None = st.session_state.get("database_public_id")
+    inputs: dict[str, Any] = saved_inputs(state)
+    parent_public_id: str | None = st.session_state.get("database_public_id")
+    if parent_public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
+        st.toast("No changes since your result was last saved.", icon=":material/check_circle:")
+        return
     try:
         with closing(database.connect()) as conn:
-            if public_id is not None:
-                try:
-                    sql_store.update_project(conn, public_id, state)
-                except KeyError:
-                    # The saved project was deleted from the database, so save it again as a new project.
-                    public_id = None
-            if public_id is None:
-                public_id = sql_store.save_project(conn, state)
+            public_id: str = sql_store.save_project(conn, state, parent_public_id)
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not save to the database: {error}", icon=":material/error:")
         return
     st.session_state["database_public_id"] = public_id
+    st.session_state["database_saved_inputs"] = inputs
     st.toast("Saved to the database.", icon=":material/check_circle:")
 
 
@@ -886,12 +900,15 @@ with main_left:
                                 color="orange",
                             )
 
+                        # Currency conversion writes into the widget's state, so pass the "min" sentinel once it
+                        # exists to avoid Streamlit's default-value-and-Session-State warning.
+                        directcost_cost_key: str = f"directcost-cost-{phase_cost.unique_key}"
                         phase_cost.cost: float = st.number_input(
                             f"Cost ({currency_code()})",
-                            key=f"directcost-cost-{phase_cost.unique_key}",
+                            key=directcost_cost_key,
                             min_value=0.0,
                             step=0.50,
-                            value=float(phase_cost.cost),
+                            value="min" if directcost_cost_key in st.session_state else float(phase_cost.cost),
                         )
                         # Show badge if hours is 0.
                         if phase_cost.cost == 0.0:
@@ -954,7 +971,8 @@ with main_left:
                     "Save your result to share",
                     icon=":material/save:",
                     type="primary",
-                    help="Save your inputs to the database. Saving again updates the same project.",
+                    help="Save your inputs to the database. Saving again after making changes saves them as a new "
+                    "result, generating a new share link. Old links will not show your changes.",
                     on_click=next_tool_step,
                     args=["save"],
                 ):

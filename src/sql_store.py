@@ -1,8 +1,9 @@
 """SQLite and MySQL persistence for Cost of Knowledge calculator projects.
 
 Each saved CalculatorState is a row in the projects table, with its people, activities and direct costs in child
-tables. Rows are built from CalculatorState.to_dict() and loaded back through CalculatorState.from_dict(), so the dict
-format remains the single definition of what is serialised.
+tables. Saving changes to a saved project creates a new row whose parent_id is the id of the project it was amended
+from, so saved results that have been shared are never overwritten. Rows are built from CalculatorState.to_dict() and
+loaded back through CalculatorState.from_dict(), so the dict format remains the single definition of what is serialised.
 
 Functions take either a sqlite3 connection or a PyMySQL connection. Queries are written with "?" placeholders, which
 are rewritten to PyMySQL's "%s" placeholders when needed.
@@ -57,7 +58,9 @@ CREATE TABLE IF NOT EXISTS projects (
     tool_step INTEGER NOT NULL,
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
-    total_hours NUMERIC NOT NULL
+    total_hours NUMERIC NOT NULL,
+    -- The project this one was amended from, or NULL if it was saved from scratch or its parent was deleted.
+    parent_id INTEGER REFERENCES projects (id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS people (
@@ -121,7 +124,10 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         tool_step INTEGER NOT NULL,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
-        total_hours DOUBLE NOT NULL
+        total_hours DOUBLE NOT NULL,
+        -- The project this one was amended from, or NULL if it was saved from scratch or its parent was deleted.
+        parent_id INTEGER,
+        FOREIGN KEY (parent_id) REFERENCES projects (id) ON DELETE SET NULL
     )
     """,
     """
@@ -172,6 +178,16 @@ MYSQL_SCHEMA: tuple[str, ...] = (
     """,
 )
 
+# Statements that add the parent_id column to a projects table created before it existed, for SQLite and MySQL. SQLite
+# allows a foreign key on an added column only when its default is NULL, which it is here.
+_ADD_PARENT_ID_SQLITE: str = (
+    "ALTER TABLE projects ADD COLUMN parent_id INTEGER REFERENCES projects (id) ON DELETE SET NULL"
+)
+_ADD_PARENT_ID_MYSQL: str = (
+    "ALTER TABLE projects ADD COLUMN parent_id INTEGER,"
+    " ADD FOREIGN KEY (parent_id) REFERENCES projects (id) ON DELETE SET NULL"
+)
+
 # The URL-safe alphabet and default length of NanoID, giving about 126 bits of randomness per id.
 PUBLIC_ID_ALPHABET: str = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
 PUBLIC_ID_LENGTH: int = 21
@@ -205,15 +221,31 @@ def connect(database: str) -> sqlite3.Connection:
 
 
 def init_db(conn: Connection) -> None:
-    """Creates the tables if they do not exist. For SQLite, also enables foreign keys on the connection."""
+    """Creates the tables if they do not exist, and adds any columns missing from tables created by older versions.
+
+    For SQLite, also enables foreign keys on the connection.
+    """
     if isinstance(conn, sqlite3.Connection):
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA)
-        return
+    else:
+        with closing(conn.cursor()) as cursor:
+            for statement in MYSQL_SCHEMA:
+                cursor.execute(statement)
+        conn.commit()
+    _migrate(conn)
+
+
+def _migrate(conn: Connection) -> None:
+    """Adds the parent_id column to a projects table created before it existed."""
     with closing(conn.cursor()) as cursor:
-        for statement in MYSQL_SCHEMA:
-            cursor.execute(statement)
-    conn.commit()
+        cursor.execute("SELECT * FROM projects WHERE 1 = 0")
+        cursor.fetchall()
+        columns: set[str] = {description[0] for description in cursor.description or ()}
+    if "parent_id" in columns:
+        return
+    with _transaction(conn) as cursor:
+        cursor.execute(_ADD_PARENT_ID_SQLITE if isinstance(conn, sqlite3.Connection) else _ADD_PARENT_ID_MYSQL)
 
 
 def generate_public_id(size: int = PUBLIC_ID_LENGTH) -> str:
@@ -324,19 +356,31 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     )
 
 
-def save_project(conn: Connection, state: CalculatorState) -> str:
-    """Saves a calculator state as a new project and returns its public id."""
+def save_project(conn: Connection, state: CalculatorState, parent_public_id: str | None = None) -> str:
+    """Saves a calculator state as a new project and returns its public id.
+
+    Args:
+        conn: Connection to the database.
+        state: Calculator state to save.
+        parent_public_id: Public id of the saved project that this one amends, if any. The new project is saved without
+            a parent if no project with that public id exists, for example because it was deleted.
+    """
     values: dict[str, Any] = _project_values(state)
     public_id: str = generate_public_id()
     timestamp: str = _now()
     with _transaction(conn) as cursor:
+        parent_id: int | None = None
+        if parent_public_id is not None:
+            cursor.execute(_sql(conn, "SELECT id FROM projects WHERE public_id = ?"), (parent_public_id,))
+            row: tuple[Any, ...] | None = cursor.fetchone()
+            parent_id = row[0] if row is not None else None
         cursor.execute(
             _sql(
                 conn,
-                f"INSERT INTO projects (public_id, created_at, updated_at, {', '.join(values)})"
-                f" VALUES (?, ?, ?, {', '.join('?' for _ in values)})",
+                f"INSERT INTO projects (public_id, parent_id, created_at, updated_at, {', '.join(values)})"
+                f" VALUES (?, ?, ?, ?, {', '.join('?' for _ in values)})",
             ),
-            (public_id, timestamp, timestamp, *values.values()),
+            (public_id, parent_id, timestamp, timestamp, *values.values()),
         )
         project_id: int = cursor.lastrowid  # ty:ignore[invalid-assignment]
         _insert_children(conn, cursor, project_id, state)
@@ -432,7 +476,7 @@ def list_projects(conn: Connection) -> list[dict[str, Any]]:
     """Lists saved projects, most recently updated first, without loading their full data."""
     with closing(conn.cursor()) as cursor:
         cursor.execute(
-            "SELECT id, public_id, created_at, updated_at, user_name, project_name, total_cost, total_hours"
+            "SELECT id, public_id, parent_id, created_at, updated_at, user_name, project_name, total_cost, total_hours"
             " FROM projects ORDER BY updated_at DESC, id DESC"
         )
         return _fetch_dicts(cursor)

@@ -48,6 +48,10 @@ DATABASE_PASSWORD_SECRET: str = "DATABASE_PASSWORD"
 SQLITE_DATABASE_FILE: Path = Path(__file__).parent.parent / "data" / "cost_of_knowledge.db"
 MYSQL_DEFAULT_PORT: int = 3306
 
+# Query parameter of the calculator holding the public id of a project saved to the database, e.g.
+# ?project_id=V1StGXR8_Z5jdHi6B-myT, which is loaded on page load.
+PROJECT_ID_QUERY_PARAM: str = "project_id"
+
 # Errors raised by the database drivers when a database cannot be reached or a query fails.
 DATABASE_ERRORS: tuple[type[Exception], ...] = (sqlite3.Error, pymysql.Error)
 

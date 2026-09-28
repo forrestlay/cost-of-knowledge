@@ -414,43 +414,31 @@ def update_project(conn: Connection, public_id: str, state: CalculatorState) -> 
         _insert_children(conn, cursor, project_id, state)
 
 
-def load_project(conn: Connection, public_id: str) -> CalculatorState:
-    """Loads a saved project as a CalculatorState, ready for CalculatorState.apply_to_session_state.
-
-    Raises:
-        KeyError: If no project with that public id exists.
-    """
-    with closing(conn.cursor()) as cursor:
-        cursor.execute(_sql(conn, "SELECT * FROM projects WHERE public_id = ?"), (public_id,))
-        projects: list[dict[str, Any]] = _fetch_dicts(cursor)
-        if not projects:
-            raise KeyError(f"No project with id {public_id!r}.")
-        project: dict[str, Any] = projects[0]
-
-        def select_children(table: str) -> list[dict[str, Any]]:
-            cursor.execute(
-                _sql(conn, f"SELECT * FROM {table} WHERE project_id = ? ORDER BY position"), (project["id"],)
-            )
-            return _fetch_dicts(cursor)
-
-        people: dict[str, list[dict[str, Any]]] = {"team": [], "peer_reviewer": [], "journal_editor": []}
-        for row in select_children("people"):
-            people[row["role"]].append(
-                {
-                    "name": row["name"],
-                    "unique_key": row["unique_key"],
-                    "person_type": row["person_type"],
-                    "hourly_rate": row["hourly_rate"],
-                }
-            )
-        activities: list[dict[str, Any]] = [
-            {column: row[column] for column in _ACTIVITY_COLUMNS if row[column] is not None or column == "name"}
-            for row in select_children("activities")
-        ]
-        direct_costs: list[dict[str, Any]] = [
-            {"name": row["name"], "phase": row["phase"], "cost": row["cost"], "unique_key": row["unique_key"]}
-            for row in select_children("direct_costs")
-        ]
+def _state_from_rows(
+    project: dict[str, Any],
+    people_rows: list[dict[str, Any]],
+    activity_rows: list[dict[str, Any]],
+    direct_cost_rows: list[dict[str, Any]],
+) -> CalculatorState:
+    """Builds a CalculatorState from a projects row and its child rows, each in position order."""
+    people: dict[str, list[dict[str, Any]]] = {"team": [], "peer_reviewer": [], "journal_editor": []}
+    for row in people_rows:
+        people[row["role"]].append(
+            {
+                "name": row["name"],
+                "unique_key": row["unique_key"],
+                "person_type": row["person_type"],
+                "hourly_rate": row["hourly_rate"],
+            }
+        )
+    activities: list[dict[str, Any]] = [
+        {column: row[column] for column in _ACTIVITY_COLUMNS if row[column] is not None or column == "name"}
+        for row in activity_rows
+    ]
+    direct_costs: list[dict[str, Any]] = [
+        {"name": row["name"], "phase": row["phase"], "cost": row["cost"], "unique_key": row["unique_key"]}
+        for row in direct_cost_rows
+    ]
 
     return CalculatorState.from_dict(
         {
@@ -470,6 +458,68 @@ def load_project(conn: Connection, public_id: str) -> CalculatorState:
             "tool_step": project["tool_step"],
         }
     )
+
+
+def load_project(conn: Connection, public_id: str) -> CalculatorState:
+    """Loads a saved project as a CalculatorState, ready for CalculatorState.apply_to_session_state.
+
+    Raises:
+        KeyError: If no project with that public id exists.
+    """
+    with closing(conn.cursor()) as cursor:
+        cursor.execute(_sql(conn, "SELECT * FROM projects WHERE public_id = ?"), (public_id,))
+        projects: list[dict[str, Any]] = _fetch_dicts(cursor)
+        if not projects:
+            raise KeyError(f"No project with id {public_id!r}.")
+        project: dict[str, Any] = projects[0]
+
+        def select_children(table: str) -> list[dict[str, Any]]:
+            cursor.execute(
+                _sql(conn, f"SELECT * FROM {table} WHERE project_id = ? ORDER BY position"), (project["id"],)
+            )
+            return _fetch_dicts(cursor)
+
+        return _state_from_rows(
+            project, select_children("people"), select_children("activities"), select_children("direct_costs")
+        )
+
+
+def load_projects(conn: Connection) -> list[tuple[dict[str, Any], CalculatorState]]:
+    """Loads every saved project, most recently created first.
+
+    Reads each table once rather than once per project, so it stays quick for a remote database with many projects.
+
+    Returns:
+        A list of (projects row, calculator state) pairs. The projects row holds the project's public_id, created_at
+        and updated_at among its other columns.
+    """
+    with closing(conn.cursor()) as cursor:
+        cursor.execute("SELECT * FROM projects ORDER BY created_at DESC, id DESC")
+        projects: list[dict[str, Any]] = _fetch_dicts(cursor)
+
+        def select_children(table: str) -> dict[int, list[dict[str, Any]]]:
+            cursor.execute(f"SELECT * FROM {table} ORDER BY project_id, position")
+            rows_by_project: dict[int, list[dict[str, Any]]] = {}
+            for row in _fetch_dicts(cursor):
+                rows_by_project.setdefault(row["project_id"], []).append(row)
+            return rows_by_project
+
+        people: dict[int, list[dict[str, Any]]] = select_children("people")
+        activities: dict[int, list[dict[str, Any]]] = select_children("activities")
+        direct_costs: dict[int, list[dict[str, Any]]] = select_children("direct_costs")
+
+    return [
+        (
+            project,
+            _state_from_rows(
+                project,
+                people.get(project["id"], []),
+                activities.get(project["id"], []),
+                direct_costs.get(project["id"], []),
+            ),
+        )
+        for project in projects
+    ]
 
 
 def list_projects(conn: Connection) -> list[dict[str, Any]]:

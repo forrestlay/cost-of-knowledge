@@ -15,6 +15,7 @@ from test_app import MAIN, run
 
 from src import database, sql_store
 from src.calculator_state import CalculatorState
+from src.reference_data import RESEARCH_PHASES
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -173,6 +174,54 @@ def test_query_param_with_unknown_project_keeps_defaults(monkeypatch: pytest.Mon
     run(at)
     assert "database_public_id" not in at.session_state
     assert at.toast[0].value.startswith("Could not load the project")
+
+
+def run_results_page(at: AppTest) -> None:
+    """Runs the app and switches to the results page, clearing its cached results from any earlier test."""
+    st.cache_data.clear()
+    run(at)
+    at.switch_page("app_pages/results.py")
+    run(at)
+
+
+def test_results_page_without_database() -> None:
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_results_page(at)
+    assert at.title[0].value == "Saved results"
+    assert at.info[0].value.startswith("No database is configured")
+    assert not at.dataframe
+
+
+def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    state: CalculatorState = CalculatorState.default()
+    state.project_name = "Saved project"
+    state.user_country = "gb"
+    state.international_collaborators = True
+    state.peer_review.review_rounds = 2
+    state.peer_review.journal_submissions = 3
+    with closing(database.connect()) as conn:
+        public_id: str = sql_store.save_project(conn, state)
+
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_results_page(at)
+    # The calculator's widgets are not rendered on the results page.
+    assert not at.metric
+    [row] = at.dataframe[0].value.to_dict("records")
+    summary: dict[str, Any] = state.summary(RESEARCH_PHASES)
+    assert row == {
+        "Link": f"./?project_id={public_id}",
+        "Saved": row["Saved"],
+        "Project": "Saved project",
+        "Country": "United Kingdom",
+        "International collaboration": True,
+        "Field": "Social sciences",
+        "Peer reviews": 2,
+        "Journal submissions": 3,
+        "Currency": "GBP",
+        **{label: round(summary["phase_costs"][label]) for label in RESEARCH_PHASES.values()},
+        "Total": round(summary["total_cost"]),
+    }
 
 
 def capture_mysql_connect(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:

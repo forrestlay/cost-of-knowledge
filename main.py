@@ -20,10 +20,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-import json
 import logging
 from contextlib import closing
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
 
@@ -43,6 +41,7 @@ from src.models import (
     Person,
     PersonType,
 )
+from src.reference_data import COUNTRY_CODES, COUNTRY_CURRENCIES, COUNTRY_NAMES, RESEARCH_PHASES
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -50,6 +49,21 @@ if TYPE_CHECKING:
     from src.models import Cost
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
+
+
+def calculator_page() -> None:
+    """The calculator, which is the rest of this script. The script carries on past navigation to run it."""
+
+
+# The saved results page is reached only by its URL (e.g. BASE-URL/results), so navigation is hidden and the calculator
+# does not link to it.
+RESULTS_PAGE: st.Page = st.Page("app_pages/results.py", title="Saved results", url_path="results")
+current_page: st.Page = st.navigation(
+    [st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True), RESULTS_PAGE], position="hidden"
+)
+if current_page.url_path == RESULTS_PAGE.url_path:
+    RESULTS_PAGE.run()
+    st.stop()
 
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 
@@ -80,22 +94,6 @@ SCIENTIFIC_FIELDS: list[str] = [
     "Applied sciences/engineering",
 ]
 
-# Country list loaded from data/country.json. The selectbox shows the country name
-# but stores the lowercase country code (e.g. "us") as the value.
-_COUNTRY_DATA: list[dict[str, object]] = json.loads(
-    (Path(__file__).parent / "data" / "country.json").read_text(encoding="utf-8")
-)
-COUNTRY_NAMES: dict[str, str] = {str(country["code"]): str(country["name"]) for country in _COUNTRY_DATA}
-COUNTRY_CODES: list[str] = sorted(COUNTRY_NAMES, key=lambda code: COUNTRY_NAMES[code])
-# ISO 4217 currency code (e.g. "USD") and symbol (e.g. "$") for each country code.
-COUNTRY_CURRENCIES: dict[str, tuple[str, str]] = {
-    str(country["code"]): (
-        str(country["currency_code"]),
-        str(country["currency_symbol"]),
-    )
-    for country in _COUNTRY_DATA
-}
-
 ROLES: list[str] = [
     "Professor",
     "Associate Professor",
@@ -109,13 +107,6 @@ ROLES: list[str] = [
     "Journal editor",
     "Other",
 ]
-
-RESEARCH_PHASES: dict[str, str] = {
-    "incubation": "Incubation",
-    "data": "Data collection and analysis",
-    "writing": "Manuscript preparation",
-    "editing": "Peer review and journal editorial work",
-}
 
 # TODO: Add sharing of PDF and PNG, put names on PDF
 
@@ -196,10 +187,6 @@ if "database_initialised" not in st.session_state:
         logging.getLogger(__name__).exception("Could not initialise the %s database.", DATABASE_TYPE)
     st.session_state["database_initialised"] = True
 
-# Query parameter holding the public id of a project saved to the database, e.g. ?project_id=V1StGXR8_Z5jdHi6B-myT,
-# which is loaded on page load.
-PROJECT_ID_QUERY_PARAM: str = "project_id"
-
 
 def saved_inputs(state: CalculatorState) -> dict[str, Any]:
     """Returns the inputs of a state that saving compares to decide whether it has changed since it was last saved.
@@ -236,7 +223,7 @@ def load_from_database(public_id: str) -> None:
 
 
 # Load only when the query parameter changes, so the user's edits are not overwritten by the saved project every rerun.
-query_project_id: str | None = st.query_params.get(PROJECT_ID_QUERY_PARAM)
+query_project_id: str | None = st.query_params.get(database.PROJECT_ID_QUERY_PARAM)
 if query_project_id is not None and query_project_id != st.session_state.get("loaded_query_project_id"):
     st.session_state["loaded_query_project_id"] = query_project_id
     load_from_database(query_project_id)
@@ -1592,7 +1579,7 @@ export default function (component) {
 
 def saved_project_url(public_id: str) -> str:
     """Builds the full link that loads the saved project with the given public id."""
-    return f"{st.context.url or ''}?{PROJECT_ID_QUERY_PARAM}={public_id}"
+    return f"{st.context.url or ''}?{database.PROJECT_ID_QUERY_PARAM}={public_id}"
 
 
 def copy_link_button(label: str, url: str, copied_label: str, help: str, key: str) -> None:

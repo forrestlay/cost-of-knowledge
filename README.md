@@ -24,7 +24,7 @@ app locally, use `uv run streamlit run ./main.py` in the terminal.
 This tool can be deployed as a Docker image, run `docker build -t streamlit` to build the image.
 
 This tool uses the [exchangeratesapi.io API](https://exchangeratesapi.io) to fetch the latest currency exchange rates
-daily. Pass an API key as a `EXCHANGE_RATES_SECRET` environment variable to enable this.
+daily. Pass an API key as an `EXCHANGE_RATES_API_KEY` environment variable to enable this.
 
 ## Attributions
 

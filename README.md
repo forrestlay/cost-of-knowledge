@@ -19,6 +19,13 @@ to run.
 Running this streamlit application is best done with [Astral UV](https://github.com/astral-sh/uv). To run the streamlit
 app locally, use `uv run streamlit run ./main.py` in the terminal.
 
+## Deploying the tool
+
+This tool can be deployed as a Docker image, run `docker build -t streamlit` to build the image.
+
+This tool uses the [exchangeratesapi.io API](https://exchangeratesapi.io) to fetch the latest currency exchange rates
+daily. Pass an API key as an `EXCHANGE_RATES_API_KEY` environment variable to enable this.
+
 ## Attributions
 
 Country data and flag assets sourced from [lipis/flag-icons](https://github.com/lipis/flag-icons).

@@ -81,9 +81,7 @@ SCIENTIFIC_FIELDS: list[str] = [
 _COUNTRY_DATA: list[dict[str, object]] = json.loads(
     (Path(__file__).parent / "data" / "country.json").read_text(encoding="utf-8")
 )
-COUNTRY_NAMES: dict[str, str] = {
-    str(country["code"]): str(country["name"]) for country in _COUNTRY_DATA
-}
+COUNTRY_NAMES: dict[str, str] = {str(country["code"]): str(country["name"]) for country in _COUNTRY_DATA}
 COUNTRY_CODES: list[str] = sorted(COUNTRY_NAMES, key=lambda code: COUNTRY_NAMES[code])
 # ISO 4217 currency code (e.g. "USD") and symbol (e.g. "$") for each country code.
 COUNTRY_CURRENCIES: dict[str, tuple[str, str]] = {
@@ -168,9 +166,7 @@ def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
     return total_cost
 
 
-def compute_hours(
-    activities: Sequence[BaseActivity], phase: str | None = None
-) -> float:
+def compute_hours(activities: Sequence[BaseActivity], phase: str | None = None) -> float:
     """Calculates the total labour hours of activities in the given list.
 
     Args:
@@ -288,9 +284,7 @@ if "activity_list" not in st.session_state:
             1,
             1,
         ),
-        Activity(
-            "Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2, 2
-        ),
+        Activity("Ethics approval", st.session_state["people"]["1"], "incubation", 60, 2, 2),
         Activity(
             "Grant applications",
             st.session_state["people"]["1"],
@@ -299,9 +293,7 @@ if "activity_list" not in st.session_state:
             3,
             3,
         ),
-        Activity(
-            "Data collection", st.session_state["people"]["1"], "data", 48.5, 4, 4
-        ),
+        Activity("Data collection", st.session_state["people"]["1"], "data", 48.5, 4, 4),
         Activity(
             "Interview transcription",
             st.session_state["people"]["1"],
@@ -415,14 +407,10 @@ def update_default_person_name():
         # Also push the new name into the "People or Roles" selectbox widget state;
         # once that widget has a stored value it ignores its index= argument, so
         # updating only default_person.name would not move the displayed selection.
-        st.session_state[f"person-name-{default_person.unique_key}"] = (
-            default_person.name
-        )
+        st.session_state[f"person-name-{default_person.unique_key}"] = default_person.name
 
 
-project_step: bool = (
-    TOOL_STEPS[st.session_state["tool_step"]] == "project"
-)
+project_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "project"
 
 with st.expander(
     "You and your project",
@@ -524,9 +512,7 @@ def add_person(key: str | None = None):
     if key is None:
         # First find the highest unique_key issued so far. Then add one to that key.
         person_key_list: list[int] = [
-            int(person.unique_key)
-            for person in st.session_state["people"].values()
-            if person.unique_key.isdigit()
+            int(person.unique_key) for person in st.session_state["people"].values() if person.unique_key.isdigit()
         ]
         key = str(max(person_key_list) + 1)
     # Start new people at the default rate in the user's currency, or in USD if no exchange rate is available.
@@ -577,9 +563,7 @@ def calculate_hourly_rate(person: Person, key: str):
 
 
 # Check if tool is at the people step, expand Roles expander if True.
-people_step: bool = (
-    TOOL_STEPS[st.session_state["tool_step"]] == "people"
-)
+people_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "people"
 
 with st.expander(
     "People or Roles",
@@ -639,10 +623,7 @@ with st.expander(
                     key=f"calculate-hourly-wage-{person.unique_key}",
                 ):
                     calculate_hourly_rate(person, person.unique_key)
-                if (
-                    person.person_type == PersonType.RESEARCH_TEAM
-                    and int(person.unique_key) > 1
-                ):
+                if person.person_type == PersonType.RESEARCH_TEAM and int(person.unique_key) > 1:
                     st.button(
                         f"Delete {person.name or 'person'}",
                         key=f"delete-person-{person.unique_key}",
@@ -687,26 +668,20 @@ def person_option_decode(display_string: str):
 
 def set_activity_person(activity: Activity, counter: int):
     """Callback for st.selectbox to select the person assigned to an activity."""
-    people_key: str = person_option_decode(
-        st.session_state[f"activity-person-{counter}"]
-    )
+    people_key: str = person_option_decode(st.session_state[f"activity-person-{counter}"])
     activity.person: Person = st.session_state["people"][people_key]
 
 
 def next_activity_key() -> int:
     """Returns an unused unique_key for a new Activity."""
-    activity_key_list: list[int] = [
-        activity.unique_key for activity in st.session_state["activity_list"]
-    ]
+    activity_key_list: list[int] = [activity.unique_key for activity in st.session_state["activity_list"]]
     return max(activity_key_list, default=0) + 1
 
 
 def next_activity_group_key() -> int:
     """Returns an unused group_key, identifying a new activity rather than a person within one."""
     group_key_list: list[int] = [
-        activity.group_key
-        for activity in st.session_state["activity_list"]
-        if isinstance(activity, Activity)
+        activity.group_key for activity in st.session_state["activity_list"] if isinstance(activity, Activity)
     ]
     return max(group_key_list, default=0) + 1
 
@@ -760,12 +735,8 @@ def delete_activity(activities: list[Activity]):
 
 
 def add_direct_cost(phase: str):
-    cost_key_list: list[int] = [
-        direct_cost.unique_key for direct_cost in st.session_state["cost_list"]
-    ]
-    st.session_state["cost_list"].append(
-        DirectCost(None, phase, 0.0, max(cost_key_list) + 1)
-    )
+    cost_key_list: list[int] = [direct_cost.unique_key for direct_cost in st.session_state["cost_list"]]
+    st.session_state["cost_list"].append(DirectCost(None, phase, 0.0, max(cost_key_list) + 1))
 
 
 def delete_direct_cost(direct_cost: DirectCost):
@@ -786,9 +757,7 @@ with main_left:
 
     for phase, phase_name in RESEARCH_PHASES.items():
         # Expand expander if the current tool step is the current phase.
-        phase_expand: bool = (
-            TOOL_STEPS[st.session_state["tool_step"]] == phase
-        )
+        phase_expand: bool = TOOL_STEPS[st.session_state["tool_step"]] == phase
 
         # Handle special phases.
         if phase == "editing":
@@ -814,9 +783,7 @@ with main_left:
                     step=1,
                     key="review-rounds",
                 )
-                st.session_state[
-                    "peer_review_activity"
-                ].review_rounds: int = st.session_state["review_rounds"]
+                st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
 
                 st.session_state["journal_submissions"]: int = st.slider(
                     "Number of journals submitted to",
@@ -826,26 +793,22 @@ with main_left:
                     step=1,
                     key="journal-submissions",
                 )
-                st.session_state[
-                    "peer_review_activity"
-                ].journal_submissions: int = st.session_state["journal_submissions"]
-                st.session_state[
-                    "journal_editing_activity"
-                ].journal_submissions: int = st.session_state["journal_submissions"]
+                st.session_state["peer_review_activity"].journal_submissions: int = st.session_state[
+                    "journal_submissions"
+                ]
+                st.session_state["journal_editing_activity"].journal_submissions: int = st.session_state[
+                    "journal_submissions"
+                ]
 
-                st.session_state["peer_reviewer"].hourly_rate: int | float = (
-                    st.number_input(
-                        f"Hourly rate of peer reviewer (in {currency_code()})",
-                        min_value=0.0,
-                        value=float(st.session_state["peer_reviewer"].hourly_rate),
-                    )
+                st.session_state["peer_reviewer"].hourly_rate: int | float = st.number_input(
+                    f"Hourly rate of peer reviewer (in {currency_code()})",
+                    min_value=0.0,
+                    value=float(st.session_state["peer_reviewer"].hourly_rate),
                 )
-                st.session_state["journal_editor"].hourly_rate: int | float = (
-                    st.number_input(
-                        f"Hourly rate of journal editor (in {currency_code()})",
-                        min_value=0.0,
-                        value=float(st.session_state["journal_editor"].hourly_rate),
-                    )
+                st.session_state["journal_editor"].hourly_rate: int | float = st.number_input(
+                    f"Hourly rate of journal editor (in {currency_code()})",
+                    min_value=0.0,
+                    value=float(st.session_state["journal_editor"].hourly_rate),
                 )
                 with st.container(horizontal=True, horizontal_alignment="left"):
                     st.button(
@@ -872,9 +835,7 @@ with main_left:
                 # separate Activity sharing that key.
                 activity_groups: dict[int, list[Activity]] = {}
                 for phase_activity in phase_activities:
-                    activity_groups.setdefault(phase_activity.group_key, []).append(
-                        phase_activity
-                    )
+                    activity_groups.setdefault(phase_activity.group_key, []).append(phase_activity)
 
                 for group_key, group_activities in activity_groups.items():
                     with st.container(border=True):
@@ -887,12 +848,8 @@ with main_left:
                             activity_name_index = None
                         else:
                             if current_activity_name not in activity_options:
-                                activity_options = [
-                                    current_activity_name
-                                ] + activity_options
-                            activity_name_index = activity_options.index(
-                                current_activity_name
-                            )
+                                activity_options = [current_activity_name] + activity_options
+                            activity_name_index = activity_options.index(current_activity_name)
                         activity_name: str | None = st.selectbox(
                             "Activity",
                             options=activity_options,
@@ -915,16 +872,14 @@ with main_left:
                         # One row of inputs per person assigned to this activity.
                         for person_index, group_activity in enumerate(group_activities):
                             try:  # Get index of person in list of people.
-                                activity_person_index: int = list(
-                                    st.session_state["people"].keys()
-                                ).index(group_activity.person.unique_key)
+                                activity_person_index: int = list(st.session_state["people"].keys()).index(
+                                    group_activity.person.unique_key
+                                )
                             except ValueError:
                                 activity_person_index: int = 0
 
                             # Only label the first row so the rows below it read as a list.
-                            row_label_visibility: str = (
-                                "visible" if person_index == 0 else "collapsed"
-                            )
+                            row_label_visibility: str = "visible" if person_index == 0 else "collapsed"
                             person_column, hours_column, delete_column = st.columns(
                                 [2, 1, 1], vertical_alignment="bottom"
                             )
@@ -982,9 +937,7 @@ with main_left:
                             )
 
                 phase_costs: list[DirectCost] = [
-                    direct_cost
-                    for direct_cost in st.session_state["cost_list"]
-                    if direct_cost.phase == phase
+                    direct_cost for direct_cost in st.session_state["cost_list"] if direct_cost.phase == phase
                 ]
                 for phase_cost in phase_costs:
                     with st.container(border=True):
@@ -1063,16 +1016,12 @@ with main_left:
 # Visualisation pane
 
 # Calculate total costs and total hours.
-combined_costs_list: list[Cost] = (
-    st.session_state["activity_list"] + st.session_state["cost_list"]
-)  # ty:ignore[invalid-assignment]
+combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]  # ty:ignore[invalid-assignment]
 total_cost: float = compute_costs(combined_costs_list)
 total_hours: float = compute_hours(st.session_state["activity_list"])
 
 
-def build_color_map(
-    names: Sequence[str], palette: Sequence[str] | None = None
-) -> dict[str, str]:
+def build_color_map(names: Sequence[str], palette: Sequence[str] | None = None) -> dict[str, str]:
     """Assigns each distinct name a stable colour so a phase or activity keeps the
     same colour across every chart.
 
@@ -1095,14 +1044,9 @@ def build_color_map(
 # so newly added activities always get a colour; phases always take the same colours and
 # activity/direct-cost names keep a consistent colour wherever they appear.
 phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
-item_color_map: dict[str, str] = build_color_map(
-    [item.get_name() or "Unnamed" for item in combined_costs_list]
-)
+item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
 person_color_map: dict[str, str] = build_color_map(
-    [
-        activity.get_person().name or "Unnamed"
-        for activity in st.session_state["activity_list"]
-    ]
+    [activity.get_person().name or "Unnamed" for activity in st.session_state["activity_list"]]
 )
 
 with main_right:
@@ -1122,17 +1066,13 @@ with main_right:
         ["phases", "activities and direct costs"],
         default="phases",
     )
-    costs_pie_names: Literal["Phase", "Item"] = (
-        "Phase" if costs_chart_selection == "phases" else "Item"
-    )
+    costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
 
     costs_df = pd.DataFrame(
         {
             "Item": [item.get_name() or "Unnamed" for item in combined_costs_list],
             "Cost": [item.get_total_cost() for item in combined_costs_list],
-            "Phase": [
-                RESEARCH_PHASES[item.get_phase()] for item in combined_costs_list
-            ],
+            "Phase": [RESEARCH_PHASES[item.get_phase()] for item in combined_costs_list],
         }
     )
 
@@ -1157,25 +1097,11 @@ with main_right:
 
     labour_df = pd.DataFrame(
         {
-            "Activity": [
-                activity.get_name() or "Unnamed"
-                for activity in st.session_state["activity_list"]
-            ],
-            "Cost": [
-                activity.get_total_cost()
-                for activity in st.session_state["activity_list"]
-            ],
-            "Hours": [
-                activity.get_hours() for activity in st.session_state["activity_list"]
-            ],
-            "Phase": [
-                RESEARCH_PHASES[activity.get_phase()]
-                for activity in st.session_state["activity_list"]
-            ],
-            "Person": [
-                activity.get_person().name or "Unnamed"
-                for activity in st.session_state["activity_list"]
-            ],
+            "Activity": [activity.get_name() or "Unnamed" for activity in st.session_state["activity_list"]],
+            "Cost": [activity.get_total_cost() for activity in st.session_state["activity_list"]],
+            "Hours": [activity.get_hours() for activity in st.session_state["activity_list"]],
+            "Phase": [RESEARCH_PHASES[activity.get_phase()] for activity in st.session_state["activity_list"]],
+            "Person": [activity.get_person().name or "Unnamed" for activity in st.session_state["activity_list"]],
         }
     )
 
@@ -1192,10 +1118,7 @@ with main_right:
     # total_cost includes direct costs, which are not shown in this sunburst, so
     # the percentages of the top-level segments will not sum to 100%.
     node_costs: list[float] = list(sunburst.data[0].values)
-    sunburst.data[0].text = [
-        f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%"
-        for cost in node_costs
-    ]
+    sunburst.data[0].text = [f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%" for cost in node_costs]
     sunburst.data[0].texttemplate = "%{label}<br>%{text}"
     sunburst.update_layout(height=720)
     st.plotly_chart(sunburst, width="stretch")
@@ -1206,9 +1129,7 @@ with main_right:
 
     # Hours of labour per person bar chart
     hours_per_person_df = (
-        labour_df.groupby("Person", as_index=False)["Hours"]
-        .sum()
-        .sort_values("Hours", ascending=False)
+        labour_df.groupby("Person", as_index=False)["Hours"].sum().sort_values("Hours", ascending=False)
     )
 
     hours_per_person_chart = px.bar(
@@ -1220,9 +1141,7 @@ with main_right:
         title="Hours of Labor per Person",
         text_auto=True,
     )
-    hours_per_person_chart.update_traces(
-        texttemplate="%{y:.1f} hours", textposition="outside"
-    )
+    hours_per_person_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
     hours_per_person_chart.update_layout(showlegend=False)
     st.plotly_chart(hours_per_person_chart, width="stretch")
 
@@ -1230,9 +1149,7 @@ with main_right:
         "**Show labor as**",
         ["Cost", "Hours"],
         default="Cost",
-        format_func=lambda option: (
-            f"Cost ({currency_code()})" if option == "Cost" else option
-        ),
+        format_func=lambda option: f"Cost ({currency_code()})" if option == "Cost" else option,
     )
 
     labour_chart = px.bar(
@@ -1246,14 +1163,10 @@ with main_right:
         labels={"Cost": f"Cost ({currency_code()})"},
     )
     if labour_chart_selection == "Cost":
-        labour_chart.update_traces(
-            texttemplate=f"{currency_prefix()}%{{y:,.2f}}", textposition="outside"
-        )
+        labour_chart.update_traces(texttemplate=f"{currency_prefix()}%{{y:,.2f}}", textposition="outside")
         labour_chart.update_yaxes(tickprefix=currency_prefix())
     else:
-        labour_chart.update_traces(
-            texttemplate="%{y:.1f} hours", textposition="outside"
-        )
+        labour_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
     st.plotly_chart(labour_chart, width="stretch")
 
 
@@ -1342,9 +1255,7 @@ def create_social_media_svg(
     # Project title (wrapped, capped at three lines)
     title_size: int = 62
     title_line_height: float = 1.15
-    wrapped_title: list[str] = _wrap_text(
-        project_name.strip() or "Untitled research project", 26
-    )
+    wrapped_title: list[str] = _wrap_text(project_name.strip() or "Untitled research project", 26)
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
@@ -1363,9 +1274,7 @@ def create_social_media_svg(
     )
 
     # Field of science and country
-    subtitle_y: float = (
-        title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
-    )
+    subtitle_y: float = title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
     subtitle: str = project_field
     if country.strip():
         country_text: str = country.strip()
@@ -1420,13 +1329,9 @@ def create_social_media_svg(
     # palette renders near-black outside the app, so choose real colours here,
     # one stable colour per phase.
     phase_names: list[str] = list(phase_costs.keys())
-    palette: dict[str, str] = build_color_map(
-        phase_names, palette=px.colors.qualitative.Bold
-    )
+    palette: dict[str, str] = build_color_map(phase_names, palette=px.colors.qualitative.Bold)
     breakdown_total: float = sum(phase_costs.values())
-    visible_phases: list[str] = [
-        name for name in phase_names if phase_costs[name] > 0
-    ] or phase_names
+    visible_phases: list[str] = [name for name in phase_names if phase_costs[name] > 0] or phase_names
 
     legend_row_h: int = 48
     legend_font: int = 28
@@ -1448,9 +1353,7 @@ def create_social_media_svg(
     figures_block_h: int = 96 + metric_gap
     zone_top: float = blurb_bottom + 90
     zone_bottom: float = bar_label_y - 40
-    figures_y: float = zone_top + max(
-        0.0, (zone_bottom - zone_top - figures_block_h) / 2
-    )
+    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
     image.append(
         draw.Text(
             "Estimated total cost",
@@ -1510,14 +1413,10 @@ def create_social_media_svg(
             segment: float = bar_w * (phase_costs[name] / breakdown_total)
             if segment <= 0:
                 continue
-            image.append(
-                draw.Rectangle(cursor, bar_y, segment, bar_h, fill=palette[name])
-            )
+            image.append(draw.Rectangle(cursor, bar_y, segment, bar_h, fill=palette[name]))
             cursor += segment
     else:
-        image.append(
-            draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4)
-        )
+        image.append(draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4))
     image.append(
         draw.Rectangle(
             bar_x,
@@ -1539,9 +1438,7 @@ def create_social_media_svg(
             continue
         row_y: float = legend_first_y + row_index * legend_row_h
         share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
-        image.append(
-            draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=palette[name])
-        )
+        image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=palette[name]))
         image.append(
             draw.Text(
                 name,
@@ -1612,17 +1509,14 @@ def share_summary(total_cost: float, total_hours: float) -> str:
 def linkedin_share_url(total_cost: float, total_hours: float) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
     text: str = (
-        f"{share_summary(total_cost, total_hours)}\n\n"
-        f"Estimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
+        f"{share_summary(total_cost, total_hours)}\n\nEstimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
     )
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
 def x_share_url(total_cost: float, total_hours: float) -> str:
     """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to the tool."""
-    text: str = (
-        f"{share_summary(total_cost, total_hours)} Estimate your own Cost of Knowledge:"
-    )
+    text: str = f"{share_summary(total_cost, total_hours)} Estimate your own Cost of Knowledge:"
     return f"https://x.com/intent/post?text={quote(text)}&url={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
 
 
@@ -1664,16 +1558,12 @@ social_media_svg: str = create_social_media_svg(
     project_field=st.session_state["project_field"],
     total_cost=total_cost,
     total_hours=total_hours,
-    phase_costs={
-        label: compute_costs(combined_costs_list, phase=key)
-        for key, label in RESEARCH_PHASES.items()
-    },
+    phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
 ).as_svg()
 
 _svg_slug: str = (
     "".join(
-        char if char.isalnum() else "-"
-        for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
+        char if char.isalnum() else "-" for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
     ).strip("-")
     or "cost-of-knowledge"
 )

@@ -195,6 +195,44 @@ if "database_initialised" not in st.session_state:
         logging.getLogger(__name__).exception("Could not initialise the %s database.", DATABASE_TYPE)
     st.session_state["database_initialised"] = True
 
+# Query parameter holding the id of a project saved to the database, e.g. ?project_id=3, which is loaded on page load.
+PROJECT_ID_QUERY_PARAM: str = "project_id"
+
+
+def load_from_database(project_id_param: str) -> None:
+    """Replaces the calculator's inputs with the project saved in the database under the given id.
+
+    Must run before any widget is rendered, as it replaces widget state. Later saves in the session update the loaded
+    project.
+    """
+    if DATABASE_TYPE == "none":
+        st.toast("Could not load the project: no database is configured.", icon=":material/error:")
+        return
+    try:
+        project_id: int = int(project_id_param)
+    except ValueError:
+        st.toast(f"Could not load the project: {project_id_param!r} is not a valid id.", icon=":material/error:")
+        return
+    try:
+        with closing(database.connect()) as conn:
+            state: CalculatorState = sql_store.load_project(conn, project_id)
+    except KeyError:
+        st.toast(f"Could not load the project: no project with id {project_id}.", icon=":material/error:")
+        return
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not load the project from the database: {error}", icon=":material/error:")
+        return
+    state.apply_to_session_state(st.session_state)
+    st.session_state["database_project_id"] = project_id
+    st.toast("Loaded the project from the database.", icon=":material/check_circle:")
+
+
+# Load only when the query parameter changes, so the user's edits are not overwritten by the saved project every rerun.
+query_project_id: str | None = st.query_params.get(PROJECT_ID_QUERY_PARAM)
+if query_project_id is not None and query_project_id != st.session_state.get("loaded_query_project_id"):
+    st.session_state["loaded_query_project_id"] = query_project_id
+    load_from_database(query_project_id)
+
 # -----------------------------------------------
 # Header
 # -----------------------------------------------
@@ -1496,13 +1534,23 @@ def save_to_database() -> None:
     st.toast("Saved to the database.", icon=":material/check_circle:")
 
 
-# Not an on_click callback, as callbacks run before the script copies unkeyed widget values into session state.
-if DATABASE_TYPE != "none" and st.button(
-    "Save to database",
-    icon=":material/save:",
-    help="Save your inputs to the database. Saving again updates the same project.",
-):
-    save_to_database()
+if DATABASE_TYPE != "none":
+    with st.container(horizontal=True, horizontal_alignment="left"):
+        # Not an on_click callback, as callbacks run before the script copies unkeyed widget values into session state.
+        if st.button(
+            "Save to database",
+            icon=":material/save:",
+            help="Save your inputs to the database. Saving again updates the same project.",
+        ):
+            save_to_database()
+        # Rendered after the save button so it appears in the same run as the first save.
+        if st.session_state.get("database_project_id") is not None:
+            st.link_button(
+                "Link to saved project",
+                f"?{PROJECT_ID_QUERY_PARAM}={st.session_state['database_project_id']}",
+                icon=":material/link:",
+                help="Open the saved project. Copy this link to return to the project later.",
+            )
 
 st.markdown("""
             :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,

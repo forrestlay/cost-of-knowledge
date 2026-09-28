@@ -12,6 +12,7 @@ from streamlit.testing.v1 import AppTest
 from test_app import MAIN, run
 
 from src import database, sql_store
+from src.calculator_state import CalculatorState
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -92,6 +93,50 @@ def test_save_button_saves_then_updates(monkeypatch: pytest.MonkeyPatch) -> None
     with closing(database.connect()) as conn:
         projects = sql_store.list_projects(conn)
     assert [(project["id"], project["project_name"]) for project in projects] == [(project_id, "Renamed project")]
+
+
+def test_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+    assert not [button for button in at.get("link_button") if button.proto.label == "Link to saved project"]
+
+    next(button for button in at.button if button.label == "Save to database").click()
+    run(at)
+    project_id: int = at.session_state["database_project_id"]
+    link = next(button for button in at.get("link_button") if button.proto.label == "Link to saved project")
+    assert link.proto.url == f"?project_id={project_id}"
+
+
+def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    state: CalculatorState = CalculatorState.default()
+    state.project_name = "Saved project"
+    state.user_name = "Ada"
+    with closing(database.connect()) as conn:
+        project_id: int = sql_store.save_project(conn, state)
+
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    at.query_params["project_id"] = str(project_id)
+    run(at)
+    assert at.session_state["database_project_id"] == project_id
+    assert at.text_input(key="user_name_input").value == "Ada"
+    assert at.session_state["project_name"] == "Saved project"
+
+    # Edits must survive reruns rather than being replaced by the saved project again.
+    next(field for field in at.text_input if field.label == "Name of your paper/project").set_value("Edited")
+    run(at)
+    assert at.session_state["project_name"] == "Edited"
+
+
+@pytest.mark.parametrize("project_id", ["999", "not-a-number"])
+def test_query_param_with_unknown_project_keeps_defaults(monkeypatch: pytest.MonkeyPatch, project_id: str) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    at.query_params["project_id"] = project_id
+    run(at)
+    assert "database_project_id" not in at.session_state
+    assert at.toast[0].value.startswith("Could not load the project")
 
 
 def capture_mysql_connect(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:

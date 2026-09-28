@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     import pymysql
+    import pymysql.cursors
 
     type Connection = sqlite3.Connection | pymysql.connections.Connection
     type Cursor = sqlite3.Cursor | pymysql.cursors.Cursor
@@ -224,6 +225,8 @@ def _column_value(value: Any) -> Any:
 
 def _fetch_dicts(cursor: Cursor) -> list[dict[str, Any]]:
     """Returns the cursor's remaining rows as dicts keyed by column name."""
+    if cursor.description is None:
+        return []
     columns: list[str] = [description[0] for description in cursor.description]
     return [
         {column: _column_value(value) for column, value in zip(columns, row, strict=True)} for row in cursor.fetchall()

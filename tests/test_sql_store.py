@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from contextlib import closing
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import streamlit as st
@@ -169,6 +169,17 @@ def test_list_projects(conn: Connection) -> None:
     assert project["public_id"] == public_id
     assert project["project_name"] == "A study"
     assert project["total_cost"] == pytest.approx(state.total_cost())
+
+
+def test_load_projects(conn: Connection) -> None:
+    assert sql_store.load_projects(conn) == []
+    first_public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    state: CalculatorState = modified_state()
+    second_public_id: str = sql_store.save_project(conn, state)
+    projects: list[tuple[dict[str, Any], CalculatorState]] = sql_store.load_projects(conn)
+    # Most recently created first, each with its own people, activities and direct costs.
+    assert [project["public_id"] for project, _ in projects] == [second_public_id, first_public_id]
+    assert [loaded for _, loaded in projects] == [state, CalculatorState.default()]
 
 
 def test_delete_project_cascades(conn: Connection) -> None:

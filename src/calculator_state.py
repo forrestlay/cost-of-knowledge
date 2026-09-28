@@ -217,8 +217,8 @@ class CalculatorState:
         """Derived totals for this state. Written alongside exports for reference and ignored on import.
 
         Args:
-            phase_labels: Optional mapping of phase key to display name (e.g. main.RESEARCH_PHASES). Phases are keyed
-                by their phase key when omitted.
+            phase_labels: Optional mapping of phase key to display name (e.g. reference_data.RESEARCH_PHASES). Phases
+                are keyed by their phase key when omitted.
         """
         combined: list[Cost] = [*self.activities, *self.direct_costs]  # ty:ignore[invalid-assignment]
         phases: list[str] = list(dict.fromkeys(item.phase for item in combined))

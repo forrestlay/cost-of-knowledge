@@ -149,8 +149,15 @@ def _insert_children(conn: sqlite3.Connection, project_id: int, state: Calculato
         "INSERT INTO people (project_id, position, unique_key, role, name, person_type, hourly_rate)"
         " VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
-            (project_id, position, person["unique_key"], role, person["name"], person["person_type"],
-             person["hourly_rate"])
+            (
+                project_id,
+                position,
+                person["unique_key"],
+                role,
+                person["name"],
+                person["person_type"],
+                person["hourly_rate"],
+            )
             for position, (role, person) in enumerate(people_rows)
         ],
     )

@@ -31,9 +31,9 @@ import plotly.express as px
 import resvg_py
 import streamlit as st
 
-from calculator_state import CalculatorState, compute_costs, compute_hours
-from currencyrates import convert_currency
-from models import (
+from src.calculator_state import CalculatorState, compute_costs, compute_hours
+from src.currency_rates import convert_currency
+from src.models import (
     Activity,
     DirectCost,
     Person,
@@ -860,9 +860,7 @@ with main_left:
 # Visualisation pane
 
 # Calculate total costs and total hours.
-combined_costs_list: list[Cost] = (
-    st.session_state["activity_list"] + st.session_state["cost_list"]
-)
+combined_costs_list: list[Cost] = st.session_state["activity_list"] + st.session_state["cost_list"]
 total_cost: float = compute_costs(combined_costs_list)
 total_hours: float = compute_hours(st.session_state["activity_list"])
 

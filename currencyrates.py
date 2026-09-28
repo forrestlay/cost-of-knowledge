@@ -1,7 +1,8 @@
 """Sources USD exchange rates from the exchangeratesapi.io API for the Cost of Knowledge tool.
 
 Rates are fetched at most once per day and saved to data/exchange_rates.json, which is reused for the rest of that day.
-The API key is read from the EXCHANGE_RATES_API_KEY Streamlit secret in .streamlit/secrets.toml.
+The API key is read from the EXCHANGE_RATES_API_KEY Streamlit secret in .streamlit/secrets.toml,
+or failing that from the EXCHANGE_RATES_API_KEY environment variable.
 
 Copyright 2026 Nurul Alam, Ben Lay
 
@@ -20,6 +21,7 @@ limitations under the License.
 
 import json
 import logging
+import os
 import urllib.error
 import urllib.request
 from datetime import date
@@ -35,6 +37,11 @@ logger: logging.Logger = logging.getLogger(__name__)
 EXCHANGE_RATES_API_URL: str = "https://api.exchangeratesapi.io/v1/latest"
 EXCHANGE_RATES_SECRET: str = "EXCHANGE_RATES_API_KEY"
 EXCHANGE_RATES_FILE: Path = Path(__file__).parent / "data" / "exchange_rates.json"
+DEFAULT_EXCHANGE_RATES_FILE: Path = Path(__file__).parent / "data" / "exchange_rates_default.json"
+
+
+class RateLimitError(RuntimeError):
+    """Raised when the exchange rate API's usage limit has been reached."""
 
 
 class SavedRates(TypedDict):
@@ -45,11 +52,11 @@ class SavedRates(TypedDict):
     rates: dict[str, float]
 
 
-def _read_rates_file() -> SavedRates | None:
-    """Returns the saved exchange rates, or None if the file is missing or unreadable."""
+def _read_rates_file(path: Path = EXCHANGE_RATES_FILE) -> SavedRates | None:
+    """Returns the exchange rates saved at path, or None if the file is missing or unreadable."""
     try:
-        return json.loads(EXCHANGE_RATES_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
         return None
 
 
@@ -61,10 +68,12 @@ def _write_rates_file(data: SavedRates) -> None:
 
 
 def _get_api_key() -> str | None:
+    """Returns the API key from Streamlit secrets, falling back to the environment variable of the same name."""
     try:
-        return st.secrets.get(EXCHANGE_RATES_SECRET)
+        api_key: str | None = st.secrets.get(EXCHANGE_RATES_SECRET)
     except StreamlitSecretNotFoundError:
-        return None
+        api_key = None
+    return api_key or os.environ.get(EXCHANGE_RATES_SECRET)
 
 
 def _fetch_usd_rates(api_key: str) -> dict[str, float]:
@@ -73,12 +82,17 @@ def _fetch_usd_rates(api_key: str) -> dict[str, float]:
     The free API plan only returns EUR-based rates, so the rates are requested with the default base and rebased to USD.
 
     Raises:
+        RateLimitError: If the API's usage limit has been reached (HTTP 429).
         RuntimeError: If the API request fails or returns an error.
     """
     url: str = f"{EXCHANGE_RATES_API_URL}?{urlencode({'access_key': api_key})}"
     try:
         with urllib.request.urlopen(url, timeout=10) as response:
             payload: dict = json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 429:
+            raise RateLimitError("Exchange rate API usage limit reached") from None
+        raise RuntimeError(f"Exchange rate request failed: HTTP {error.code}") from None
     except (urllib.error.URLError, TimeoutError, ValueError) as error:
         # Don't include the URL in the message, it contains the API key.
         raise RuntimeError(f"Exchange rate request failed: {type(error).__name__}") from None
@@ -95,8 +109,9 @@ def _fetch_usd_rates(api_key: str) -> dict[str, float]:
 def _load_usd_rates(today: str) -> dict[str, float] | None:
     """Returns today's USD exchange rates, querying the API only if they haven't already been saved today.
 
-    If the API can't be queried, the most recently saved rates are used instead. Cached for an hour so that a failing
-    API isn't queried on every rerun.
+    If the API's usage limit has been reached, whichever of the default rates and the most recently saved rates is newer
+    is used instead. If the API can't be queried for any other reason, the most recently saved rates are used. Cached
+    for an hour so that a failing API isn't queried on every rerun.
 
     Args:
         today: Today's date in ISO format. Part of the cache key so the cache turns over each day.
@@ -109,6 +124,13 @@ def _load_usd_rates(today: str) -> dict[str, float] | None:
     if api_key:
         try:
             rates: dict[str, float] = _fetch_usd_rates(api_key)
+        except RateLimitError as error:
+            default: SavedRates | None = _read_rates_file(DEFAULT_EXCHANGE_RATES_FILE)
+            # ISO format dates compare correctly as strings.
+            if default is not None and (saved is None or default.get("date", "") > saved.get("date", "")):
+                logger.warning("%s, using default exchange rates.", error)
+                return default["rates"]
+            logger.warning("%s, using saved exchange rates.", error)
         except (RuntimeError, KeyError, ZeroDivisionError) as error:
             logger.warning("Could not update exchange rates: %s", error)
         else:

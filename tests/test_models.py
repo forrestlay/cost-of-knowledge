@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from models import Activity, DirectCost, JournalEditing, PeerReview, Person, PersonType
+from src.models import Activity, DirectCost, JournalEditing, PeerReview, Person, PersonType
 
 
 @pytest.fixture

@@ -26,6 +26,15 @@ This tool can be deployed as a Docker image, run `docker build -t streamlit` to 
 This tool uses the [exchangeratesapi.io API](https://exchangeratesapi.io) to fetch the latest currency exchange rates
 daily. Pass an API key as an `EXCHANGE_RATES_API_KEY` environment variable to enable this.
 
+Calculator inputs can be saved to a database by setting `DATABASE_TYPE` in `.streamlit/secrets.toml` or as an
+environment variable. It may be `none` (the default, saving is disabled), `sqlite` or `mysql`. When a database is set, a
+"Save to database" button is shown at the end of the page.
+
+- `sqlite` creates the database at `data/cost_of_knowledge.db`.
+- `mysql` connects to the database set by `DATABASE_URL`, in the form `mysql://host[:port]/database`, with the
+  `DATABASE_USERNAME` and `DATABASE_PASSWORD` settings, which are also read from `.streamlit/secrets.toml` or environment
+  variables. The database must already exist, and its tables are created on first use.
+
 ## Attributions
 
 Country data and flag assets sourced from [lipis/flag-icons](https://github.com/lipis/flag-icons).

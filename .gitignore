@@ -47,3 +47,7 @@ MANIFEST
 # Daily exchange rates cache, created by currencyrates.py
 data/exchange_rates.json
 data/exchange_rates.json.tmp
+
+# SQLite database, created when DATABASE_TYPE is set to sqlite
+data/cost_of_knowledge.db
+data/cost_of_knowledge.db-journal

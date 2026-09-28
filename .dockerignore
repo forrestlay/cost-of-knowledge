@@ -1,2 +1,11 @@
 /.venv
+/.agents
+/.claude
+/.github
+/.pytest_cache
+/.ruff_cache
+/.streamlit/secrets.toml
 /diagram
+/data/cost_of_knowledge.db
+/data/cost_of_knowledge.db-journal
+/data/exchange_rates.json

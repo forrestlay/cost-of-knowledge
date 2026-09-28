@@ -24,7 +24,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from models import (
+from src.models import (
     Activity,
     BaseActivity,
     DirectCost,
@@ -37,7 +37,7 @@ from models import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping, Sequence
 
-    from models import Cost
+    from src.models import Cost
 
 # Key type of st.session_state (streamlit.elements.lib.utils.Key). Mapping key types are invariant, so session state
 # parameters must use it rather than str to accept st.session_state.

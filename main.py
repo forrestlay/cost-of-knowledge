@@ -21,6 +21,8 @@ limitations under the License.
 """
 
 import json
+import logging
+from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
@@ -31,8 +33,10 @@ import plotly.express as px
 import resvg_py
 import streamlit as st
 
+from src import database, sql_store
 from src.calculator_state import CalculatorState, compute_costs, compute_hours
 from src.currency_rates import convert_currency
+from src.database import DatabaseType, get_database_type, init_database
 from src.models import (
     Activity,
     DirectCost,
@@ -43,7 +47,7 @@ from src.models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from models import Cost
+    from src.models import Cost
 
 st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
 
@@ -178,6 +182,18 @@ if "activity_list" not in st.session_state:
 
 if "user_country_select" not in st.session_state:
     st.session_state["user_country_select"]: str = st.session_state["user_country"]
+
+# Create and initialise the database set by DATABASE_TYPE, if any. Saving is disabled when it is "none".
+DATABASE_TYPE: DatabaseType = get_database_type()
+
+# Tried once per session, so an unreachable database does not slow every rerun. Saving connects again, and reports
+# the error to the user if the database is still unreachable.
+if "database_initialised" not in st.session_state:
+    try:
+        init_database()
+    except database.DATABASE_ERRORS:
+        logging.getLogger(__name__).exception("Could not initialise the %s database.", DATABASE_TYPE)
+    st.session_state["database_initialised"] = True
 
 # -----------------------------------------------
 # Header
@@ -1448,6 +1464,45 @@ with st.container(horizontal=True, horizontal_alignment="left"):
         icon=":material/email:",
         help="Share this tool via email. Download the image first and attach it to your email.",
     )
+
+
+# -----------------------------------------------
+# Save to database
+# -----------------------------------------------
+
+
+def save_to_database() -> None:
+    """Saves the calculator's current inputs to the configured database.
+
+    The first save creates a new project, and later saves in the same session update that project. Its id is kept in
+    st.session_state["database_project_id"] so it persists across script reruns.
+    """
+    state: CalculatorState = CalculatorState.from_session_state(st.session_state)
+    project_id: int | None = st.session_state.get("database_project_id")
+    try:
+        with closing(database.connect()) as conn:
+            if project_id is not None:
+                try:
+                    sql_store.update_project(conn, project_id, state)
+                except KeyError:
+                    # The saved project was deleted from the database, so save it again as a new project.
+                    project_id = None
+            if project_id is None:
+                project_id = sql_store.save_project(conn, state)
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not save to the database: {error}", icon=":material/error:")
+        return
+    st.session_state["database_project_id"] = project_id
+    st.toast("Saved to the database.", icon=":material/check_circle:")
+
+
+# Not an on_click callback, as callbacks run before the script copies unkeyed widget values into session state.
+if DATABASE_TYPE != "none" and st.button(
+    "Save to database",
+    icon=":material/save:",
+    help="Save your inputs to the database. Saving again updates the same project.",
+):
+    save_to_database()
 
 st.markdown("""
             :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,

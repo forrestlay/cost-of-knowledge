@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from calculator_state import SCHEMA_VERSION, CalculatorState
-from models import Activity, PeerReview, Person, PersonType
+from src.calculator_state import SCHEMA_VERSION, CalculatorState
+from src.models import Activity, PeerReview, Person, PersonType
 
 
 def modified_state() -> CalculatorState:
@@ -45,8 +45,12 @@ def test_round_trip_preserves_person_identity() -> None:
     restored: CalculatorState = CalculatorState.from_json(modified_state().to_json())
     for activity in restored.activities:
         person: Person = activity.get_person()
-        assert person is {**restored.people, "Peer reviewer": restored.peer_reviewer,
-                          "Journal editor": restored.journal_editor}[person.unique_key]
+        assert (
+            person
+            is {**restored.people, "Peer reviewer": restored.peer_reviewer, "Journal editor": restored.journal_editor}[
+                person.unique_key
+            ]
+        )
 
     # A rate change must reach every activity the person works on, as it does in the live calculator.
     restored.people["1"].hourly_rate = 1

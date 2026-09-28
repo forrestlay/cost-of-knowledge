@@ -9,8 +9,8 @@ from typing import Any
 from streamlit.runtime.state.common import TESTING_KEY
 from streamlit.testing.v1 import AppTest
 
-from calculator_state import CalculatorState, SessionStateKey
-from models import Activity, Person, PersonType
+from src.calculator_state import CalculatorState, SessionStateKey
+from src.models import Activity, Person, PersonType
 
 MAIN: str = str(Path(__file__).parent.parent / "main.py")
 

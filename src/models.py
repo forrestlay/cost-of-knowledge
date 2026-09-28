@@ -82,8 +82,7 @@ class Person:
 
         if salary > 0:
             return salary / contract_period_hours * indirect_cost_multiplier
-        else:
-            return 0
+        return 0
 
     def to_dict(self) -> dict[str, Any]:
         """Returns a JSON-serialisable dict of this person."""

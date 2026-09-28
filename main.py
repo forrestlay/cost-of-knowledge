@@ -69,6 +69,7 @@ TOOL_STEPS: list[str] = [
     "data",
     "writing",
     "editing",
+    "save",
     "end",
 ]
 
@@ -641,6 +642,31 @@ def delete_direct_cost(direct_cost: DirectCost):
     st.session_state["cost_list"].remove(direct_cost)
 
 
+def save_to_database() -> None:
+    """Saves the calculator's current inputs to the configured database.
+
+    The first save creates a new project, and later saves in the same session update that project. Its id is kept in
+    st.session_state["database_project_id"] so it persists across script reruns.
+    """
+    state: CalculatorState = CalculatorState.from_session_state(st.session_state)
+    project_id: int | None = st.session_state.get("database_project_id")
+    try:
+        with closing(database.connect()) as conn:
+            if project_id is not None:
+                try:
+                    sql_store.update_project(conn, project_id, state)
+                except KeyError:
+                    # The saved project was deleted from the database, so save it again as a new project.
+                    project_id = None
+            if project_id is None:
+                project_id = sql_store.save_project(conn, state)
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not save to the database: {error}", icon=":material/error:")
+        return
+    st.session_state["database_project_id"] = project_id
+    st.toast("Saved to the database.", icon=":material/check_circle:")
+
+
 st.header(":material/request_quote: Calculator")
 
 main_left, main_right = st.columns([1, 2])
@@ -910,6 +936,41 @@ with main_left:
                         on_click=next_tool_step,
                         args=[phase],
                     )
+
+    # Special phase for saving to the database, shown only when a database is configured.
+    if DATABASE_TYPE in ("sqlite", "mysql"):
+        with st.expander(
+            "Save and share your result?",
+            expanded=TOOL_STEPS[st.session_state["tool_step"]] == "save",
+            key="save-expander",
+            on_change="rerun",
+        ):
+            st.markdown("""
+                        If you would like to share your result with others, we will require your permission to save
+                        the information you have input into this tool. If you are happy to do so, please click on the
+                        button below. You can then share your result with the buttons below.
+                        """)
+            with st.container(horizontal=True, horizontal_alignment="left"):
+                # The tool step advances in the on_click callback, as the expander's state cannot be changed once it
+                # is rendered. Saving is not done in the callback, as callbacks run before the script copies unkeyed
+                # widget values into session state.
+                if st.button(
+                    "Save your result to share",
+                    icon=":material/save:",
+                    type="primary",
+                    help="Save your inputs to the database. Saving again updates the same project.",
+                    on_click=next_tool_step,
+                    args=["save"],
+                ):
+                    save_to_database()
+                st.button(
+                    "Do not save my result",
+                    key="next-phase-save",
+                    icon=":material/close:",
+                    on_click=next_tool_step,
+                    args=["save"],
+                )
+
 
 # Visualisation pane
 
@@ -1403,38 +1464,130 @@ def share_summary(total_cost: float, total_hours: float) -> str:
     )
 
 
+def share_link(saved_url: str | None) -> tuple[str, str]:
+    """Returns the link shared on social media and by email, and the call to action introducing it.
+
+    Args:
+        saved_url: Link to the user's saved result, or None if it has not been saved, in which case the tool's own
+            link is shared.
+    """
+    if saved_url is None:
+        return COST_OF_KNOWLEDGE_URL, "Estimate your own Cost of Knowledge"
+    return saved_url, "See my result and estimate your own Cost of Knowledge"
+
+
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
-def linkedin_share_url(total_cost: float, total_hours: float) -> str:
+def linkedin_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
-    text: str = (
-        f"{share_summary(total_cost, total_hours)}\n\nEstimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
-    )
+    url, call_to_action = share_link(saved_url)
+    text: str = f"{share_summary(total_cost, total_hours)}\n\n{call_to_action} at {url}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
-def x_share_url(total_cost: float, total_hours: float) -> str:
-    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to the tool."""
-    text: str = f"{share_summary(total_cost, total_hours)} Estimate your own Cost of Knowledge:"
-    return f"https://x.com/intent/post?text={quote(text)}&url={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
+def x_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to share."""
+    url, call_to_action = share_link(saved_url)
+    text: str = f"{share_summary(total_cost, total_hours)} {call_to_action}:"
+    return f"https://x.com/intent/post?text={quote(text)}&url={quote(url, safe='')}"
 
 
-def facebook_share_url() -> str:
-    """Builds a link that opens Facebook's share dialog for the tool.
+def facebook_share_url(saved_url: str | None) -> str:
+    """Builds a link that opens Facebook's share dialog for the saved result, or for the tool if it is not saved.
 
     Facebook's share dialog only accepts a URL; it does not allow pre-filled post text.
     """
-    return f"https://www.facebook.com/sharer/sharer.php?u={quote(COST_OF_KNOWLEDGE_URL, safe='')}"
+    url, _ = share_link(saved_url)
+    return f"https://www.facebook.com/sharer/sharer.php?u={quote(url, safe='')}"
 
 
-def email_share_url(total_cost: float, total_hours: float) -> str:
+def email_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
+    url, call_to_action = share_link(saved_url)
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = (
-        f"{share_summary(total_cost, total_hours)}\r\n\r\n"
-        f"Estimate your own Cost of Knowledge at {COST_OF_KNOWLEDGE_URL}"
-    )
+    body: str = f"{share_summary(total_cost, total_hours)}\r\n\r\n{call_to_action} at {url}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
+
+
+# Streamlit has no native copy-to-clipboard button, so this inline component draws a button styled like st.link_button
+# that copies data["url"] to the clipboard. The browser only allows this on secure (https or localhost) pages.
+_COPY_LINK_BUTTON = st.components.v2.component(
+    "copy_link_button",
+    html="""
+<button type="button" class="copy-link-button">
+  <svg class="icon" viewBox="0 -960 960 960" aria-hidden="true">
+    <path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5
+      56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480
+      480Z"/>
+  </svg>
+  <span class="label"></span>
+</button>
+""",
+    css="""
+.copy-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--st-border-color);
+  border-radius: var(--st-button-radius);
+  background-color: var(--st-background-color);
+  color: var(--st-text-color);
+  font-family: var(--st-font);
+  font-size: var(--st-base-font-size);
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.copy-link-button:hover {
+  border-color: var(--st-primary-color);
+  color: var(--st-primary-color);
+}
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: currentColor;
+}
+""",
+    js="""
+export default function (component) {
+  const { data, parentElement } = component
+  const button = parentElement.querySelector(".copy-link-button")
+  const label = parentElement.querySelector(".label")
+  if (!button || !label) return
+
+  label.textContent = data.label
+  button.title = data.help
+  button.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(data.url)
+      label.textContent = data.copied_label
+    } catch {
+      // Clipboard access is blocked, e.g. on an insecure page, so let the user copy the link themselves.
+      window.prompt("Copy the link below.", data.url)
+    }
+    setTimeout(() => {
+      label.textContent = data.label
+    }, 2000)
+  }
+}
+""",
+)
+
+
+def saved_project_url(project_id: int) -> str:
+    """Builds the full link that loads the saved project with the given id."""
+    return f"{st.context.url or ''}?{PROJECT_ID_QUERY_PARAM}={project_id}"
+
+
+def copy_link_button(label: str, url: str, copied_label: str, help: str, key: str) -> None:
+    """Draws a button that copies the given URL to the clipboard, showing copied_label for a moment afterwards."""
+    _COPY_LINK_BUTTON(
+        data={"label": label, "url": url, "copied_label": copied_label, "help": help},
+        key=key,
+        width="content",
+    )
 
 
 # -----------------------------------------------
@@ -1469,6 +1622,14 @@ _svg_slug: str = (
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg, width=540)
 
+# Link to the saved result, which the share buttons use in place of the tool's link once the result is saved. Saving
+# happens above in the setup pane, so the buttons update in the same run as the save.
+saved_result_url: str | None = (
+    saved_project_url(st.session_state["database_project_id"])
+    if st.session_state.get("database_project_id") is not None
+    else None
+)
+
 with st.container(horizontal=True, horizontal_alignment="left"):
     st.download_button(
         "Download image",
@@ -1480,77 +1641,38 @@ with st.container(horizontal=True, horizontal_alignment="left"):
     )
     st.link_button(
         "Share on LinkedIn",
-        linkedin_share_url(total_cost, total_hours),
+        linkedin_share_url(total_cost, total_hours, saved_result_url),
         icon=":material/share:",
         help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share on X",
-        x_share_url(total_cost, total_hours),
+        x_share_url(total_cost, total_hours, saved_result_url),
         icon=":material/share:",
         help="Share this tool on X. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share on Facebook",
-        facebook_share_url(),
+        facebook_share_url(saved_result_url),
         icon=":material/share:",
         help="Share this tool on Facebook. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share via email",
-        email_share_url(total_cost, total_hours),
+        email_share_url(total_cost, total_hours, saved_result_url),
         icon=":material/email:",
         help="Share this tool via email. Download the image first and attach it to your email.",
     )
+    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the save.
+    if saved_result_url is not None:
+        copy_link_button(
+            "Copy link to saved result",
+            saved_result_url,
+            copied_label="Link copied",
+            help="Copy a link to your saved result to share it, or to return to it later.",
+            key="copy-saved-project-link",
+        )
 
-
-# -----------------------------------------------
-# Save to database
-# -----------------------------------------------
-
-
-def save_to_database() -> None:
-    """Saves the calculator's current inputs to the configured database.
-
-    The first save creates a new project, and later saves in the same session update that project. Its id is kept in
-    st.session_state["database_project_id"] so it persists across script reruns.
-    """
-    state: CalculatorState = CalculatorState.from_session_state(st.session_state)
-    project_id: int | None = st.session_state.get("database_project_id")
-    try:
-        with closing(database.connect()) as conn:
-            if project_id is not None:
-                try:
-                    sql_store.update_project(conn, project_id, state)
-                except KeyError:
-                    # The saved project was deleted from the database, so save it again as a new project.
-                    project_id = None
-            if project_id is None:
-                project_id = sql_store.save_project(conn, state)
-    except database.DATABASE_ERRORS as error:
-        st.toast(f"Could not save to the database: {error}", icon=":material/error:")
-        return
-    st.session_state["database_project_id"] = project_id
-    st.toast("Saved to the database.", icon=":material/check_circle:")
-
-
-if DATABASE_TYPE != "none":
-    with st.container(horizontal=True, horizontal_alignment="left"):
-        # Not an on_click callback, as callbacks run before the script copies unkeyed widget values into session state.
-        if st.button(
-            "Save to database",
-            icon=":material/save:",
-            help="Save your inputs to the database. Saving again updates the same project.",
-        ):
-            save_to_database()
-        # Rendered after the save button so it appears in the same run as the first save.
-        if st.session_state.get("database_project_id") is not None:
-            st.link_button(
-                "Link to saved project",
-                f"?{PROJECT_ID_QUERY_PARAM}={st.session_state['database_project_id']}",
-                icon=":material/link:",
-                help="Open the saved project. Copy this link to return to the project later.",
-            )
 
 st.markdown("""
             :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,

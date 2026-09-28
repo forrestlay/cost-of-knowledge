@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import closing
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote
 
 import pymysql
 import pytest
@@ -74,7 +76,7 @@ def test_init_database_none_creates_nothing(isolated_database: Path) -> None:
 
 def test_save_button_hidden_without_database() -> None:
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30).run()
-    assert not [button for button in at.button if button.label == "Save to database"]
+    assert not [button for button in at.button if button.label == "Save your result to share"]
 
 
 def test_save_button_saves_then_updates(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,11 +84,11 @@ def test_save_button_saves_then_updates(monkeypatch: pytest.MonkeyPatch) -> None
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
 
-    next(button for button in at.button if button.label == "Save to database").click()
+    next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
     project_id: int = at.session_state["database_project_id"]
     next(field for field in at.text_input if field.label == "Name of your paper/project").set_value("Renamed project")
-    next(button for button in at.button if button.label == "Save to database").click()
+    next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
 
     assert at.session_state["database_project_id"] == project_id
@@ -95,17 +97,27 @@ def test_save_button_saves_then_updates(monkeypatch: pytest.MonkeyPatch) -> None
     assert [(project["id"], project["project_name"]) for project in projects] == [(project_id, "Renamed project")]
 
 
-def test_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> None:
+def copy_link_buttons(at: AppTest) -> list[dict[str, str]]:
+    """Returns the data of each copy link button custom component in the app."""
+    return [
+        json.loads(element.proto.json)
+        for element in at.get("bidi_component")
+        if element.proto.component_name == "copy_link_button"
+    ]
+
+
+def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
-    assert not [button for button in at.get("link_button") if button.proto.label == "Link to saved project"]
+    assert not copy_link_buttons(at)
 
-    next(button for button in at.button if button.label == "Save to database").click()
+    next(button for button in at.button if button.label == "Save your result to share").click()
     run(at)
     project_id: int = at.session_state["database_project_id"]
-    link = next(button for button in at.get("link_button") if button.proto.label == "Link to saved project")
-    assert link.proto.url == f"?project_id={project_id}"
+    [copy_link] = copy_link_buttons(at)
+    assert copy_link["label"] == "Copy link to saved result"
+    assert copy_link["url"].endswith(f"?project_id={project_id}")
 
 
 def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,3 +225,20 @@ def test_mysql_invalid_settings_raise(
         monkeypatch.setenv(database.DATABASE_USERNAME_SECRET, username)
     with pytest.raises(ValueError, match=message):
         database._mysql_connect()
+
+
+def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+    share_labels: set[str] = {"Share on LinkedIn", "Share on X", "Share on Facebook", "Share via email"}
+    before: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
+    assert len(before) == len(share_labels)
+    assert not [url for url in before if "project_id" in unquote(url)]
+
+    next(button for button in at.button if button.label == "Save your result to share").click()
+    run(at)
+    project_id: int = at.session_state["database_project_id"]
+    after: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
+    assert len(after) == len(share_labels)
+    assert all(f"?project_id={project_id}" in unquote(url) for url in after)

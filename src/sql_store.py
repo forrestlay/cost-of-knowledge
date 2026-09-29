@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS projects (
     user_country TEXT NOT NULL,
     international_collaborators INTEGER NOT NULL,
     project_field TEXT NOT NULL,
-    tool_step INTEGER NOT NULL,
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
@@ -121,7 +120,6 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         user_country VARCHAR(16) NOT NULL,
         international_collaborators INTEGER NOT NULL,
         project_field TEXT NOT NULL,
-        tool_step INTEGER NOT NULL,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
@@ -310,7 +308,6 @@ def _project_values(state: CalculatorState) -> dict[str, Any]:
         "schema_version": data["schema_version"],
         **data["project"],
         "international_collaborators": int(data["project"]["international_collaborators"]),
-        "tool_step": data["tool_step"],
         "total_cost": data["summary"]["total_cost"],
         "total_hours": data["summary"]["total_hours"],
     }
@@ -464,7 +461,6 @@ def _state_from_rows(
             "journal_editor": people["journal_editor"][0],
             "activities": activities,
             "direct_costs": direct_costs,
-            "tool_step": project["tool_step"],
         }
     )
 

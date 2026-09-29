@@ -37,7 +37,6 @@ CREATE TABLE projects (
     international_collaborators INTEGER NOT NULL,
     project_name TEXT,
     project_field TEXT NOT NULL,
-    tool_step INTEGER NOT NULL,
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL
 );

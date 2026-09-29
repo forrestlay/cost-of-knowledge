@@ -76,9 +76,6 @@ _DEFAULT_COSTS: dict[str, Any] = json.loads(
 # Phases that start with an "(Overall Total)" activity. The editing phase has its own peer review and journal editorial
 # work activities instead.
 OVERALL_TOTAL_PHASES: tuple[str, ...] = ("incubation", "data", "writing")
-# Expander keys are f"{step}-expander". Clearing them lets each expander fall back to its expanded= argument, which
-# main.py derives from the restored tool_step.
-EXPANDER_KEY_SUFFIX: str = "-expander"
 
 
 def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
@@ -136,7 +133,6 @@ class CalculatorState:
         activities: Every activity in calculator order, including exactly one PeerReview and one JournalEditing.
             Activities reference Persons in people, peer_reviewer or journal_editor by object identity.
         direct_costs: Direct costs in calculator order.
-        tool_step: Index into main.TOOL_STEPS of the user's progress through the tool.
     """
 
     user_country: str
@@ -147,7 +143,6 @@ class CalculatorState:
     journal_editor: Person
     activities: list[BaseActivity]
     direct_costs: list[DirectCost]
-    tool_step: int = 0
 
     @property
     def peer_review(self) -> PeerReview:
@@ -291,7 +286,6 @@ class CalculatorState:
             "journal_editor": self.journal_editor.to_dict(),
             "activities": [activity.to_dict() for activity in self.activities],  # ty:ignore[unresolved-attribute]
             "direct_costs": [direct_cost.to_dict() for direct_cost in self.direct_costs],
-            "tool_step": self.tool_step,
             "summary": self.summary(),
         }
 
@@ -341,7 +335,6 @@ class CalculatorState:
             journal_editor=journal_editor,
             activities=activities,
             direct_costs=[DirectCost.from_dict(cost_data) for cost_data in data["direct_costs"]],
-            tool_step=int(data.get("tool_step", 0)),
         )
 
     def to_json(self, indent: int | None = 2) -> str:
@@ -373,7 +366,6 @@ class CalculatorState:
             journal_editor=session_state["journal_editor"],
             activities=list(session_state["activity_list"]),
             direct_costs=list(session_state["cost_list"]),
-            tool_step=session_state.get("tool_step", 0),
         )
 
     def apply_to_session_state(self, session_state: MutableMapping[SessionStateKey, Any]) -> None:
@@ -385,15 +377,12 @@ class CalculatorState:
         """
         # Clear stale widget state first so every widget picks up the values below.
         for key in list(session_state.keys()):
-            if isinstance(key, str) and (
-                key.startswith(WIDGET_KEY_PREFIXES) or key in WIDGET_KEYS or key.endswith(EXPANDER_KEY_SUFFIX)
-            ):
+            if isinstance(key, str) and (key.startswith(WIDGET_KEY_PREFIXES) or key in WIDGET_KEYS):
                 del session_state[key]
 
         peer_review: PeerReview = self.peer_review
         journal_editing: JournalEditing = self.journal_editing
 
-        session_state["tool_step"] = self.tool_step
         session_state["user_country"] = self.user_country
         # The country selectbox has no index=, so seed its widget state or it would show the first country in the list.
         session_state["user_country_select"] = self.user_country

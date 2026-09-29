@@ -48,17 +48,28 @@ class Person:
     """Represents a member of the study team or someone involved in the publication process and used to calculate cost
     of labour.
 
+    People are not named, so that no personal information is collected. Research team members are identified as
+    "Researcher 1", "Researcher 2", etc. by their unique_key, and other people by their unique_key alone (e.g.
+    "Peer reviewer").
+
     Attributes:
-        name: Person's name (for research team members) or role. May be None while a newly added person is unnamed.
         unique_key: Unique identifier for this person.
         person_type: Whether person is a research team member or other.
         hourly_rate: Cost of person's labour per hour.
+        role: Key of the person's role in reference_data.ROLES (e.g. "assistant_professor"), or None if not chosen.
     """
 
-    name: str | None
     unique_key: str
     person_type: PersonType
     hourly_rate: int | float
+    role: str | None = None
+
+    @property
+    def label(self) -> str:
+        """Display name of this person, e.g. "Researcher 1" or "Peer reviewer"."""
+        if self.person_type == PersonType.RESEARCH_TEAM:
+            return f"Researcher {self.unique_key}"
+        return self.unique_key
 
     @classmethod
     def salary_to_hourly_rate(
@@ -87,20 +98,23 @@ class Person:
     def to_dict(self) -> dict[str, Any]:
         """Returns a JSON-serialisable dict of this person."""
         return {
-            "name": self.name,
             "unique_key": self.unique_key,
             "person_type": self.person_type.name,
             "hourly_rate": self.hourly_rate,
+            "role": self.role,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Person:
-        """Creates a Person from a dict produced by ``to_dict``."""
+        """Creates a Person from a dict produced by ``to_dict``.
+
+        Ignores the "name" key written by schema version 1, which has no "role" key.
+        """
         return cls(
-            name=data["name"],
             unique_key=str(data["unique_key"]),
             person_type=PersonType[data["person_type"]],
             hourly_rate=data["hourly_rate"],
+            role=data.get("role"),
         )
 
 

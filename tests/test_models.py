@@ -10,8 +10,8 @@ from src.models import Activity, DirectCost, JournalEditing, PeerReview, Person,
 @pytest.fixture
 def people() -> dict[str, Person]:
     return {
-        "1": Person("Ada", "1", PersonType.RESEARCH_TEAM, 52.75),
-        "Peer reviewer": Person("Peer reviewer", "Peer reviewer", PersonType.OTHER, 85),
+        "1": Person("1", PersonType.RESEARCH_TEAM, 52.75, "assistant_professor"),
+        "Peer reviewer": Person("Peer reviewer", PersonType.OTHER, 85),
     }
 
 
@@ -22,9 +22,25 @@ def test_person_round_trip(people: dict[str, Person]) -> None:
     assert Person.from_dict(data) == person
 
 
-def test_unnamed_person_round_trip() -> None:
-    person: Person = Person(None, "2", PersonType.RESEARCH_TEAM, 85)
+def test_person_has_no_name(people: dict[str, Person]) -> None:
+    assert "name" not in people["1"].to_dict()
+    # Names written by schema version 1 are ignored.
+    assert Person.from_dict({**people["1"].to_dict(), "name": "Ada"}) == people["1"]
+
+
+def test_person_without_role_round_trip(people: dict[str, Person]) -> None:
+    person: Person = people["Peer reviewer"]
+    assert person.to_dict()["role"] is None
     assert Person.from_dict(person.to_dict()) == person
+    # Schema version 1 has no role.
+    data = person.to_dict()
+    del data["role"]
+    assert Person.from_dict(data) == person
+
+
+def test_person_label(people: dict[str, Person]) -> None:
+    assert people["1"].label == "Researcher 1"
+    assert people["Peer reviewer"].label == "Peer reviewer"
 
 
 def test_activity_round_trip_resolves_person(people: dict[str, Person]) -> None:

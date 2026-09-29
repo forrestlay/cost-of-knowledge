@@ -41,7 +41,15 @@ from src.models import (
     Person,
     PersonType,
 )
-from src.reference_data import COUNTRY_CODES, COUNTRY_CURRENCIES, COUNTRY_NAMES, RESEARCH_PHASES
+from src.reference_data import (
+    COUNTRY_CODES,
+    COUNTRY_CURRENCIES,
+    COUNTRY_NAMES,
+    FIELDS_OF_RESEARCH,
+    RESEARCH_PHASES,
+    ROLES,
+    field_of_research_display_name,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -85,27 +93,6 @@ TOOL_STEPS: list[str] = [
     "editing",
     "save",
     "end",
-]
-
-SCIENTIFIC_FIELDS: list[str] = [
-    "Natural sciences",
-    "Formal sciences",
-    "Social sciences",
-    "Applied sciences/engineering",
-]
-
-ROLES: list[str] = [
-    "Professor",
-    "Associate Professor",
-    "Assistant Professor",
-    "Instructor",
-    "Lecturer",
-    "Senior Lecturer",
-    "Associate Lecturer",
-    "Research Assistant",
-    "Peer reviewer",
-    "Journal editor",
-    "Other",
 ]
 
 # TODO: Add sharing of PDF and PNG, put names on PDF
@@ -233,6 +220,7 @@ if query_project_id is not None and query_project_id != st.session_state.get("lo
 # -----------------------------------------------
 
 st.title("Cost of Knowledge Calculator")
+# TODO: Refer to journal article consistently - project/paper/etc.
 st.caption(
     "The tool will enable you to calculate the approximate cost of preparing a refereed journal article from conception"
     " to publication."
@@ -245,18 +233,21 @@ st.markdown("""
             the substantial investment underpinning scholarly publishing.
             """)
 
+# TODO: Fix this wording.
 with st.expander("About the data", expanded=False):
     st.markdown("""
-                The tool has been pre-populated with information that rests of a number of assumptions. Some of this
-                data is based on the accompanying publication, while other data is based on less robust estimations.
-                You are invited to fill in your own costs and estimates to produce a more accurate picture of the cost
+                The tool has been pre-populated with information that rests on a number of assumptions. Some of this
+                data is based on the accompanying publication (TODO: reference to paper).
+                You are invited to fill in your own estimate the cost
                 of producing one of your publications.
                 """)
 
 # -----------------------------------------------
 # User and Project
 # -----------------------------------------------
-st.header(":material/article_person: You and Your Project")
+
+# TODO: Change the wording.
+st.header(":material/article_person: Your Refereed Journal Article")
 st.markdown("""
             Please fill in some details about you and the research publication or project you want to estimate the cost
             of.
@@ -286,23 +277,6 @@ def next_tool_step(current_step: str):
         st.session_state[f"{next_step}-expander"]: bool = True
 
 
-def update_default_person_name():
-    """Syncs the default person's name with the user's name input.
-
-    The default person (unique_key "1") represents the tool user, so keep its name in
-    st.session_state["people"] in step with the "Your name" field. Does nothing if the
-    user has deleted the default person.
-    """
-    st.session_state["user_name"] = st.session_state["user_name_input"]
-    default_person: Person | None = st.session_state["people"].get("1")
-    if default_person is not None:
-        default_person.name = st.session_state["user_name"] or "Associate Professor"
-        # Also push the new name into the "People or Roles" selectbox widget state;
-        # once that widget has a stored value it ignores its index= argument, so
-        # updating only default_person.name would not move the displayed selection.
-        st.session_state[f"person-name-{default_person.unique_key}"] = default_person.name
-
-
 project_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "project"
 
 with st.expander(
@@ -311,11 +285,6 @@ with st.expander(
     key="project-expander",
     on_change="rerun",
 ):
-    st.session_state["user_name"] = st.text_input(
-        "Your name",
-        key="user_name_input",
-        on_change=update_default_person_name,
-    )
 
     def convert_monetary_values():
         """Converts every monetary value to the currency of the newly selected country, then updates user_country."""
@@ -368,13 +337,16 @@ with st.expander(
         format_func=lambda answer: "Yes" if answer else "No",
         horizontal=True,
     )
-    st.session_state["project_name"] = st.text_input(
-        "Name of your paper/project", value=st.session_state["project_name"]
-    )
+    # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
+    # used selectable, so loading it does not fail.
+    field_options: list[str] = list(FIELDS_OF_RESEARCH)
+    if st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
+        field_options = [st.session_state["project_field"], *field_options]
     st.session_state["project_field"] = st.selectbox(
-        "Field of science your paper/project is located in",
-        SCIENTIFIC_FIELDS,
-        index=SCIENTIFIC_FIELDS.index(st.session_state["project_field"]),
+        "Field of research your paper/project is located in",
+        field_options,
+        index=field_options.index(st.session_state["project_field"]),
+        format_func=field_of_research_display_name,
     )
     st.button(
         "Next step",
@@ -390,16 +362,21 @@ with st.expander(
 # -----------------------------------------------
 
 st.header(":material/groups: People Involved in the Article Preparation Process")
+# TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
 st.markdown("""
-            Fill in the details of the people on your study team or who are otherwise involved in the preparation of
-            your journal article in the incubation, data collection and analysis, and manuscript preparation phases.
+            Provide estimates of the hourly rate (including on-costs such as administrative and laboratory costs)
+            for each of the people involved in the preparation of your refereed journal article in the incubation, data
+            collection and analysis, and manuscript preparation phases. Click on the 'Calculate hourly rate' button
+            to calculate the hourly rate based on a person's annual salary.
+            Choosing a person's role fills in an estimated median hourly rate for that role based on US data, which you
+            can then adjust.
             The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
             journal preparation process.
             """)
 
 
 def add_person(key: str | None = None):
-    """Adds a new person role to the tool.
+    """Adds a new research team member to the tool.
 
     Args:
         key: A unique_key for the Person. If None, a numerical key will be assigned to the person automatically.
@@ -413,7 +390,6 @@ def add_person(key: str | None = None):
     # Start new people at the default rate in the user's currency, or in USD if no exchange rate is available.
     hourly_rate: float | None = convert_currency(DEFAULT_HOURLY_RATE_USD, "USD", currency_code())
     st.session_state["people"][key] = Person(
-        name=None,
         unique_key=key,
         person_type=PersonType.RESEARCH_TEAM,
         hourly_rate=DEFAULT_HOURLY_RATE_USD if hourly_rate is None else round(hourly_rate, 2),
@@ -422,6 +398,21 @@ def add_person(key: str | None = None):
 
 def delete_person(key: str):
     del st.session_state["people"][key]
+
+
+def apply_role_rate(person: Person) -> None:
+    """Callback for a person's Role selectbox. Stores the chosen role and fills in its preset hourly rate.
+
+    The preset rate is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    person.role = st.session_state[f"person-role-{person.unique_key}"]
+    if person.role is None:
+        return
+    rate_usd: float = ROLES[person.role].hourly_rate_usd
+    converted_rate: float | None = convert_currency(rate_usd, "USD", currency_code())
+    person.hourly_rate = rate_usd if converted_rate is None else round(converted_rate, 2)
+    # The hourly rate number_input ignores value= once it has its own widget state, so write the rate there too.
+    st.session_state[f"person-rate-{person.unique_key}"] = person.hourly_rate
 
 
 @st.dialog("Calculate your hourly rate")
@@ -461,41 +452,28 @@ def calculate_hourly_rate(person: Person, key: str):
 people_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "people"
 
 with st.expander(
-    "People or Roles",
+    "Researchers",
     expanded=people_step,
     key="people-expander",
     on_change="rerun",
 ):
     for key, person in st.session_state["people"].items():
         with st.container(border=True):
-            # Show the person's current name in the selectbox even when it is a
-            # custom value not in ROLES (e.g. a name synced from the "Your name"
-            # field). A newly added person has no name yet, so leave the selectbox
-            # unselected (index=None).
-            name_options: list[str] = ROLES
-            person_name_index: int | None
-            if person.name is None:
-                person_name_index = None
-            elif person.name in ROLES:
-                person_name_index = ROLES.index(person.name)
-            else:
-                name_options = ROLES + [person.name]
-                person_name_index = len(ROLES)
+            st.markdown(f"**{person.label}**" + (" (you)" if key == "1" else ""))
 
-            # If person.name widget already has been set in session state, set index to zero as a default value is no
-            # longer needed.
-            person_name_key: str = f"person-name-{person.unique_key}"
-            if person_name_key in st.session_state:
-                person_name_index = None
-
-            # Inputs
-            person.name: str | None = st.selectbox(
-                "Name",
-                options=name_options,
-                index=person_name_index,
-                accept_new_options=True,
-                key=person_name_key,
+            # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
+            # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
+            st.selectbox(
+                "Role",
+                options=list(ROLES),
+                index=list(ROLES).index(person.role) if person.role in ROLES else None,
+                format_func=lambda role, country=st.session_state["user_country"]: ROLES[role].display_name(country),
+                placeholder="Choose a role to fill in its median hourly rate based on US data",
+                key=f"person-role-{person.unique_key}",
+                on_change=apply_role_rate,
+                args=[person],
             )
+
             # Once the widget has its own session_state entry (e.g. after the
             # "Calculate your hourly rate" dialog writes the computed rate into
             # it) that value wins and value= is ignored, so pass the "min"
@@ -506,6 +484,8 @@ with st.expander(
             person_rate_value: float | Literal["min"] = (
                 "min" if person_rate_key in st.session_state else float(person.hourly_rate)
             )
+
+            # TODO: Include button to show information about the $85 estimate/benchmark.
             person.hourly_rate: int | float = st.number_input(
                 f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
                 min_value=0.0,
@@ -520,7 +500,7 @@ with st.expander(
                     calculate_hourly_rate(person, person.unique_key)
                 if person.person_type == PersonType.RESEARCH_TEAM and int(person.unique_key) > 1:
                     st.button(
-                        f"Delete {person.name or 'person'}",
+                        f"Delete {person.label}",
                         key=f"delete-person-{person.unique_key}",
                         icon=":material/delete:",
                         on_click=delete_person,
@@ -529,7 +509,7 @@ with st.expander(
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.button(
-            "Add person/role",
+            "Add researcher",
             key="add-person",
             icon=":material/add:",
             on_click=add_person,
@@ -548,22 +528,14 @@ with st.expander(
 # -----------------------------------------------
 
 
-def person_option_display(key: str):
+def person_option_display(key: str) -> str:
     """Converts a st.session_state["people"] key to a st.selectbox display name."""
-    person: Person = st.session_state["people"][key]
-    if person.person_type == PersonType.RESEARCH_TEAM:
-        return f"{key}: {person.name or 'Unnamed'}"
-    return key
-
-
-def person_option_decode(display_string: str):
-    """Converts a st.selectbox display name to a st.session_state["people"] key."""
-    return display_string.split(":")[0]
+    return st.session_state["people"][key].label
 
 
 def set_activity_person(activity: Activity, counter: int):
     """Callback for st.selectbox to select the person assigned to an activity."""
-    people_key: str = person_option_decode(st.session_state[f"activity-person-{counter}"])
+    people_key: str = st.session_state[f"activity-person-{counter}"]
     activity.person: Person = st.session_state["people"][people_key]
 
 
@@ -670,6 +642,10 @@ main_left, main_right = st.columns([1, 2])
 
 # Activities and costs setup pane
 with main_left:
+    # TODO: Bold the phase names.
+    # TODO: Button to load the presets from Alam et al 2026.
+    # TODO: Include buttons to load information about the activities/phases.
+    # TODO: Wording about providing your best estimate in filling out the details.
     st.markdown("""
                 Provide details of the activities and costs involved in preparing your journal article. The process
                 has been divided between four distinct phases: incubation, data collection and analysis, manuscript
@@ -681,6 +657,7 @@ with main_left:
         phase_expand: bool = TOOL_STEPS[st.session_state["tool_step"]] == phase
 
         # Handle special phases.
+        # TODO: Add zero (0) to the options here.
         if phase == "editing":
             with st.expander(
                 phase_name,
@@ -703,6 +680,7 @@ with main_left:
                     value=st.session_state["review_rounds"],
                     step=1,
                     key="review-rounds",
+                    help="From Raoult(2020) and LeBlanc et al. (2023), we estimate that ",
                 )
                 st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
 
@@ -827,7 +805,7 @@ with main_left:
                                 delete_column.button(
                                     "Del",
                                     key=f"delete-activity-person-{group_activity.unique_key}",
-                                    help=f"Remove {group_activity.person.name or 'this person'} from this activity",
+                                    help=f"Remove {group_activity.person.label} from this activity",
                                     icon=":material/delete:",
                                     on_click=delete_activity_person,
                                     args=[group_activity],
@@ -1006,7 +984,7 @@ def build_color_map(names: Sequence[str], palette: Sequence[str] | None = None) 
 phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
 item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
 person_color_map: dict[str, str] = build_color_map(
-    [activity.get_person().name or "Unnamed" for activity in st.session_state["activity_list"]]
+    [activity.get_person().label for activity in st.session_state["activity_list"]]
 )
 
 with main_right:
@@ -1061,10 +1039,11 @@ with main_right:
             "Cost": [activity.get_total_cost() for activity in st.session_state["activity_list"]],
             "Hours": [activity.get_hours() for activity in st.session_state["activity_list"]],
             "Phase": [RESEARCH_PHASES[activity.get_phase()] for activity in st.session_state["activity_list"]],
-            "Person": [activity.get_person().name or "Unnamed" for activity in st.session_state["activity_list"]],
+            "Person": [activity.get_person().label for activity in st.session_state["activity_list"]],
         }
     )
 
+    # TODO: Add a legend to make the pie charts align.
     sunburst = px.sunburst(
         labour_df,
         path=["Phase", "Person", "Activity"],
@@ -1162,7 +1141,6 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
 def create_social_media_svg(
     country: str,
     international_collaborators: bool,
-    project_name: str,
     project_field: str,
     total_cost: float,
     total_hours: float,
@@ -1177,8 +1155,7 @@ def create_social_media_svg(
         country: Display name of the researcher's country.
         international_collaborators: Whether the project has collaborators from
             other countries; appends "+ others" after the country name.
-        project_name: Title of the paper/project ("" if the user left it blank).
-        project_field: Field of science the project sits in.
+        project_field: Name of the Field of Research the project sits in.
         total_cost: Estimated total cost in the chosen country's currency.
         total_hours: Estimated total hours of labour.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
@@ -1212,10 +1189,10 @@ def create_social_media_svg(
         )
     )
 
-    # Project title (wrapped, capped at three lines)
+    # Title (wrapped, capped at three lines)
     title_size: int = 62
     title_line_height: float = 1.15
-    wrapped_title: list[str] = _wrap_text(project_name.strip() or "Untitled research project", 26)
+    wrapped_title: list[str] = _wrap_text("My refereed journal article", 26)
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
@@ -1233,7 +1210,7 @@ def create_social_media_svg(
         )
     )
 
-    # Field of science and country
+    # Field of research and country, wrapped as some Field of Research names are long
     subtitle_y: float = title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
     subtitle: str = project_field
     if country.strip():
@@ -1241,35 +1218,40 @@ def create_social_media_svg(
         if international_collaborators:
             country_text = f"{country_text} + others"
         subtitle = f"{project_field}  ·  {country_text}"
+    subtitle_line_height: float = 1.2
+    subtitle_lines: list[str] = _wrap_text(subtitle, 48)
     image.append(
         draw.Text(
-            subtitle,
+            subtitle_lines,
             34,
             margin,
             subtitle_y,
             fill=muted,
             font_family=SOCIAL_MEDIA_FONT,
+            line_height=subtitle_line_height,
         )
     )
+    subtitle_bottom: float = subtitle_y + 34 * subtitle_line_height * (len(subtitle_lines) - 1)
     image.append(
         draw.Line(
             margin,
-            subtitle_y + 34,
+            subtitle_bottom + 34,
             width - margin,
-            subtitle_y + 34,
+            subtitle_bottom + 34,
             stroke="#ffffff",
             stroke_width=2,
             stroke_opacity=0.6,
         )
     )
 
+    # TODO: Update wording here.
     # Blurb, sitting between the divider and the headline cost figures.
     blurb_line_height: float = 1.3
     blurb_lines: list[str] = _wrap_text(
         "Using the Cost of Knowledge Calculator, I estimated the following cost for my research publication to be:",
         74,
     )
-    blurb_top: float = subtitle_y + 34 + 60
+    blurb_top: float = subtitle_bottom + 34 + 60
     image.append(
         draw.Text(
             blurb_lines,
@@ -1434,9 +1416,10 @@ def create_social_media_svg(
             font_family=SOCIAL_MEDIA_FONT,
         )
     )
+    # TODO: Add Alam et al. to new line.
     image.append(
         draw.Text(
-            "The University of Sydney Cost of Knowledge Team (Alam et al.) and SPARC.",
+            "(Alam et al.) The University of Sydney and SPARC.",
             24,
             width - margin,
             height - 40,
@@ -1606,19 +1589,16 @@ st.markdown("""
 social_media_svg: str = create_social_media_svg(
     country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
     international_collaborators=st.session_state["international_collaborators"],
-    project_name=st.session_state["project_name"] or "",
-    project_field=st.session_state["project_field"],
+    # Only the group name, as the division name would make the line too long for the card.
+    project_field=(
+        FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
+        if st.session_state["project_field"] in FIELDS_OF_RESEARCH
+        else st.session_state["project_field"]
+    ),
     total_cost=total_cost,
     total_hours=total_hours,
     phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
 ).as_svg()
-
-_svg_slug: str = (
-    "".join(
-        char if char.isalnum() else "-" for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
-    ).strip("-")
-    or "cost-of-knowledge"
-)
 
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg, width=540)
@@ -1631,11 +1611,15 @@ saved_result_url: str | None = (
     else None
 )
 
+# TODO: Add names to our social media share message.
+# TODO: Move the save button here.
+# TODO: Add messaging above the share posts.
+
 with st.container(horizontal=True, horizontal_alignment="left"):
     st.download_button(
         "Download image",
         data=social_media_svg_to_png(social_media_svg),
-        file_name=f"{_svg_slug}-cost-estimate.png",
+        file_name="cost-of-knowledge-estimate.png",
         mime="image/png",
         icon=":material/image:",
         type="primary",
@@ -1676,8 +1660,8 @@ with st.container(horizontal=True, horizontal_alignment="left"):
 
 
 st.markdown("""
-            :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,
-            Ben Lay, Chang-yuan Loh, and Farzana Tanima.
+            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+            Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
             International License](https://creativecommons.org/licenses/by/4.0/).]
             """)

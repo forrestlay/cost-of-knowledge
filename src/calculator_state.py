@@ -44,14 +44,17 @@ if TYPE_CHECKING:
 type SessionStateKey = str | int
 
 # Bump when the serialised format changes, and teach CalculatorState.from_dict to read the older versions.
-SCHEMA_VERSION: int = 1
+# Version 2 removed the user's name, the project's name and people's names, and added people's roles. Version 1 data
+# is read by ignoring the names, with no roles.
+SCHEMA_VERSION: int = 2
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2)
 
 # Keys of the widgets in main.py whose values are held in st.session_state. A keyed widget takes its value from
 # session state and ignores its value=/index= argument, so these must be cleared when a new state is applied or the
 # widgets would keep showing (and writing back) the previous calculator's values.
 WIDGET_KEY_PREFIXES: tuple[str, ...] = (
-    "person-name-",  # People or Roles: name selectbox
-    "person-rate-",  # People or Roles: hourly rate number_input
+    "person-role-",  # Researchers: role selectbox
+    "person-rate-",  # Researchers: hourly rate number_input
     "activity-name-",  # Calculator: activity name selectbox
     "activity-person-",  # Calculator: assigned person selectbox
     "activity-hours-",  # Calculator: hours number_input
@@ -113,11 +116,10 @@ class CalculatorState:
     """Every input to the calculator.
 
     Attributes:
-        user_name: Name of the tool user.
         user_country: Lowercase country code of the country the project is associated with (e.g. "us").
         international_collaborators: Whether the project has collaborators outside the primary country.
-        project_name: Name of the paper or project.
-        project_field: Field of science the project is located in.
+        project_field: 4-digit Field of Research code of the project (a key of reference_data.FIELDS_OF_RESEARCH), or
+            a broad field name (e.g. "Social sciences") for projects saved before codes were used.
         people: Research team members, keyed by unique_key, in display order.
         peer_reviewer: The Person assigned to the peer review activity.
         journal_editor: The Person assigned to the journal editorial work activity.
@@ -127,10 +129,8 @@ class CalculatorState:
         tool_step: Index into main.TOOL_STEPS of the user's progress through the tool.
     """
 
-    user_name: str | None
     user_country: str
     international_collaborators: bool
-    project_name: str | None
     project_field: str
     people: dict[str, Person]
     peer_reviewer: Person
@@ -153,19 +153,16 @@ class CalculatorState:
     def default(cls) -> CalculatorState:
         """Returns the calculator's pre-populated starting state."""
         default_person: Person = Person(
-            name="Associate Professor",
             unique_key="1",
             person_type=PersonType.RESEARCH_TEAM,
             hourly_rate=85,
         )
         peer_reviewer: Person = Person(
-            name="Peer reviewer",
             unique_key="Peer reviewer",
             person_type=PersonType.OTHER,
             hourly_rate=85,
         )
         journal_editor: Person = Person(
-            name="Journal editor",
             unique_key="Journal editor",
             person_type=PersonType.OTHER,
             hourly_rate=85,
@@ -186,11 +183,9 @@ class CalculatorState:
             JournalEditing(person=journal_editor, journal_submissions=1, unique_key=10),
         ]
         return cls(
-            user_name=None,
             user_country="us",
             international_collaborators=False,
-            project_name=None,
-            project_field="Social sciences",
+            project_field="3001",  # Accounting, auditing and accountability
             people={default_person.unique_key: default_person},
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
@@ -241,10 +236,8 @@ class CalculatorState:
         return {
             "schema_version": SCHEMA_VERSION,
             "project": {
-                "user_name": self.user_name,
                 "user_country": self.user_country,
                 "international_collaborators": self.international_collaborators,
-                "project_name": self.project_name,
                 "project_field": self.project_field,
             },
             "people": [person.to_dict() for person in self.people.values()],
@@ -258,14 +251,15 @@ class CalculatorState:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> CalculatorState:
-        """Creates a CalculatorState from a dict produced by ``to_dict``. The ``summary`` block is ignored.
+        """Creates a CalculatorState from a dict produced by ``to_dict``. The ``summary`` block is ignored, as are the
+        user, project and people names written by schema version 1.
 
         Raises:
             ValueError: If the schema version is unsupported, or the data is inconsistent (duplicate person keys, an
                 activity referencing an unknown person, or not exactly one peer review and journal editing activity).
         """
         schema_version: Any = data.get("schema_version")
-        if schema_version != SCHEMA_VERSION:
+        if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"Unsupported calculator schema_version {schema_version!r}.")
 
         people: dict[str, Person] = {}
@@ -293,10 +287,8 @@ class CalculatorState:
 
         project: Mapping[str, Any] = data["project"]
         return cls(
-            user_name=project["user_name"],
             user_country=project["user_country"],
             international_collaborators=bool(project["international_collaborators"]),
-            project_name=project["project_name"],
             project_field=project["project_field"],
             people=people,
             peer_reviewer=peer_reviewer,
@@ -327,10 +319,8 @@ class CalculatorState:
         ``CalculatorState.from_dict(state.to_dict())`` for an independent copy.
         """
         return cls(
-            user_name=session_state["user_name"] or None,
             user_country=session_state["user_country"],
             international_collaborators=session_state["international_collaborators"],
-            project_name=session_state["project_name"] or None,
             project_field=session_state["project_field"],
             people=session_state["people"],
             peer_reviewer=session_state["peer_reviewer"],
@@ -358,13 +348,10 @@ class CalculatorState:
         journal_editing: JournalEditing = self.journal_editing
 
         session_state["tool_step"] = self.tool_step
-        session_state["user_name"] = self.user_name
-        session_state["user_name_input"] = self.user_name or ""
         session_state["user_country"] = self.user_country
         # The country selectbox has no index=, so seed its widget state or it would show the first country in the list.
         session_state["user_country_select"] = self.user_country
         session_state["international_collaborators"] = self.international_collaborators
-        session_state["project_name"] = self.project_name
         session_state["project_field"] = self.project_field
         session_state["people"] = self.people
         session_state["peer_reviewer"] = self.peer_reviewer

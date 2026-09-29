@@ -1,0 +1,89 @@
+{
+  "description": "Researcher roles offered in the calculator. Each role is shown by its US label, followed by its local label when local_labels has one for the chosen country (keyed by the country codes in country.json). sector is \"university\" or \"public_research\". hourly_rate_usd is the preset hourly rate of labor including indirect on-costs in US dollars, converted to the chosen country's currency when a role is selected. The rates below are median US rates, with sources provided.",
+  "roles": [
+    {
+      "key": "research_assistant",
+      "sector": "university",
+      "us_label": "Research Assistant",
+      "hourly_rate_usd": 42,
+      "hourly_rate_source": "Bureau of Labor Statistics National Wage Data 2026, median hourly wage for 19-4060 Social science research assistant",
+      "local_labels": {
+        "au": "Research Assistant",
+        "gb": "Research Assistant",
+        "nz": "Research Assistant"
+      }
+    },
+    {
+      "key": "postdoctoral_researcher",
+      "sector": "university",
+      "us_label": "Postdoctoral Researcher",
+      "hourly_rate_usd": 57,
+      "hourly_rate_source": "National Center for Science and Engineering Statistics, Survey of Doctorate Recipients 2024, median annual salary for research doctorate recipients with confirmed postdoctoral commitments",
+      "local_labels": {
+        "au": "Postdoctoral Research Fellow",
+        "gb": "Postdoctoral Research Associate",
+        "nz": "Postdoctoral Fellow"
+      }
+    },
+    {
+      "key": "lecturer",
+      "sector": "university",
+      "us_label": "Lecturer",
+      "hourly_rate_usd": 65,
+      "hourly_rate_source": "AAUP Annual Report on the Economic Status of the Profession, 2025-6, Table 5, median salary",
+      "local_labels": {
+        "au": "Associate Lecturer",
+        "gb": "Teaching Fellow",
+        "nz": "Assistant Lecturer"
+      }
+    },
+    {
+      "key": "instructor",
+      "sector": "university",
+      "us_label": "Instructor",
+      "hourly_rate_usd": 61,
+      "hourly_rate_source": "AAUP Annual Report on the Economic Status of the Profession, 2025-6, Table 5, median salary",
+      "local_labels": {
+        "au": "Lecturer",
+        "gb": "Lecturer",
+        "nz": "Lecturer"
+      }
+    },
+    {
+      "key": "assistant_professor",
+      "sector": "university",
+      "us_label": "Assistant Professor",
+      "hourly_rate_usd": 74,
+      "hourly_rate_source": "AAUP Annual Report on the Economic Status of the Profession, 2025-6, Table 5, median salary",
+      "local_labels": {
+        "au": "Senior Lecturer",
+        "gb": "Senior Lecturer",
+        "nz": "Senior Lecturer"
+      }
+    },
+    {
+      "key": "associate_professor",
+      "sector": "university",
+      "us_label": "Associate Professor",
+      "hourly_rate_usd": 85,
+      "hourly_rate_source": "AAUP Annual Report on the Economic Status of the Profession, 2025-6, Table 5, median salary",
+      "local_labels": {
+        "au": "Associate Professor",
+        "gb": "Reader",
+        "nz": "Associate Professor"
+      }
+    },
+    {
+      "key": "professor",
+      "sector": "university",
+      "us_label": "Professor",
+      "hourly_rate_usd": 104,
+      "hourly_rate_source": "AAUP Annual Report on the Economic Status of the Profession, 2025-6, Table 5, median salary",
+      "local_labels": {
+        "au": "Professor",
+        "gb": "Professor",
+        "nz": "Professor"
+      }
+    }
+  ]
+}

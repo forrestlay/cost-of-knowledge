@@ -84,9 +84,8 @@ def conn(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Ite
 
 def modified_state() -> CalculatorState:
     state: CalculatorState = CalculatorState.default()
-    state.project_name = "A study"
     state.international_collaborators = True
-    second: Person = Person(None, "2", PersonType.RESEARCH_TEAM, 41.2)
+    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
     state.people["2"] = second
     state.activities.append(Activity(None, second, "data", 20.5, 11, 11))
     state.direct_costs.pop()
@@ -157,6 +156,21 @@ def test_init_db_adds_parent_id_to_existing_table() -> None:
         assert [project["parent_id"] is None for project in sql_store.list_projects(connection)] == [False, True]
 
 
+def test_init_db_adds_researcher_role_to_existing_table() -> None:
+    with closing(sqlite3.connect(":memory:")) as connection:
+        # The people table as created before researcher_role was added.
+        connection.executescript(SCHEMA_WITHOUT_PARENT_ID)
+        connection.execute(
+            "CREATE TABLE people (project_id INTEGER NOT NULL, position INTEGER NOT NULL, unique_key TEXT NOT NULL,"
+            " role TEXT NOT NULL, name TEXT, person_type TEXT NOT NULL, hourly_rate NUMERIC NOT NULL,"
+            " PRIMARY KEY (project_id, unique_key))"
+        )
+        sql_store.init_db(connection)
+        state: CalculatorState = modified_state()
+        public_id: str = sql_store.save_project(connection, state)
+        assert sql_store.load_project(connection, public_id) == state
+
+
 def test_update_missing_project_raises(conn: Connection) -> None:
     with pytest.raises(KeyError):
         sql_store.update_project(conn, "missing", CalculatorState.default())
@@ -167,7 +181,6 @@ def test_list_projects(conn: Connection) -> None:
     public_id: str = sql_store.save_project(conn, state)
     [project] = sql_store.list_projects(conn)
     assert project["public_id"] == public_id
-    assert project["project_name"] == "A study"
     assert project["total_cost"] == pytest.approx(state.total_cost())
 
 

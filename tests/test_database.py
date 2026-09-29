@@ -92,7 +92,7 @@ def test_save_button_saves_changes_as_child_project(monkeypatch: pytest.MonkeyPa
 
     click_save(at)
     public_id: str = at.session_state["database_public_id"]
-    next(field for field in at.text_input if field.label == "Name of your paper/project").set_value("Renamed project")
+    next(box for box in at.selectbox if box.label.startswith("Field of research")).set_value("4601")
     run(at)
     click_save(at)
     child_public_id: str = at.session_state["database_public_id"]
@@ -101,9 +101,10 @@ def test_save_button_saves_changes_as_child_project(monkeypatch: pytest.MonkeyPa
     with closing(database.connect()) as conn:
         projects = {project["public_id"]: project for project in sql_store.list_projects(conn)}
         original: CalculatorState = sql_store.load_project(conn, public_id)
+        child: CalculatorState = sql_store.load_project(conn, child_public_id)
     assert projects.keys() == {public_id, child_public_id}
-    assert original.project_name != "Renamed project"
-    assert projects[child_public_id]["project_name"] == "Renamed project"
+    assert original.project_field != "4601"
+    assert child.project_field == "4601"
     assert projects[child_public_id]["parent_id"] == projects[public_id]["id"]
     assert projects[public_id]["parent_id"] is None
 
@@ -148,8 +149,7 @@ def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> N
 def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     state: CalculatorState = CalculatorState.default()
-    state.project_name = "Saved project"
-    state.user_name = "Ada"
+    state.project_field = "4601"
     with closing(database.connect()) as conn:
         public_id: str = sql_store.save_project(conn, state)
 
@@ -157,13 +157,12 @@ def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
     at.query_params["project_id"] = public_id
     run(at)
     assert at.session_state["database_public_id"] == public_id
-    assert at.text_input(key="user_name_input").value == "Ada"
-    assert at.session_state["project_name"] == "Saved project"
+    assert at.session_state["project_field"] == "4601"
 
     # Edits must survive reruns rather than being replaced by the saved project again.
-    next(field for field in at.text_input if field.label == "Name of your paper/project").set_value("Edited")
+    next(box for box in at.selectbox if box.label.startswith("Field of research")).set_value("5201")
     run(at)
-    assert at.session_state["project_name"] == "Edited"
+    assert at.session_state["project_field"] == "5201"
 
 
 @pytest.mark.parametrize("project_id", ["1", "V1StGXR8_Z5jdHi6B-myT"])
@@ -195,7 +194,6 @@ def test_results_page_without_database() -> None:
 def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     state: CalculatorState = CalculatorState.default()
-    state.project_name = "Saved project"
     state.user_country = "gb"
     state.international_collaborators = True
     state.peer_review.review_rounds = 2
@@ -212,10 +210,9 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     assert row == {
         "Link": f"./?project_id={public_id}",
         "Saved": row["Saved"],
-        "Project": "Saved project",
         "Country": "United Kingdom",
         "International collaboration": True,
-        "Field": "Social sciences",
+        "Field": "Commerce, management, tourism and services/Accounting, auditing and accountability",
         "Peer reviews": 2,
         "Journal submissions": 3,
         "Currency": "GBP",

@@ -13,12 +13,10 @@ from src.models import Activity, PeerReview, Person, PersonType
 def modified_state() -> CalculatorState:
     """A default state with a second person sharing an activity, a float rate and custom project details."""
     state: CalculatorState = CalculatorState.default()
-    state.user_name = "Ada"
-    state.project_name = "A study"
     state.user_country = "au"
     state.international_collaborators = True
     state.tool_step = 3
-    second: Person = Person("Research Assistant", "2", PersonType.RESEARCH_TEAM, 41.2)
+    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
     state.people["2"] = second
     state.activities.append(Activity("Data collection", second, "data", 20, 11, 4))
     state.peer_review.review_rounds = 5
@@ -82,6 +80,19 @@ def test_unsupported_schema_version_raises() -> None:
         CalculatorState.from_dict(data)
 
 
+def test_schema_version_1_names_are_ignored() -> None:
+    """Version 1 data, which held the user's, project's and people's names, loads without them."""
+    state: CalculatorState = modified_state()
+    data = state.to_dict()
+    data["schema_version"] = 1
+    data["project"].update(user_name="Ada", project_name="A study")
+    for person_data in [*data["people"], data["peer_reviewer"], data["journal_editor"]]:
+        person_data["name"] = "A name"
+        del person_data["role"]
+    state.people["2"].role = None
+    assert CalculatorState.from_dict(data) == state
+
+
 def test_missing_peer_review_raises() -> None:
     data = CalculatorState.default().to_dict()
     data["activities"] = [activity for activity in data["activities"] if activity["kind"] != "peer_review"]
@@ -100,8 +111,8 @@ def test_json_is_plain() -> None:
     """The exported JSON only uses plain JSON types, so it can be stored or sent anywhere."""
     data = json.loads(modified_state().to_json())
     assert data["people"][1] == {
-        "name": "Research Assistant",
         "unique_key": "2",
         "person_type": "RESEARCH_TEAM",
         "hourly_rate": 41.2,
+        "role": "research_scientist",
     }

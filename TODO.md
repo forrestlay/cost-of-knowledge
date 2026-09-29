@@ -16,3 +16,4 @@
 - [ ] Give users question about funding/cost of papers - how much publishers contribute vs public funding?
 - [ ] Pie chart too small on phone.
 - [ ] Add a separate page that allows people to share their result without revealing the hours, potentially through a more limited set of graphs.
+- [ ] Move the save to database button to the bottom above the share to social media buttons.

@@ -30,6 +30,7 @@ from urllib.parse import quote
 import drawsvg as draw
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import resvg_py
 import streamlit as st
 
@@ -96,8 +97,6 @@ TOOL_STEPS: list[str] = [
     "save",
     "end",
 ]
-
-# TODO: Add sharing of PDF and PNG, put names on PDF
 
 # Preset activities and direct costs offered in the calculator's selectboxes, loaded from data/costs.json.
 _COSTS_DATA: dict[str, Any] = json.loads((Path(__file__).parent / "data" / "costs.json").read_text(encoding="utf-8"))
@@ -238,11 +237,11 @@ with st.expander("About the data", expanded=False):
 # User and Project
 # -----------------------------------------------
 
-# TODO: Change the wording.
-st.header(":material/article_person: Your Refereed Journal Article")
+st.header(":material/article: Your Refereed Journal Article")
 st.markdown("""
-            Please fill in some details about you and the research publication or project you want to estimate the cost
-            of.
+            Please fill in some details about the refereed journal article you will estimate the cost for using this
+            tool. The country primarily associated with this journal article will determine the currency that is
+            displayed in the tool, and any costs already set will be converted based on recent exchange rates.
             """)
 
 
@@ -272,7 +271,7 @@ def next_tool_step(current_step: str):
 project_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "project"
 
 with st.expander(
-    "You and your project",
+    "Your refereed journal article",
     expanded=project_step,
     key="project-expander",
     on_change="rerun",
@@ -686,9 +685,10 @@ def load_alam_defaults() -> None:
 
 
 st.markdown("""
-            Provide details of the activities and direct costs involved in preparing your refereed journal article. If
-            you would like a starting point for filling out this tool, you may load the conservative estimates for a
-            social sciences journal article from Alam et al. (2026), the publication accompanying this tool.
+            Provide your best estimate of the activities and direct costs involved in preparing your refereed journal
+            article. If you would like a starting point for filling out this tool, you may load the conservative
+            estimates for a social sciences journal article from Alam et al. (2026), the publication accompanying this
+            tool.
             """)
 st.button(
     "Load defaults from Alam et al. 2026",
@@ -701,12 +701,12 @@ main_left, main_right = st.columns([1, 2])
 
 # Activities and costs setup pane
 with main_left:
-    # TODO: Bold the phase names.
     # TODO: Include buttons to load information about the activities/phases.
-    # TODO: Wording about providing your best estimate in filling out the details.
     st.markdown("""
-                The process has been divided between four distinct phases: incubation, data collection and analysis,
-                manuscript preparation, and peer review and journal editorial work.
+                The process has been divided between four distinct phases: **incubation**, **data collection and
+                analysis**, **manuscript preparation**, and **peer review and journal editorial work**. You may either
+                provide a total estimated hour count for each phase, or add individual activities and direct costs
+                to provide estimates on a more granular level.
                 """)
 
     for phase, phase_name in RESEARCH_PHASES.items():
@@ -1112,7 +1112,6 @@ with main_right:
         }
     )
 
-    # TODO: Add a legend to make the pie charts align.
     sunburst = px.sunburst(
         labour_df,
         path=["Phase", "Person", "Activity"],
@@ -1128,7 +1127,22 @@ with main_right:
     node_costs: list[float] = list(sunburst.data[0].values)
     sunburst.data[0].text = [f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%" for cost in node_costs]
     sunburst.data[0].texttemplate = "%{label}<br>%{text}"
-    sunburst.update_layout(height=720)
+    # Sunburst traces cannot show a legend, so add an invisible placeholder trace per phase to create
+    # legend entries. The legend takes up the same space as the pie chart's legend, aligning the two charts.
+    for phase in (phase for phase in phase_color_map if phase in set(labour_df["Phase"])):
+        sunburst.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker={"color": phase_color_map[phase], "size": 12, "symbol": "square"},
+                name=phase,
+                hoverinfo="skip",
+            )
+        )
+    sunburst.update_xaxes(visible=False)
+    sunburst.update_yaxes(visible=False)
+    sunburst.update_layout(height=720, showlegend=True, legend={"itemclick": False, "itemdoubleclick": False})
     st.plotly_chart(sunburst, width="stretch")
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "

@@ -83,7 +83,7 @@ def conn(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Ite
 
 
 def modified_state() -> CalculatorState:
-    state: CalculatorState = CalculatorState.default()
+    state: CalculatorState = CalculatorState.default().with_default_costs()
     state.international_collaborators = True
     second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
     state.people["2"] = second

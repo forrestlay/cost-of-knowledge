@@ -1,0 +1,115 @@
+{
+  "description": "Activities and direct costs offered in the calculator's selectboxes, grouped by phase. phase is a research phase key (\"incubation\", \"data\" or \"writing\"). default_hours is a typical number of hours of labor for an activity. default_cost is a typical direct cost in US dollars. tooltip describes what the activity or direct cost covers.",
+  "activities": [
+    {
+      "name": "Ideation and conception",
+      "phase": "incubation",
+      "default_hours": 55,
+      "tooltip": "Developing the research question, reviewing the literature and designing the study."
+    },
+    {
+      "name": "Ethics approval",
+      "phase": "incubation",
+      "default_hours": 60,
+      "tooltip": "Preparing and revising applications to an ethics committee or institutional review board."
+    },
+    {
+      "name": "Grant applications",
+      "phase": "incubation",
+      "default_hours": 171,
+      "tooltip": "Writing, revising and submitting applications for funding for the project."
+    },
+    {
+      "name": "Other",
+      "phase": "incubation",
+      "default_hours": 0,
+      "tooltip": "Any other incubation activity not listed above."
+    },
+    {
+      "name": "Incubation (Overall Total)",
+      "phase": "incubation",
+      "default_hours": 0,
+      "tooltip": "The total hours of labor for the whole incubation phase, for when you only know the overall figure rather than a breakdown by activity."
+    },
+    {
+      "name": "Data collection",
+      "phase": "data",
+      "default_hours": 48.5,
+      "tooltip": "Recruiting participants and gathering data, e.g. through surveys, interviews, experiments or fieldwork."
+    },
+    {
+      "name": "Interview transcription",
+      "phase": "data",
+      "default_hours": 60.5,
+      "tooltip": "Transcribing recorded interviews or focus groups into text for analysis."
+    },
+    {
+      "name": "Data analysis",
+      "phase": "data",
+      "default_hours": 157.5,
+      "tooltip": "Cleaning, coding and analysing the data, and interpreting the results."
+    },
+    {
+      "name": "Other",
+      "phase": "data",
+      "default_hours": 0,
+      "tooltip": "Any other data collection or analysis activity not listed above."
+    },
+    {
+      "name": "Data collection and analysis (Overall Total)",
+      "phase": "data",
+      "default_hours": 0,
+      "tooltip": "The total hours of labor for the whole data collection and analysis phase, for when you only know the overall figure rather than a breakdown by activity."
+    },
+    {
+      "name": "Writing and manuscript preparation",
+      "phase": "writing",
+      "default_hours": 100,
+      "tooltip": "Drafting, revising and formatting the manuscript for submission to a journal."
+    },
+    {
+      "name": "Conferencing (labor)",
+      "phase": "writing",
+      "default_hours": 123,
+      "tooltip": "Time spent preparing for, travelling to and presenting the research at conferences."
+    },
+    {
+      "name": "Manuscript preparation (Overall Total)",
+      "phase": "writing",
+      "default_hours": 0,
+      "tooltip": "The total hours of labor for the whole manuscript preparation phase, for when you only know the overall figure rather than a breakdown by activity."
+    }
+  ],
+  "direct_costs": [
+    {
+      "name": "Participant incentivization",
+      "phase": "data",
+      "default_cost": 246,
+      "tooltip": "Payments, vouchers or gifts given to participants for taking part in the study."
+    },
+    {
+      "name": "Software",
+      "phase": "data",
+      "default_cost": 0,
+      "tooltip": "Licences or subscriptions for software used in the research, e.g. for analysis or surveys."
+    },
+    {
+      "name": "Databases",
+      "phase": "data",
+      "default_cost": 0,
+      "tooltip": "Access fees for databases or datasets used in the research."
+    },
+    {
+      "name": "Conferencing (direct costs)",
+      "phase": "writing",
+      "default_cost": 3400,
+      "tooltip": "Registration fees, travel and accommodation for presenting the research at conferences."
+    },
+    {
+      "name": "Proofreading and Editing Services",
+      "phase": "writing",
+      "default_cost": 0,
+      "tooltip": "Professional proofreading, copyediting or language editing of the manuscript."
+    }
+  ]
+}

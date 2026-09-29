@@ -11,8 +11,9 @@ from src.models import Activity, PeerReview, Person, PersonType
 
 
 def modified_state() -> CalculatorState:
-    """A default state with a second person sharing an activity, a float rate and custom project details."""
-    state: CalculatorState = CalculatorState.default()
+    """A state with the Alam et al. (2026) estimates, a second person sharing an activity, a float rate and custom
+    project details."""
+    state: CalculatorState = CalculatorState.default().with_default_costs()
     state.user_country = "au"
     state.international_collaborators = True
     state.tool_step = 3
@@ -26,6 +27,18 @@ def modified_state() -> CalculatorState:
 
 def test_default_totals() -> None:
     state: CalculatorState = CalculatorState.default()
+    assert state.total_hours() == 0
+    assert state.total_cost() == 0
+    assert [activity.get_name() for activity in state.activities if isinstance(activity, Activity)] == [
+        "Incubation (Overall Total)",
+        "Data collection and analysis (Overall Total)",
+        "Manuscript preparation (Overall Total)",
+    ]
+    assert state.direct_costs == []
+
+
+def test_with_default_costs_totals() -> None:
+    state: CalculatorState = CalculatorState.default().with_default_costs()
     # 775.5 activity hours, 8 peer review hours and 15 journal editing hours at US$85, plus US$3,646 direct costs.
     assert state.total_hours() == 798.5
     assert state.total_cost() == pytest.approx(798.5 * 85 + 3646)

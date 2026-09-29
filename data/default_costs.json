@@ -1,0 +1,20 @@
+{
+  "description": "Conservative estimates of the activities and costs of a social sciences journal article from Alam et al. (2026), loaded by the calculator's \"Load defaults from Alam et al. 2026\" button. phase is a research phase key (\"incubation\", \"data\" or \"writing\"). hourly_rate_usd is the starting hourly rate of labor in US dollars of the first research team member, the peer reviewer and the journal editor, used whether or not the estimates are loaded. Each activity is assigned to the first research team member. peer_review and journal_editing set the starting values of the peer review and journal editorial work activities. cost is a direct cost in US dollars.",
+  "hourly_rate_usd": 85,
+  "activities": [
+    {"name": "Ideation and conception", "phase": "incubation", "hours": 55},
+    {"name": "Ethics approval", "phase": "incubation", "hours": 60},
+    {"name": "Grant applications", "phase": "incubation", "hours": 171},
+    {"name": "Data collection", "phase": "data", "hours": 48.5},
+    {"name": "Interview transcription", "phase": "data", "hours": 60.5},
+    {"name": "Data analysis", "phase": "data", "hours": 157.5},
+    {"name": "Writing and manuscript preparation", "phase": "writing", "hours": 100},
+    {"name": "Conferencing (labor)", "phase": "writing", "hours": 123}
+  ],
+  "peer_review": {"review_rounds": 3, "journal_submissions": 1},
+  "journal_editing": {"journal_submissions": 1},
+  "direct_costs": [
+    {"name": "Participant incentivization", "phase": "data", "cost": 246},
+    {"name": "Conferencing (direct costs)", "phase": "writing", "cost": 3400}
+  ]
+}

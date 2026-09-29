@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.models import (
@@ -33,6 +34,7 @@ from src.models import (
     Person,
     PersonType,
 )
+from src.reference_data import RESEARCH_PHASES, ROLES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping, Sequence
@@ -66,6 +68,14 @@ WIDGET_KEYS: tuple[str, ...] = (
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
 )
+# Conservative estimates of the activities and costs of a social sciences journal article from Alam et al. (2026),
+# loaded from data/default_costs.json, and the starting hourly rate of the calculator's people.
+_DEFAULT_COSTS: dict[str, Any] = json.loads(
+    (Path(__file__).parent.parent / "data" / "default_costs.json").read_text(encoding="utf-8")
+)
+# Phases that start with an "(Overall Total)" activity. The editing phase has its own peer review and journal editorial
+# work activities instead.
+OVERALL_TOTAL_PHASES: tuple[str, ...] = ("incubation", "data", "writing")
 # Expander keys are f"{step}-expander". Clearing them lets each expander fall back to its expanded= argument, which
 # main.py derives from the restored tool_step.
 EXPANDER_KEY_SUFFIX: str = "-expander"
@@ -151,36 +161,35 @@ class CalculatorState:
 
     @classmethod
     def default(cls) -> CalculatorState:
-        """Returns the calculator's pre-populated starting state."""
+        """Returns the calculator's starting state, with one "(Overall Total)" activity of 0 hours in each of the first
+        three phases, no peer review or journal editorial work and no direct costs.
+        """
+        hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
         default_person: Person = Person(
             unique_key="1",
             person_type=PersonType.RESEARCH_TEAM,
-            hourly_rate=85,
+            hourly_rate=hourly_rate,
         )
         peer_reviewer: Person = Person(
             unique_key="Peer reviewer",
             person_type=PersonType.OTHER,
-            hourly_rate=85,
+            hourly_rate=hourly_rate,
         )
         journal_editor: Person = Person(
             unique_key="Journal editor",
             person_type=PersonType.OTHER,
-            hourly_rate=85,
+            hourly_rate=hourly_rate,
         )
         # Each Activity below is one person's share of an activity. Activities sharing a group_key form a single
         # activity in the calculator, so the initial activities each start with one person and a group_key matching
-        # their key.
+        # their key. The names match the "(Overall Total)" activities in data/costs.json.
         activities: list[BaseActivity] = [
-            Activity("Ideation and conception", default_person, "incubation", 55, 1, 1),
-            Activity("Ethics approval", default_person, "incubation", 60, 2, 2),
-            Activity("Grant applications", default_person, "incubation", 171, 3, 3),
-            Activity("Data collection", default_person, "data", 48.5, 4, 4),
-            Activity("Interview transcription", default_person, "data", 60.5, 5, 5),
-            Activity("Data analysis", default_person, "data", 157.5, 6, 6),
-            Activity("Writing and manuscript preparation", default_person, "writing", 100, 7, 7),
-            Activity("Conferencing (labor)", default_person, "writing", 123, 8, 8),
-            PeerReview(person=peer_reviewer, review_rounds=3, journal_submissions=1, unique_key=9),
-            JournalEditing(person=journal_editor, journal_submissions=1, unique_key=10),
+            Activity(f"{RESEARCH_PHASES[phase]} (Overall Total)", default_person, phase, 0, key, key)
+            for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
+        ]
+        activities += [
+            PeerReview(person=peer_reviewer, review_rounds=0, journal_submissions=0, unique_key=len(activities) + 1),
+            JournalEditing(person=journal_editor, journal_submissions=0, unique_key=len(activities) + 2),
         ]
         return cls(
             user_country="us",
@@ -190,11 +199,48 @@ class CalculatorState:
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
             activities=activities,
-            direct_costs=[
-                DirectCost("Participant incentivization", "data", 246, 1),
-                DirectCost("Conferencing (direct costs)", "writing", 3400, 2),
-            ],
+            direct_costs=[],
         )
+
+    def with_default_costs(self, usd_to_currency: float = 1.0) -> CalculatorState:
+        """Returns a copy of this state with its activities and direct costs replaced by the conservative estimates for
+        a social sciences journal article from Alam et al. (2026), loaded from data/default_costs.json.
+
+        The project, people and hourly rates are kept. Every activity is assigned to the first research team member,
+        and the peer reviewer and journal editor keep their rates.
+
+        Args:
+            usd_to_currency: Exchange rate from USD to the currency of this state's monetary values, applied to the
+                direct costs.
+        """
+        state: CalculatorState = CalculatorState.from_dict(self.to_dict())
+        first_person: Person = next(iter(state.people.values()))
+        # As in default(), each activity starts with one person and a group_key matching its key.
+        activities: list[BaseActivity] = [
+            Activity(activity["name"], first_person, activity["phase"], activity["hours"], key, key)
+            for key, activity in enumerate(_DEFAULT_COSTS["activities"], start=1)
+        ]
+        peer_review: Mapping[str, Any] = _DEFAULT_COSTS["peer_review"]
+        journal_editing: Mapping[str, Any] = _DEFAULT_COSTS["journal_editing"]
+        activities += [
+            PeerReview(
+                person=state.peer_reviewer,
+                review_rounds=peer_review["review_rounds"],
+                journal_submissions=peer_review["journal_submissions"],
+                unique_key=len(activities) + 1,
+            ),
+            JournalEditing(
+                person=state.journal_editor,
+                journal_submissions=journal_editing["journal_submissions"],
+                unique_key=len(activities) + 2,
+            ),
+        ]
+        state.activities = activities
+        state.direct_costs = [
+            DirectCost(cost["name"], cost["phase"], round(cost["cost"] * usd_to_currency, 2), key)
+            for key, cost in enumerate(_DEFAULT_COSTS["direct_costs"], start=1)
+        ]
+        return state
 
     # -----------------------------------------------
     # Totals
@@ -366,3 +412,19 @@ class CalculatorState:
         # as their value= would raise. Seed their widget state instead, as the salary dialog does.
         for key, person in self.people.items():
             session_state[f"person-rate-{key}"] = person.hourly_rate
+        # Keys are reused (e.g. activity-hours-1 names whichever activity has unique_key 1), so the browser keeps
+        # showing, and sends back on the next rerun, the value it already holds for a key unless the new value is
+        # written into the widget's state. value= alone only reaches a widget the browser has not seen before.
+        for key, person in self.people.items():
+            # A role no longer in ROLES would show as the first role, so leave its selectbox unselected instead.
+            session_state[f"person-role-{key}"] = person.role if person.role in ROLES else None
+        for activity in self.activities:
+            if isinstance(activity, Activity):
+                session_state[f"activity-name-{activity.group_key}"] = activity.name
+                session_state[f"activity-person-{activity.unique_key}"] = activity.person.unique_key
+                session_state[f"activity-hours-{activity.unique_key}"] = float(activity.hours)
+        for direct_cost in self.direct_costs:
+            session_state[f"directcost-name-{direct_cost.unique_key}"] = direct_cost.name
+            session_state[f"directcost-cost-{direct_cost.unique_key}"] = float(direct_cost.cost)
+        session_state["review-rounds"] = peer_review.review_rounds
+        session_state["journal-submissions"] = peer_review.journal_submissions

@@ -20,8 +20,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import json
 import logging
 from contextlib import closing
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
 
@@ -97,36 +99,23 @@ TOOL_STEPS: list[str] = [
 
 # TODO: Add sharing of PDF and PNG, put names on PDF
 
+# Preset activities and direct costs offered in the calculator's selectboxes, loaded from data/costs.json.
+_COSTS_DATA: dict[str, Any] = json.loads((Path(__file__).parent / "data" / "costs.json").read_text(encoding="utf-8"))
+# Names of the preset activities and direct costs of each phase, in the order they appear in costs.json.
 ACTIVITY_OPTIONS: dict[str, list[str]] = {
-    "incubation": [
-        "Ideation and conception",
-        "Ethics approval",
-        "Grant applications",
-        "Other",
-    ],
-    "data": [
-        "Data collection",
-        "Data analysis",
-        "Interview transcription",
-        "Other",
-    ],
-    "writing": [
-        "Writing and manuscript preparation",
-        "Conferencing (labor)",
-    ],
+    phase: [activity["name"] for activity in _COSTS_DATA["activities"] if activity["phase"] == phase]
+    for phase in RESEARCH_PHASES
 }
-
 COST_OPTIONS: dict[str, list[str]] = {
-    "incubation": [],
-    "data": [
-        "Software",
-        "Databases",
-        "Participant incentivization",
-    ],
-    "writing": [
-        "Proofreading and Editing Services",
-        "Conferencing (direct costs)",
-    ],
+    phase: [cost["name"] for cost in _COSTS_DATA["direct_costs"] if cost["phase"] == phase] for phase in RESEARCH_PHASES
+}
+# Default hours of each preset activity and default cost in USD of each preset direct cost, keyed by (phase, name), as
+# some names (e.g. "Other") appear in more than one phase.
+ACTIVITY_DEFAULT_HOURS: dict[tuple[str, str], float] = {
+    (activity["phase"], activity["name"]): float(activity["default_hours"]) for activity in _COSTS_DATA["activities"]
+}
+COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
+    (cost["phase"], cost["name"]): float(cost["default_cost"]) for cost in _COSTS_DATA["direct_costs"]
 }
 
 
@@ -233,13 +222,16 @@ st.markdown("""
             the substantial investment underpinning scholarly publishing.
             """)
 
-# TODO: Fix this wording.
 with st.expander("About the data", expanded=False):
     st.markdown("""
-                The tool has been pre-populated with information that rests on a number of assumptions. Some of this
-                data is based on the accompanying publication (TODO: reference to paper).
-                You are invited to fill in your own estimate the cost
-                of producing one of your publications.
+                The tool starts empty, so that you can enter your own best estimate of the cost of preparing one of your
+                refereed journal articles. If you would like a starting point, the Calculator can load the
+                conservative estimates of the activities and direct costs involved in preparing a social sciences
+                journal article, sourced from Alam et al. (2026), the publication accompanying this tool.
+
+                The hourly rates offered for each researcher role are median US rates including indirect on-costs, and
+                are converted to your country's currency along with the direct costs. You can replace any rate or cost
+                with your own figure.
                 """)
 
 # -----------------------------------------------
@@ -463,13 +455,17 @@ with st.expander(
 
             # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
             # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
+            # Seed the widget's state rather than passing index=, as the browser keeps showing (and sends back) the
+            # value it already holds for a reused key unless the new value is written into the widget's state.
+            role_key: str = f"person-role-{person.unique_key}"
+            if role_key not in st.session_state:
+                st.session_state[role_key] = person.role if person.role in ROLES else None
             st.selectbox(
                 "Role",
                 options=list(ROLES),
-                index=list(ROLES).index(person.role) if person.role in ROLES else None,
                 format_func=lambda role, country=st.session_state["user_country"]: ROLES[role].display_name(country),
                 placeholder="Choose a role to fill in its median hourly rate based on US data",
-                key=f"person-role-{person.unique_key}",
+                key=role_key,
                 on_change=apply_role_rate,
                 args=[person],
             )
@@ -539,6 +535,26 @@ def set_activity_person(activity: Activity, counter: int):
     activity.person: Person = st.session_state["people"][people_key]
 
 
+def apply_activity_default(group_activities: list[Activity], group_key: int) -> None:
+    """Callback for an activity's name selectbox. Renames the activity and, for a preset activity, fills in its default
+    hours from data/costs.json for the first person assigned to it. Custom names leave the hours unchanged.
+
+    Args:
+        group_activities: Every Activity sharing the activity's group_key, the first being its first person.
+        group_key: group_key of the activity.
+    """
+    activity_name: str | None = st.session_state[f"activity-name-{group_key}"]
+    for group_activity in group_activities:
+        group_activity.name = activity_name
+    first_activity: Activity = group_activities[0]
+    default_hours: float | None = ACTIVITY_DEFAULT_HOURS.get((first_activity.phase, activity_name or ""))
+    if default_hours is None:
+        return
+    first_activity.hours = default_hours
+    # The hours number_input ignores value= once it has its own widget state, so write the hours there too.
+    st.session_state[f"activity-hours-{first_activity.unique_key}"] = default_hours
+
+
 def next_activity_key() -> int:
     """Returns an unused unique_key for a new Activity."""
     activity_key_list: list[int] = [activity.unique_key for activity in st.session_state["activity_list"]]
@@ -603,7 +619,23 @@ def delete_activity(activities: list[Activity]):
 
 def add_direct_cost(phase: str):
     cost_key_list: list[int] = [direct_cost.unique_key for direct_cost in st.session_state["cost_list"]]
-    st.session_state["cost_list"].append(DirectCost(None, phase, 0.0, max(cost_key_list) + 1))
+    st.session_state["cost_list"].append(DirectCost(None, phase, 0.0, max(cost_key_list, default=0) + 1))
+
+
+def apply_direct_cost_default(direct_cost: DirectCost) -> None:
+    """Callback for a direct cost's name selectbox. Renames the cost and, for a preset cost, fills in its default cost
+    from data/costs.json. Custom names leave the cost unchanged.
+
+    The default cost is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    direct_cost.name = st.session_state[f"directcost-name-{direct_cost.unique_key}"]
+    cost_usd: float | None = COST_DEFAULTS_USD.get((direct_cost.phase, direct_cost.name or ""))
+    if cost_usd is None:
+        return
+    converted_cost: float | None = convert_currency(cost_usd, "USD", currency_code())
+    direct_cost.cost = cost_usd if converted_cost is None else round(converted_cost, 2)
+    # The cost number_input ignores value= once it has its own widget state, so write the cost there too.
+    st.session_state[f"directcost-cost-{direct_cost.unique_key}"] = direct_cost.cost
 
 
 def delete_direct_cost(direct_cost: DirectCost):
@@ -638,18 +670,43 @@ def save_to_database() -> None:
 
 st.header(":material/request_quote: Calculator")
 
+
+def load_alam_defaults() -> None:
+    """Callback for the "Load defaults from Alam et al. 2026" button. Replaces the activities and direct costs with the
+    estimates from Alam et al. (2026), keeping the project and people.
+
+    The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
+    state: CalculatorState = CalculatorState.from_session_state(st.session_state)
+    state.with_default_costs(1.0 if usd_to_currency is None else usd_to_currency).apply_to_session_state(
+        st.session_state
+    )
+    st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
+
+
+st.markdown("""
+            Provide details of the activities and direct costs involved in preparing your refereed journal article. If
+            you would like a starting point for filling out this tool, you may load the conservative estimates for a
+            social sciences journal article from Alam et al. (2026), the publication accompanying this tool.
+            """)
+st.button(
+    "Load defaults from Alam et al. 2026",
+    key="load-alam-defaults",
+    icon=":material/download:",
+    on_click=load_alam_defaults,
+)
+
 main_left, main_right = st.columns([1, 2])
 
 # Activities and costs setup pane
 with main_left:
     # TODO: Bold the phase names.
-    # TODO: Button to load the presets from Alam et al 2026.
     # TODO: Include buttons to load information about the activities/phases.
     # TODO: Wording about providing your best estimate in filling out the details.
     st.markdown("""
-                Provide details of the activities and costs involved in preparing your journal article. The process
-                has been divided between four distinct phases: incubation, data collection and analysis, manuscript
-                preparation, and peer review and journal editorial work.
+                The process has been divided between four distinct phases: incubation, data collection and analysis,
+                manuscript preparation, and peer review and journal editorial work.
                 """)
 
     for phase, phase_name in RESEARCH_PHASES.items():
@@ -657,7 +714,6 @@ with main_left:
         phase_expand: bool = TOOL_STEPS[st.session_state["tool_step"]] == phase
 
         # Handle special phases.
-        # TODO: Add zero (0) to the options here.
         if phase == "editing":
             with st.expander(
                 phase_name,
@@ -673,11 +729,16 @@ with main_left:
                             this rate below.
                             """)
 
+                # Loading a state writes the sliders' values into their widget state, so seed it here rather than
+                # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
+                if "review-rounds" not in st.session_state:
+                    st.session_state["review-rounds"] = st.session_state["review_rounds"]
+                if "journal-submissions" not in st.session_state:
+                    st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
                 st.session_state["review_rounds"]: int = st.slider(
                     "Average number of review rounds per journal submission",
-                    min_value=1,
+                    min_value=0,
                     max_value=20,
-                    value=st.session_state["review_rounds"],
                     step=1,
                     key="review-rounds",
                     help="From Raoult(2020) and LeBlanc et al. (2023), we estimate that ",
@@ -686,9 +747,8 @@ with main_left:
 
                 st.session_state["journal_submissions"]: int = st.slider(
                     "Number of journals submitted to",
-                    min_value=1,
+                    min_value=0,
                     max_value=20,
-                    value=st.session_state["journal_submissions"],
                     step=1,
                     key="journal-submissions",
                 )
@@ -739,22 +799,23 @@ with main_left:
                 for group_key, group_activities in activity_groups.items():
                     with st.container(border=True):
                         # Offer the phase's preset activities, keeping any current custom name selectable.
-                        # A newly added activity has no name yet, so leave the selectbox unselected.
+                        # A newly added activity has no name yet, so leave the selectbox unselected. Seed the widget's
+                        # state rather than passing index=, as the browser keeps showing (and sends back) the value it
+                        # already holds for a reused key unless the new value is written into the widget's state.
                         current_activity_name: str | None = group_activities[0].name
                         activity_options: list[str] = ACTIVITY_OPTIONS.get(phase, [])
-                        activity_name_index: int | None
-                        if current_activity_name is None:
-                            activity_name_index = None
-                        else:
-                            if current_activity_name not in activity_options:
-                                activity_options = [current_activity_name] + activity_options
-                            activity_name_index = activity_options.index(current_activity_name)
+                        if current_activity_name is not None and current_activity_name not in activity_options:
+                            activity_options = [current_activity_name] + activity_options
+                        activity_name_key: str = f"activity-name-{group_key}"
+                        if activity_name_key not in st.session_state:
+                            st.session_state[activity_name_key] = current_activity_name
                         activity_name: str | None = st.selectbox(
                             "Activity",
                             options=activity_options,
-                            index=activity_name_index,
                             accept_new_options=True,
-                            key=f"activity-name-{group_key}",
+                            key=activity_name_key,
+                            on_change=apply_activity_default,
+                            args=[group_activities, group_key],
                         )
                         # Keep the name of every person's Activity in step with the renamed activity.
                         for group_activity in group_activities:
@@ -770,12 +831,15 @@ with main_left:
 
                         # One row of inputs per person assigned to this activity.
                         for person_index, group_activity in enumerate(group_activities):
-                            try:  # Get index of person in list of people.
-                                activity_person_index: int = list(st.session_state["people"].keys()).index(
+                            # Seed the widget's state rather than passing index=, as for the activity name. Fall back
+                            # to the first person if the assigned person has been removed.
+                            activity_person_key: str = f"activity-person-{group_activity.unique_key}"
+                            if st.session_state.get(activity_person_key) not in st.session_state["people"]:
+                                st.session_state[activity_person_key] = (
                                     group_activity.person.unique_key
+                                    if group_activity.person.unique_key in st.session_state["people"]
+                                    else next(iter(st.session_state["people"]))
                                 )
-                            except ValueError:
-                                activity_person_index: int = 0
 
                             # Only label the first row so the rows below it read as a list.
                             row_label_visibility: str = "visible" if person_index == 0 else "collapsed"
@@ -785,19 +849,24 @@ with main_left:
                             person_column.selectbox(
                                 "Assigned person",
                                 st.session_state["people"].keys(),
-                                key=f"activity-person-{group_activity.unique_key}",
-                                index=activity_person_index,
+                                key=activity_person_key,
                                 format_func=person_option_display,
                                 label_visibility=row_label_visibility,
                                 on_change=set_activity_person,
                                 args=[group_activity, group_activity.unique_key],
                             )
+                            # Choosing a preset activity writes its default hours into the widget's state, so pass
+                            # the "min" sentinel once it exists to avoid Streamlit's default-value-and-Session-State
+                            # warning.
+                            activity_hours_key: str = f"activity-hours-{group_activity.unique_key}"
                             group_activity.hours: float = hours_column.number_input(
                                 "Hours",
-                                key=f"activity-hours-{group_activity.unique_key}",
+                                key=activity_hours_key,
                                 min_value=0.0,
                                 step=0.5,
-                                value=float(group_activity.get_hours()),
+                                value="min"
+                                if activity_hours_key in st.session_state
+                                else float(group_activity.get_hours()),
                                 label_visibility=row_label_visibility,
                             )
                             # An activity always keeps its first person, so that row has no delete button.
@@ -841,21 +910,21 @@ with main_left:
                 for phase_cost in phase_costs:
                     with st.container(border=True):
                         # Offer the phase's preset direct costs, keeping any current custom name selectable.
-                        # A newly added cost has no name yet, so leave the selectbox unselected.
+                        # A newly added cost has no name yet, so leave the selectbox unselected. Seed the widget's state
+                        # rather than passing index=, as for the activity name.
                         cost_options: list[str] = COST_OPTIONS.get(phase, [])
-                        cost_name_index: int | None
-                        if phase_cost.name is None:
-                            cost_name_index = None
-                        else:
-                            if phase_cost.name not in cost_options:
-                                cost_options = [phase_cost.name] + cost_options
-                            cost_name_index = cost_options.index(phase_cost.name)
+                        if phase_cost.name is not None and phase_cost.name not in cost_options:
+                            cost_options = [phase_cost.name] + cost_options
+                        cost_name_key: str = f"directcost-name-{phase_cost.unique_key}"
+                        if cost_name_key not in st.session_state:
+                            st.session_state[cost_name_key] = phase_cost.name
                         phase_cost.name: str | None = st.selectbox(
                             "Cost",
                             options=cost_options,
-                            index=cost_name_index,
                             accept_new_options=True,
-                            key=f"directcost-name-{phase_cost.unique_key}",
+                            key=cost_name_key,
+                            on_change=apply_direct_cost_default,
+                            args=[phase_cost],
                         )
                         # Create badge if new cost
                         if phase_cost.name is None:

@@ -301,6 +301,8 @@ class PeerReview(BaseActivity):
 
     def get_hours(self) -> int | float:
         """Returns the total hours associated with this activity."""
+        if self.review_rounds <= 0:
+            return 0
         hours_per_submission: int | float = self.initial_round_hours + (
             self.subsequent_round_hours * (self.review_rounds - 1)
         )

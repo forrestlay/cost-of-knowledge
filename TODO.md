@@ -30,3 +30,11 @@
 - [ ] Move the number of journals submitted above the number of review rounds. Change the minimum back to 1. Explain what is meant by review rounds.
 - [ ] Remove the (US) from the role titles. Replace with the country equivalent instead of showing side by side.
 - [ ] Make clear that default hours are prefilled for activities.
+- [ ] Footnotes for referencing.
+- [ ] Include a reset to zero button for the calculator.
+- [ ] Slider centered around our paper averages for each phase.
+- [ ] Add save and share at bottom as well as where it is now.
+- [ ] Add quantity to role for larger teams.
+- [ ] Start with a question "As a researcher, do you want to know how much your paper costs from ideation to acceptance?" Punch up wording.
+- [ ] Include versioning in the data collected.
+- [ ] Estimate of "Once accepted, provide an estimate of how much it costs the publisher to publish your journal article."

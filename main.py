@@ -1204,6 +1204,18 @@ def create_social_media_svg(
         )
     )
 
+    # Blurb, introducing the title and figures below.
+    image.append(
+        draw.Text(
+            "Using the Cost of Knowledge calculator, I calculated that",
+            28,
+            margin,
+            162,
+            fill=muted,
+            font_family=SOCIAL_MEDIA_FONT,
+        )
+    )
+
     # Title (wrapped, capped at three lines). Some Field of Research names are long, so the font shrinks until the
     # title fits, with the characters per line scaled to match.
     title: str = f"My {_title_case(project_field)} paper cost"
@@ -1215,7 +1227,7 @@ def create_social_media_svg(
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
-    title_top: float = 184
+    title_top: float = 238
     image.append(
         draw.Text(
             title_lines,
@@ -1229,57 +1241,7 @@ def create_social_media_svg(
         )
     )
 
-    # Country
-    subtitle_y: float = title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
-    subtitle: str = country.strip()
-    if subtitle and international_collaborators:
-        subtitle = f"{subtitle} + international collaborators"
-    subtitle_line_height: float = 1.2
-    subtitle_lines: list[str] = _wrap_text(subtitle, 48)
-    image.append(
-        draw.Text(
-            subtitle_lines,
-            34,
-            margin,
-            subtitle_y,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=subtitle_line_height,
-        )
-    )
-    subtitle_bottom: float = subtitle_y + 34 * subtitle_line_height * (len(subtitle_lines) - 1)
-    image.append(
-        draw.Line(
-            margin,
-            subtitle_bottom + 34,
-            width - margin,
-            subtitle_bottom + 34,
-            stroke="#ffffff",
-            stroke_width=2,
-            stroke_opacity=0.6,
-        )
-    )
-
-    # TODO: Update wording here.
-    # Blurb, sitting between the divider and the headline cost figures.
-    blurb_line_height: float = 1.3
-    blurb_lines: list[str] = _wrap_text(
-        "Using the Cost of Knowledge Calculator, I estimated the following cost for my refereed journal article to be:",
-        74,
-    )
-    blurb_top: float = subtitle_bottom + 34 + 60
-    image.append(
-        draw.Text(
-            blurb_lines,
-            26,
-            margin,
-            blurb_top,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=blurb_line_height,
-        )
-    )
-    blurb_bottom: float = blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1)
+    title_bottom: float = title_top + title_size * title_line_height * (len(title_lines) - 1)
 
     # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
     # library is needed. The block is anchored to the bottom of the card so the
@@ -1303,58 +1265,86 @@ def create_social_media_svg(
     bar_y: float = legend_first_y - 26 - 46 - bar_h
     bar_label_y: float = bar_y - 24
 
-    # Headline figures, vertically centred between the blurb and the breakdown.
-    # The two metrics are stacked with a deliberately tight gap and the block is
-    # pushed down from the blurb so a three-line project title still leaves the
-    # "Estimated total cost" line clear of the text above it.
-    # The hours figure uses a smaller font than the cost to leave room for the breakdown below.
-    metric_gap: int = 130
-    hours_size: int = 64
-    figures_block_h: int = metric_gap + hours_size + 8 if show_hours else 96
-    zone_top: float = blurb_bottom + 74
-    zone_bottom: float = bar_label_y - 40
-    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
+    # Country and divider, sitting just above the breakdown. The country wraps upwards from the divider.
+    divider_y: float = bar_label_y - 58
+    subtitle: str = country.strip()
+    if subtitle and international_collaborators:
+        subtitle = f"{subtitle} + international collaborators"
+    subtitle_line_height: float = 1.2
+    subtitle_lines: list[str] = _wrap_text(subtitle, 48)
+    subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
     image.append(
         draw.Text(
-            "Estimated total cost",
-            30,
+            subtitle_lines,
+            34,
             margin,
-            figures_y,
+            subtitle_y,
             fill=muted,
             font_family=SOCIAL_MEDIA_FONT,
+            line_height=subtitle_line_height,
         )
     )
+    image.append(
+        draw.Line(
+            margin,
+            divider_y,
+            width - margin,
+            divider_y,
+            stroke="#ffffff",
+            stroke_width=2,
+            stroke_opacity=0.6,
+        )
+    )
+
+    # Headline figures, each label below its figure, vertically centred between the title and the country. Offsets
+    # are from the top of the block. The hours figure uses a smaller font than the cost to leave room for the
+    # breakdown below.
+    hours_size: int = 64
+    figures_block_h: int = 240 if show_hours else 116
+    zone_top: float = title_bottom + 50
+    zone_bottom: float = subtitle_y - 26 - 40
+    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
     image.append(
         draw.Text(
             format_currency(total_cost),
             88,
             margin,
-            figures_y + 84,
+            figures_y + 64,
             fill=ink,
             font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
         )
     )
-    if show_hours:
-        image.append(
-            draw.Text(
-                "Estimated hours of labor",
-                30,
-                margin,
-                figures_y + metric_gap,
-                fill=muted,
-                font_family=SOCIAL_MEDIA_FONT,
-            )
+    image.append(
+        draw.Text(
+            "Estimated total cost",
+            30,
+            margin,
+            figures_y + 108,
+            fill=muted,
+            font_family=SOCIAL_MEDIA_FONT,
         )
+    )
+    if show_hours:
         image.append(
             draw.Text(
                 f"{total_hours:,.0f} hours",
                 hours_size,
                 margin,
-                figures_y + metric_gap + 68,
+                figures_y + 190,
                 fill=ink,
                 font_family=SOCIAL_MEDIA_FONT,
                 font_weight="bold",
+            )
+        )
+        image.append(
+            draw.Text(
+                "Estimated hours of labor",
+                30,
+                margin,
+                figures_y + 232,
+                fill=muted,
+                font_family=SOCIAL_MEDIA_FONT,
             )
         )
 

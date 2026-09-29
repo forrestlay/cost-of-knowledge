@@ -17,3 +17,16 @@
 - [ ] Pie chart too small on phone.
 - [ ] Add a separate page that allows people to share their result without revealing the hours, potentially through a more limited set of graphs.
 - [ ] Move the save to database button to the bottom above the share to social media buttons.
+- [ ] Include instructions for selectboxes that they can type to search fields. Default to blank.
+- [ ] Explain the indirect costs multiplier.
+- [ ] Clear explanation at start of what the tool is meant for.
+  - [ ] Make users comfortable with entering estimates in.
+- [ ] Tool usability
+  - [ ] Get rid of collapsibles.
+  - [ ] Move the calculator inputs to above the graphs.
+  - [ ] ! Shrink down to four phases instead of activities and direct costs.
+- [ ] Need a call to action for sharing.
+- [ ] Add an indicator variable for when users used the prefill.
+- [ ] Move the number of journals submitted above the number of review rounds. Change the minimum back to 1. Explain what is meant by review rounds.
+- [ ] Remove the (US) from the role titles. Replace with the country equivalent instead of showing side by side.
+- [ ] Make clear that default hours are prefilled for activities.

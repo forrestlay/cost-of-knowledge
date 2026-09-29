@@ -225,13 +225,13 @@ with st.expander("About the data", expanded=False):
 
 def close_calculator() -> None:
     """Callback for the buttons that finish the calculator. Collapses the calculator's expander and asks for the page to
-    scroll to the top, so the user sees their results.
+    scroll to the results header, so the user sees their results.
 
     The expander is keyed with on_change="rerun", so its open state is driven by
     st.session_state["calculator-expander"].
     """
     st.session_state["calculator-expander"] = False
-    st.session_state["scroll_to_top"] = True
+    st.session_state["scroll_to_results"] = True
 
 
 with st.expander(
@@ -901,26 +901,6 @@ with st.expander(
                 on_click=close_calculator,
             )
 
-# Scrolls to the top of the page once after a button that finishes the calculator is clicked. The flag is removed so
-# later reruns do not scroll. Streamlit has no scrolling API, so this uses JavaScript.
-if st.session_state.pop("scroll_to_top", False):
-    st.html(
-        """
-        <script>
-            {
-                const mainContainer = document.querySelector('[data-testid="stMainBlockContainer"]');
-                if (mainContainer) {
-                    mainContainer.scrollIntoView({ block: "start" });
-                } else {
-                    window.scrollTo(0, 0);
-                }
-            }
-        </script>
-        """,
-        unsafe_allow_javascript=True,
-    )
-
-
 # Visualisation pane
 
 # Calculate total costs and total hours.
@@ -957,7 +937,25 @@ person_color_map: dict[str, str] = build_color_map(
     [activity.get_person().label for activity in st.session_state["activity_list"]]
 )
 
-st.header("The Cost of Your Refereed Journal Article")
+RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
+st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
+
+# Scrolls to the header above once after a button that finishes the calculator is clicked. The flag is removed so later
+# reruns do not scroll. Streamlit has no scrolling API, so this uses JavaScript.
+if st.session_state.pop("scroll_to_results", False):
+    st.html(
+        f"""
+        <script>
+            {{
+                const resultsHeader = document.getElementById("{RESULTS_HEADER_ANCHOR}");
+                if (resultsHeader) {{
+                    resultsHeader.scrollIntoView({{ block: "start" }});
+                }}
+            }}
+        </script>
+        """,
+        unsafe_allow_javascript=True,
+    )
 
 k1, k2, k3 = st.columns(3)
 k1.metric("Estimated total cost", format_currency(total_cost))

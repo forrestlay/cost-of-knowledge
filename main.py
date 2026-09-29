@@ -1138,6 +1138,19 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
     return lines or [""]
 
 
+# Words left lowercase when title-casing field names, including te reo Māori particles (e.g. "o te Māori").
+_TITLE_CASE_MINOR_WORDS: set[str] = {"and", "of", "me", "o", "te"}
+
+
+def _title_case(text: str) -> str:
+    """Capitalises each word of a field name except minor words, e.g. "Agricultural Biotechnology"."""
+    words: list[str] = text.split()
+    return " ".join(
+        word if index > 0 and word in _TITLE_CASE_MINOR_WORDS else word[:1].upper() + word[1:]
+        for index, word in enumerate(words)
+    )
+
+
 def create_social_media_svg(
     country: str,
     international_collaborators: bool,
@@ -1145,6 +1158,7 @@ def create_social_media_svg(
     total_cost: float,
     total_hours: float,
     phase_costs: dict[str, float],
+    show_hours: bool = False,
 ) -> draw.Drawing:
     """Builds a portrait social-media card summarising a cost estimate.
 
@@ -1155,10 +1169,11 @@ def create_social_media_svg(
         country: Display name of the researcher's country.
         international_collaborators: Whether the project has collaborators from
             other countries; appends "+ others" after the country name.
-        project_field: Name of the Field of Research the project sits in.
+        project_field: Name of the Field of Research group the project sits in, shown in the title.
         total_cost: Estimated total cost in the chosen country's currency.
         total_hours: Estimated total hours of labour.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
+        show_hours: Whether to show the estimated hours of labor below the total cost.
     """
     width: int = 1080
     height: int = 1360
@@ -1189,10 +1204,14 @@ def create_social_media_svg(
         )
     )
 
-    # Title (wrapped, capped at three lines)
-    title_size: int = 62
+    # Title (wrapped, capped at three lines). Some Field of Research names are long, so the font shrinks until the
+    # title fits, with the characters per line scaled to match.
+    title: str = f"My {_title_case(project_field)} paper cost"
     title_line_height: float = 1.15
-    wrapped_title: list[str] = _wrap_text("My refereed journal article", 26)
+    for title_size in (62, 54, 46, 40):
+        wrapped_title: list[str] = _wrap_text(title, int(26 * 62 / title_size))
+        if len(wrapped_title) <= 3:
+            break
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
@@ -1210,14 +1229,11 @@ def create_social_media_svg(
         )
     )
 
-    # Field of research and country, wrapped as some Field of Research names are long
+    # Country
     subtitle_y: float = title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
-    subtitle: str = project_field
-    if country.strip():
-        country_text: str = country.strip()
-        if international_collaborators:
-            country_text = f"{country_text} + others"
-        subtitle = f"{project_field}  ·  {country_text}"
+    subtitle: str = country.strip()
+    if subtitle and international_collaborators:
+        subtitle = f"{subtitle} + international collaborators"
     subtitle_line_height: float = 1.2
     subtitle_lines: list[str] = _wrap_text(subtitle, 48)
     image.append(
@@ -1248,7 +1264,7 @@ def create_social_media_svg(
     # Blurb, sitting between the divider and the headline cost figures.
     blurb_line_height: float = 1.3
     blurb_lines: list[str] = _wrap_text(
-        "Using the Cost of Knowledge Calculator, I estimated the following cost for my research publication to be:",
+        "Using the Cost of Knowledge Calculator, I estimated the following cost for my refereed journal article to be:",
         74,
     )
     blurb_top: float = subtitle_bottom + 34 + 60
@@ -1277,9 +1293,9 @@ def create_social_media_svg(
 
     legend_row_h: int = 48
     legend_font: int = 28
-    # Bottom of the legend sits above the two footer lines, with generous padding
+    # Bottom of the legend sits above the three footer lines, with generous padding
     # around the larger, centred call-to-action line that follows it.
-    legend_last_y: float = height - 150
+    legend_last_y: float = height - 194
     legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h
     bar_x: int = margin
     bar_w: int = width - 2 * margin
@@ -1291,9 +1307,11 @@ def create_social_media_svg(
     # The two metrics are stacked with a deliberately tight gap and the block is
     # pushed down from the blurb so a three-line project title still leaves the
     # "Estimated total cost" line clear of the text above it.
-    metric_gap: int = 140
-    figures_block_h: int = 96 + metric_gap
-    zone_top: float = blurb_bottom + 90
+    # The hours figure uses a smaller font than the cost to leave room for the breakdown below.
+    metric_gap: int = 130
+    hours_size: int = 64
+    figures_block_h: int = metric_gap + hours_size + 8 if show_hours else 96
+    zone_top: float = blurb_bottom + 74
     zone_bottom: float = bar_label_y - 40
     figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
     image.append(
@@ -1317,27 +1335,28 @@ def create_social_media_svg(
             font_weight="bold",
         )
     )
-    image.append(
-        draw.Text(
-            "Estimated hours of labor",
-            30,
-            margin,
-            figures_y + metric_gap,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
+    if show_hours:
+        image.append(
+            draw.Text(
+                "Estimated hours of labor",
+                30,
+                margin,
+                figures_y + metric_gap,
+                fill=muted,
+                font_family=SOCIAL_MEDIA_FONT,
+            )
         )
-    )
-    image.append(
-        draw.Text(
-            f"{total_hours:,.0f} hours",
-            88,
-            margin,
-            figures_y + metric_gap + 84,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
+        image.append(
+            draw.Text(
+                f"{total_hours:,.0f} hours",
+                hours_size,
+                margin,
+                figures_y + metric_gap + 68,
+                fill=ink,
+                font_family=SOCIAL_MEDIA_FONT,
+                font_weight="bold",
+            )
         )
-    )
 
     image.append(
         draw.Text(
@@ -1409,23 +1428,24 @@ def create_social_media_svg(
             "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
             28,
             width / 2,
-            height - 86,
+            height - 108,
             text_anchor="middle",
             fill=accent,
             font_weight="bold",
             font_family=SOCIAL_MEDIA_FONT,
         )
     )
-    # TODO: Add Alam et al. to new line.
+    # Credit, with the authors on their own line below.
     image.append(
         draw.Text(
-            "(Alam et al.) The University of Sydney and SPARC.",
+            ["The University of Sydney and SPARC.", "Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026."],
             24,
             width - margin,
-            height - 40,
+            height - 64,
             text_anchor="end",
             fill=muted,
             font_family=SOCIAL_MEDIA_FONT,
+            line_height=28 / 24,
         )
     )
     return image
@@ -1440,11 +1460,11 @@ def social_media_svg_to_png(svg: str) -> bytes:
     return resvg_py.svg_to_bytes(svg_string=svg, sans_serif_family="Liberation Sans")
 
 
-def share_summary(total_cost: float, total_hours: float) -> str:
+def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
         f"Using the Cost of Knowledge Calculator, I estimated that my research publication cost "
-        f"{format_currency(total_cost)} and {total_hours:,.0f} hours of labor."
+        f"{format_currency(total_cost)}."
     )
 
 
@@ -1461,17 +1481,17 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
 
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
-def linkedin_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost, total_hours)}\n\n{call_to_action} at {url}"
+    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
-def x_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+def x_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to share."""
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost, total_hours)} {call_to_action}:"
+    text: str = f"{share_summary(total_cost)} {call_to_action}:"
     return f"https://x.com/intent/post?text={quote(text)}&url={quote(url, safe='')}"
 
 
@@ -1484,12 +1504,12 @@ def facebook_share_url(saved_url: str | None) -> str:
     return f"https://www.facebook.com/sharer/sharer.php?u={quote(url, safe='')}"
 
 
-def email_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
     url, call_to_action = share_link(saved_url)
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = f"{share_summary(total_cost, total_hours)}\r\n\r\n{call_to_action} at {url}"
+    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 
@@ -1584,12 +1604,23 @@ st.markdown("""
             Share your result using the buttons below.
             """)
 
+st.markdown("""
+            You may choose to show the total number of hours on your results image. However, for one-person or small
+            teams, this may be used to approximate your salary.
+            """)
+
+# Keyed so the choice persists across reruns; hours are hidden by default.
+if "share_show_hours" not in st.session_state:
+    st.session_state["share_show_hours"] = False
+st.toggle("Show estimated hours of labor on the image", key="share_show_hours")
+
 # Rendered fresh each run from the (persisted) project inputs and computed totals,
 # so it never needs its own st.session_state entry.
 social_media_svg: str = create_social_media_svg(
     country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
     international_collaborators=st.session_state["international_collaborators"],
-    # Only the group name, as the division name would make the line too long for the card.
+    # Only the group name, as the division name would make the title too long for the card. Projects saved before
+    # Field of Research codes were used hold a broad field name instead.
     project_field=(
         FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
         if st.session_state["project_field"] in FIELDS_OF_RESEARCH
@@ -1598,6 +1629,7 @@ social_media_svg: str = create_social_media_svg(
     total_cost=total_cost,
     total_hours=total_hours,
     phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    show_hours=st.session_state["share_show_hours"],
 ).as_svg()
 
 with st.container(horizontal=True, horizontal_alignment="center"):
@@ -1626,13 +1658,13 @@ with st.container(horizontal=True, horizontal_alignment="left"):
     )
     st.link_button(
         "Share on LinkedIn",
-        linkedin_share_url(total_cost, total_hours, saved_result_url),
+        linkedin_share_url(total_cost, saved_result_url),
         icon=":material/share:",
         help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share on X",
-        x_share_url(total_cost, total_hours, saved_result_url),
+        x_share_url(total_cost, saved_result_url),
         icon=":material/share:",
         help="Share this tool on X. Download the image first and attach it to your post.",
     )
@@ -1644,7 +1676,7 @@ with st.container(horizontal=True, horizontal_alignment="left"):
     )
     st.link_button(
         "Share via email",
-        email_share_url(total_cost, total_hours, saved_result_url),
+        email_share_url(total_cost, saved_result_url),
         icon=":material/email:",
         help="Share this tool via email. Download the image first and attach it to your email.",
     )

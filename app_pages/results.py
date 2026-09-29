@@ -25,7 +25,7 @@ import streamlit as st
 
 from src import database, sql_store
 from src.calculator_state import compute_costs
-from src.reference_data import COUNTRY_CURRENCIES, COUNTRY_NAMES, RESEARCH_PHASES
+from src.reference_data import COUNTRY_CURRENCIES, COUNTRY_NAMES, RESEARCH_PHASES, field_of_research_display_name
 
 if TYPE_CHECKING:
     from src.calculator_state import CalculatorState
@@ -60,10 +60,9 @@ def load_results() -> pd.DataFrame:
             {
                 "public_id": project["public_id"],
                 "Saved": pd.to_datetime(project["created_at"]),
-                "Project": state.project_name,
                 "Country": COUNTRY_NAMES.get(state.user_country, state.user_country),
                 "International collaboration": state.international_collaborators,
-                "Field": state.project_field,
+                "Field": field_of_research_display_name(state.project_field),
                 "Peer reviews": state.peer_review.review_rounds,
                 "Journal submissions": state.peer_review.journal_submissions,
                 "Currency": COUNTRY_CURRENCIES.get(state.user_country, ("", ""))[0],
@@ -76,7 +75,6 @@ def load_results() -> pd.DataFrame:
         columns=[
             "public_id",
             "Saved",
-            "Project",
             "Country",
             "International collaboration",
             "Field",

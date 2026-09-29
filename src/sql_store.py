@@ -5,6 +5,9 @@ tables. Saving changes to a saved project creates a new row whose parent_id is t
 from, so saved results that have been shared are never overwritten. Rows are built from CalculatorState.to_dict() and
 loaded back through CalculatorState.from_dict(), so the dict format remains the single definition of what is serialised.
 
+No names are stored. Databases created by older versions have nullable user_name and project_name columns in the
+projects table and a name column in the people table, which are left NULL by new saves and ignored when loading.
+
 Functions take either a sqlite3 connection or a PyMySQL connection. Queries are written with "?" placeholders, which
 are rewritten to PyMySQL's "%s" placeholders when needed.
 
@@ -50,10 +53,8 @@ CREATE TABLE IF NOT EXISTS projects (
     schema_version INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    user_name TEXT,
     user_country TEXT NOT NULL,
     international_collaborators INTEGER NOT NULL,
-    project_name TEXT,
     project_field TEXT NOT NULL,
     tool_step INTEGER NOT NULL,
     -- Derived from the inputs below for querying; ignored when a project is loaded.
@@ -68,7 +69,8 @@ CREATE TABLE IF NOT EXISTS people (
     position INTEGER NOT NULL,
     unique_key TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('team', 'peer_reviewer', 'journal_editor')),
-    name TEXT,
+    -- Key of the person's role in reference_data.ROLES, e.g. 'assistant_professor'.
+    researcher_role TEXT,
     person_type TEXT NOT NULL,
     hourly_rate NUMERIC NOT NULL,
     PRIMARY KEY (project_id, unique_key)
@@ -116,10 +118,8 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         schema_version INTEGER NOT NULL,
         created_at VARCHAR(32) NOT NULL,
         updated_at VARCHAR(32) NOT NULL,
-        user_name TEXT,
         user_country VARCHAR(16) NOT NULL,
         international_collaborators INTEGER NOT NULL,
-        project_name TEXT,
         project_field TEXT NOT NULL,
         tool_step INTEGER NOT NULL,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
@@ -136,7 +136,8 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         position INTEGER NOT NULL,
         unique_key VARCHAR(255) NOT NULL,
         role VARCHAR(32) NOT NULL CHECK (role IN ('team', 'peer_reviewer', 'journal_editor')),
-        name TEXT,
+        -- Key of the person's role in reference_data.ROLES, e.g. 'assistant_professor'.
+        researcher_role VARCHAR(64),
         person_type TEXT NOT NULL,
         hourly_rate DOUBLE NOT NULL,
         PRIMARY KEY (project_id, unique_key),
@@ -187,6 +188,9 @@ _ADD_PARENT_ID_MYSQL: str = (
     "ALTER TABLE projects ADD COLUMN parent_id INTEGER,"
     " ADD FOREIGN KEY (parent_id) REFERENCES projects (id) ON DELETE SET NULL"
 )
+# Statements that add the researcher_role column to a people table created before it existed, for SQLite and MySQL.
+_ADD_RESEARCHER_ROLE_SQLITE: str = "ALTER TABLE people ADD COLUMN researcher_role TEXT"
+_ADD_RESEARCHER_ROLE_MYSQL: str = "ALTER TABLE people ADD COLUMN researcher_role VARCHAR(64)"
 
 # The URL-safe alphabet and default length of NanoID, giving about 126 bits of randomness per id.
 PUBLIC_ID_ALPHABET: str = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
@@ -236,16 +240,23 @@ def init_db(conn: Connection) -> None:
     _migrate(conn)
 
 
-def _migrate(conn: Connection) -> None:
-    """Adds the parent_id column to a projects table created before it existed."""
+def _columns(conn: Connection, table: str) -> set[str]:
+    """Returns the names of a table's columns."""
     with closing(conn.cursor()) as cursor:
-        cursor.execute("SELECT * FROM projects WHERE 1 = 0")
+        cursor.execute(f"SELECT * FROM {table} WHERE 1 = 0")
         cursor.fetchall()
-        columns: set[str] = {description[0] for description in cursor.description or ()}
-    if "parent_id" in columns:
-        return
-    with _transaction(conn) as cursor:
-        cursor.execute(_ADD_PARENT_ID_SQLITE if isinstance(conn, sqlite3.Connection) else _ADD_PARENT_ID_MYSQL)
+        return {description[0] for description in cursor.description or ()}
+
+
+def _migrate(conn: Connection) -> None:
+    """Adds the columns missing from tables created by older versions: projects.parent_id and people.researcher_role."""
+    is_sqlite: bool = isinstance(conn, sqlite3.Connection)
+    if "parent_id" not in _columns(conn, "projects"):
+        with _transaction(conn) as cursor:
+            cursor.execute(_ADD_PARENT_ID_SQLITE if is_sqlite else _ADD_PARENT_ID_MYSQL)
+    if "researcher_role" not in _columns(conn, "people"):
+        with _transaction(conn) as cursor:
+            cursor.execute(_ADD_RESEARCHER_ROLE_SQLITE if is_sqlite else _ADD_RESEARCHER_ROLE_MYSQL)
 
 
 def generate_public_id(size: int = PUBLIC_ID_LENGTH) -> str:
@@ -317,7 +328,7 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     cursor.executemany(
         _sql(
             conn,
-            "INSERT INTO people (project_id, position, unique_key, role, name, person_type, hourly_rate)"
+            "INSERT INTO people (project_id, position, unique_key, role, researcher_role, person_type, hourly_rate)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
         ),
         [
@@ -326,7 +337,7 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
                 position,
                 person["unique_key"],
                 role,
-                person["name"],
+                person["role"],
                 person["person_type"],
                 person["hourly_rate"],
             )
@@ -425,10 +436,10 @@ def _state_from_rows(
     for row in people_rows:
         people[row["role"]].append(
             {
-                "name": row["name"],
                 "unique_key": row["unique_key"],
                 "person_type": row["person_type"],
                 "hourly_rate": row["hourly_rate"],
+                "role": row["researcher_role"],
             }
         )
     activities: list[dict[str, Any]] = [
@@ -444,10 +455,8 @@ def _state_from_rows(
         {
             "schema_version": project["schema_version"],
             "project": {
-                "user_name": project["user_name"],
                 "user_country": project["user_country"],
                 "international_collaborators": bool(project["international_collaborators"]),
-                "project_name": project["project_name"],
                 "project_field": project["project_field"],
             },
             "people": people["team"],
@@ -526,7 +535,7 @@ def list_projects(conn: Connection) -> list[dict[str, Any]]:
     """Lists saved projects, most recently updated first, without loading their full data."""
     with closing(conn.cursor()) as cursor:
         cursor.execute(
-            "SELECT id, public_id, parent_id, created_at, updated_at, user_name, project_name, total_cost, total_hours"
+            "SELECT id, public_id, parent_id, created_at, updated_at, total_cost, total_hours"
             " FROM projects ORDER BY updated_at DESC, id DESC"
         )
         return _fetch_dicts(cursor)

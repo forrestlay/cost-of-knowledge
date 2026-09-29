@@ -20,14 +20,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import json
 import logging
 from contextlib import closing
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
 
 import drawsvg as draw
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import resvg_py
 import streamlit as st
 
@@ -41,7 +44,15 @@ from src.models import (
     Person,
     PersonType,
 )
-from src.reference_data import COUNTRY_CODES, COUNTRY_CURRENCIES, COUNTRY_NAMES, RESEARCH_PHASES
+from src.reference_data import (
+    COUNTRY_CODES,
+    COUNTRY_CURRENCIES,
+    COUNTRY_NAMES,
+    FIELDS_OF_RESEARCH,
+    RESEARCH_PHASES,
+    ROLES,
+    field_of_research_display_name,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -87,59 +98,23 @@ TOOL_STEPS: list[str] = [
     "end",
 ]
 
-SCIENTIFIC_FIELDS: list[str] = [
-    "Natural sciences",
-    "Formal sciences",
-    "Social sciences",
-    "Applied sciences/engineering",
-]
-
-ROLES: list[str] = [
-    "Professor",
-    "Associate Professor",
-    "Assistant Professor",
-    "Instructor",
-    "Lecturer",
-    "Senior Lecturer",
-    "Associate Lecturer",
-    "Research Assistant",
-    "Peer reviewer",
-    "Journal editor",
-    "Other",
-]
-
-# TODO: Add sharing of PDF and PNG, put names on PDF
-
+# Preset activities and direct costs offered in the calculator's selectboxes, loaded from data/costs.json.
+_COSTS_DATA: dict[str, Any] = json.loads((Path(__file__).parent / "data" / "costs.json").read_text(encoding="utf-8"))
+# Names of the preset activities and direct costs of each phase, in the order they appear in costs.json.
 ACTIVITY_OPTIONS: dict[str, list[str]] = {
-    "incubation": [
-        "Ideation and conception",
-        "Ethics approval",
-        "Grant applications",
-        "Other",
-    ],
-    "data": [
-        "Data collection",
-        "Data analysis",
-        "Interview transcription",
-        "Other",
-    ],
-    "writing": [
-        "Writing and manuscript preparation",
-        "Conferencing (labor)",
-    ],
+    phase: [activity["name"] for activity in _COSTS_DATA["activities"] if activity["phase"] == phase]
+    for phase in RESEARCH_PHASES
 }
-
 COST_OPTIONS: dict[str, list[str]] = {
-    "incubation": [],
-    "data": [
-        "Software",
-        "Databases",
-        "Participant incentivization",
-    ],
-    "writing": [
-        "Proofreading and Editing Services",
-        "Conferencing (direct costs)",
-    ],
+    phase: [cost["name"] for cost in _COSTS_DATA["direct_costs"] if cost["phase"] == phase] for phase in RESEARCH_PHASES
+}
+# Default hours of each preset activity and default cost in USD of each preset direct cost, keyed by (phase, name), as
+# some names (e.g. "Other") appear in more than one phase.
+ACTIVITY_DEFAULT_HOURS: dict[tuple[str, str], float] = {
+    (activity["phase"], activity["name"]): float(activity["default_hours"]) for activity in _COSTS_DATA["activities"]
+}
+COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
+    (cost["phase"], cost["name"]): float(cost["default_cost"]) for cost in _COSTS_DATA["direct_costs"]
 }
 
 
@@ -233,6 +208,7 @@ if query_project_id is not None and query_project_id != st.session_state.get("lo
 # -----------------------------------------------
 
 st.title("Cost of Knowledge Calculator")
+# TODO: Refer to journal article consistently - project/paper/etc.
 st.caption(
     "The tool will enable you to calculate the approximate cost of preparing a refereed journal article from conception"
     " to publication."
@@ -247,19 +223,25 @@ st.markdown("""
 
 with st.expander("About the data", expanded=False):
     st.markdown("""
-                The tool has been pre-populated with information that rests of a number of assumptions. Some of this
-                data is based on the accompanying publication, while other data is based on less robust estimations.
-                You are invited to fill in your own costs and estimates to produce a more accurate picture of the cost
-                of producing one of your publications.
+                The tool starts empty, so that you can enter your own best estimate of the cost of preparing one of your
+                refereed journal articles. If you would like a starting point, the Calculator can load the
+                conservative estimates of the activities and direct costs involved in preparing a social sciences
+                journal article, sourced from Alam et al. (2026), the publication accompanying this tool.
+
+                The hourly rates offered for each researcher role are median US rates including indirect on-costs, and
+                are converted to your country's currency along with the direct costs. You can replace any rate or cost
+                with your own figure.
                 """)
 
 # -----------------------------------------------
 # User and Project
 # -----------------------------------------------
-st.header(":material/article_person: You and Your Project")
+
+st.header(":material/article: Your Refereed Journal Article")
 st.markdown("""
-            Please fill in some details about you and the research publication or project you want to estimate the cost
-            of.
+            Please fill in some details about the refereed journal article you will estimate the cost for using this
+            tool. The country primarily associated with this journal article will determine the currency that is
+            displayed in the tool, and any costs already set will be converted based on recent exchange rates.
             """)
 
 
@@ -286,36 +268,14 @@ def next_tool_step(current_step: str):
         st.session_state[f"{next_step}-expander"]: bool = True
 
 
-def update_default_person_name():
-    """Syncs the default person's name with the user's name input.
-
-    The default person (unique_key "1") represents the tool user, so keep its name in
-    st.session_state["people"] in step with the "Your name" field. Does nothing if the
-    user has deleted the default person.
-    """
-    st.session_state["user_name"] = st.session_state["user_name_input"]
-    default_person: Person | None = st.session_state["people"].get("1")
-    if default_person is not None:
-        default_person.name = st.session_state["user_name"] or "Associate Professor"
-        # Also push the new name into the "People or Roles" selectbox widget state;
-        # once that widget has a stored value it ignores its index= argument, so
-        # updating only default_person.name would not move the displayed selection.
-        st.session_state[f"person-name-{default_person.unique_key}"] = default_person.name
-
-
 project_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "project"
 
 with st.expander(
-    "You and your project",
+    "Your refereed journal article",
     expanded=project_step,
     key="project-expander",
     on_change="rerun",
 ):
-    st.session_state["user_name"] = st.text_input(
-        "Your name",
-        key="user_name_input",
-        on_change=update_default_person_name,
-    )
 
     def convert_monetary_values():
         """Converts every monetary value to the currency of the newly selected country, then updates user_country."""
@@ -368,13 +328,16 @@ with st.expander(
         format_func=lambda answer: "Yes" if answer else "No",
         horizontal=True,
     )
-    st.session_state["project_name"] = st.text_input(
-        "Name of your paper/project", value=st.session_state["project_name"]
-    )
+    # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
+    # used selectable, so loading it does not fail.
+    field_options: list[str] = list(FIELDS_OF_RESEARCH)
+    if st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
+        field_options = [st.session_state["project_field"], *field_options]
     st.session_state["project_field"] = st.selectbox(
-        "Field of science your paper/project is located in",
-        SCIENTIFIC_FIELDS,
-        index=SCIENTIFIC_FIELDS.index(st.session_state["project_field"]),
+        "Field of research your paper/project is located in",
+        field_options,
+        index=field_options.index(st.session_state["project_field"]),
+        format_func=field_of_research_display_name,
     )
     st.button(
         "Next step",
@@ -390,16 +353,21 @@ with st.expander(
 # -----------------------------------------------
 
 st.header(":material/groups: People Involved in the Article Preparation Process")
+# TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
 st.markdown("""
-            Fill in the details of the people on your study team or who are otherwise involved in the preparation of
-            your journal article in the incubation, data collection and analysis, and manuscript preparation phases.
+            Provide estimates of the hourly rate (including on-costs such as administrative and laboratory costs)
+            for each of the people involved in the preparation of your refereed journal article in the incubation, data
+            collection and analysis, and manuscript preparation phases. Click on the 'Calculate hourly rate' button
+            to calculate the hourly rate based on a person's annual salary.
+            Choosing a person's role fills in an estimated median hourly rate for that role based on US data, which you
+            can then adjust.
             The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
             journal preparation process.
             """)
 
 
 def add_person(key: str | None = None):
-    """Adds a new person role to the tool.
+    """Adds a new research team member to the tool.
 
     Args:
         key: A unique_key for the Person. If None, a numerical key will be assigned to the person automatically.
@@ -413,7 +381,6 @@ def add_person(key: str | None = None):
     # Start new people at the default rate in the user's currency, or in USD if no exchange rate is available.
     hourly_rate: float | None = convert_currency(DEFAULT_HOURLY_RATE_USD, "USD", currency_code())
     st.session_state["people"][key] = Person(
-        name=None,
         unique_key=key,
         person_type=PersonType.RESEARCH_TEAM,
         hourly_rate=DEFAULT_HOURLY_RATE_USD if hourly_rate is None else round(hourly_rate, 2),
@@ -422,6 +389,21 @@ def add_person(key: str | None = None):
 
 def delete_person(key: str):
     del st.session_state["people"][key]
+
+
+def apply_role_rate(person: Person) -> None:
+    """Callback for a person's Role selectbox. Stores the chosen role and fills in its preset hourly rate.
+
+    The preset rate is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    person.role = st.session_state[f"person-role-{person.unique_key}"]
+    if person.role is None:
+        return
+    rate_usd: float = ROLES[person.role].hourly_rate_usd
+    converted_rate: float | None = convert_currency(rate_usd, "USD", currency_code())
+    person.hourly_rate = rate_usd if converted_rate is None else round(converted_rate, 2)
+    # The hourly rate number_input ignores value= once it has its own widget state, so write the rate there too.
+    st.session_state[f"person-rate-{person.unique_key}"] = person.hourly_rate
 
 
 @st.dialog("Calculate your hourly rate")
@@ -461,41 +443,32 @@ def calculate_hourly_rate(person: Person, key: str):
 people_step: bool = TOOL_STEPS[st.session_state["tool_step"]] == "people"
 
 with st.expander(
-    "People or Roles",
+    "Researchers",
     expanded=people_step,
     key="people-expander",
     on_change="rerun",
 ):
     for key, person in st.session_state["people"].items():
         with st.container(border=True):
-            # Show the person's current name in the selectbox even when it is a
-            # custom value not in ROLES (e.g. a name synced from the "Your name"
-            # field). A newly added person has no name yet, so leave the selectbox
-            # unselected (index=None).
-            name_options: list[str] = ROLES
-            person_name_index: int | None
-            if person.name is None:
-                person_name_index = None
-            elif person.name in ROLES:
-                person_name_index = ROLES.index(person.name)
-            else:
-                name_options = ROLES + [person.name]
-                person_name_index = len(ROLES)
+            st.markdown(f"**{person.label}**" + (" (you)" if key == "1" else ""))
 
-            # If person.name widget already has been set in session state, set index to zero as a default value is no
-            # longer needed.
-            person_name_key: str = f"person-name-{person.unique_key}"
-            if person_name_key in st.session_state:
-                person_name_index = None
-
-            # Inputs
-            person.name: str | None = st.selectbox(
-                "Name",
-                options=name_options,
-                index=person_name_index,
-                accept_new_options=True,
-                key=person_name_key,
+            # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
+            # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
+            # Seed the widget's state rather than passing index=, as the browser keeps showing (and sends back) the
+            # value it already holds for a reused key unless the new value is written into the widget's state.
+            role_key: str = f"person-role-{person.unique_key}"
+            if role_key not in st.session_state:
+                st.session_state[role_key] = person.role if person.role in ROLES else None
+            st.selectbox(
+                "Role",
+                options=list(ROLES),
+                format_func=lambda role, country=st.session_state["user_country"]: ROLES[role].display_name(country),
+                placeholder="Choose a role to fill in its median hourly rate based on US data",
+                key=role_key,
+                on_change=apply_role_rate,
+                args=[person],
             )
+
             # Once the widget has its own session_state entry (e.g. after the
             # "Calculate your hourly rate" dialog writes the computed rate into
             # it) that value wins and value= is ignored, so pass the "min"
@@ -506,6 +479,8 @@ with st.expander(
             person_rate_value: float | Literal["min"] = (
                 "min" if person_rate_key in st.session_state else float(person.hourly_rate)
             )
+
+            # TODO: Include button to show information about the $85 estimate/benchmark.
             person.hourly_rate: int | float = st.number_input(
                 f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
                 min_value=0.0,
@@ -520,7 +495,7 @@ with st.expander(
                     calculate_hourly_rate(person, person.unique_key)
                 if person.person_type == PersonType.RESEARCH_TEAM and int(person.unique_key) > 1:
                     st.button(
-                        f"Delete {person.name or 'person'}",
+                        f"Delete {person.label}",
                         key=f"delete-person-{person.unique_key}",
                         icon=":material/delete:",
                         on_click=delete_person,
@@ -529,7 +504,7 @@ with st.expander(
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.button(
-            "Add person/role",
+            "Add researcher",
             key="add-person",
             icon=":material/add:",
             on_click=add_person,
@@ -548,23 +523,35 @@ with st.expander(
 # -----------------------------------------------
 
 
-def person_option_display(key: str):
+def person_option_display(key: str) -> str:
     """Converts a st.session_state["people"] key to a st.selectbox display name."""
-    person: Person = st.session_state["people"][key]
-    if person.person_type == PersonType.RESEARCH_TEAM:
-        return f"{key}: {person.name or 'Unnamed'}"
-    return key
-
-
-def person_option_decode(display_string: str):
-    """Converts a st.selectbox display name to a st.session_state["people"] key."""
-    return display_string.split(":")[0]
+    return st.session_state["people"][key].label
 
 
 def set_activity_person(activity: Activity, counter: int):
     """Callback for st.selectbox to select the person assigned to an activity."""
-    people_key: str = person_option_decode(st.session_state[f"activity-person-{counter}"])
+    people_key: str = st.session_state[f"activity-person-{counter}"]
     activity.person: Person = st.session_state["people"][people_key]
+
+
+def apply_activity_default(group_activities: list[Activity], group_key: int) -> None:
+    """Callback for an activity's name selectbox. Renames the activity and, for a preset activity, fills in its default
+    hours from data/costs.json for the first person assigned to it. Custom names leave the hours unchanged.
+
+    Args:
+        group_activities: Every Activity sharing the activity's group_key, the first being its first person.
+        group_key: group_key of the activity.
+    """
+    activity_name: str | None = st.session_state[f"activity-name-{group_key}"]
+    for group_activity in group_activities:
+        group_activity.name = activity_name
+    first_activity: Activity = group_activities[0]
+    default_hours: float | None = ACTIVITY_DEFAULT_HOURS.get((first_activity.phase, activity_name or ""))
+    if default_hours is None:
+        return
+    first_activity.hours = default_hours
+    # The hours number_input ignores value= once it has its own widget state, so write the hours there too.
+    st.session_state[f"activity-hours-{first_activity.unique_key}"] = default_hours
 
 
 def next_activity_key() -> int:
@@ -631,7 +618,23 @@ def delete_activity(activities: list[Activity]):
 
 def add_direct_cost(phase: str):
     cost_key_list: list[int] = [direct_cost.unique_key for direct_cost in st.session_state["cost_list"]]
-    st.session_state["cost_list"].append(DirectCost(None, phase, 0.0, max(cost_key_list) + 1))
+    st.session_state["cost_list"].append(DirectCost(None, phase, 0.0, max(cost_key_list, default=0) + 1))
+
+
+def apply_direct_cost_default(direct_cost: DirectCost) -> None:
+    """Callback for a direct cost's name selectbox. Renames the cost and, for a preset cost, fills in its default cost
+    from data/costs.json. Custom names leave the cost unchanged.
+
+    The default cost is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    direct_cost.name = st.session_state[f"directcost-name-{direct_cost.unique_key}"]
+    cost_usd: float | None = COST_DEFAULTS_USD.get((direct_cost.phase, direct_cost.name or ""))
+    if cost_usd is None:
+        return
+    converted_cost: float | None = convert_currency(cost_usd, "USD", currency_code())
+    direct_cost.cost = cost_usd if converted_cost is None else round(converted_cost, 2)
+    # The cost number_input ignores value= once it has its own widget state, so write the cost there too.
+    st.session_state[f"directcost-cost-{direct_cost.unique_key}"] = direct_cost.cost
 
 
 def delete_direct_cost(direct_cost: DirectCost):
@@ -666,14 +669,44 @@ def save_to_database() -> None:
 
 st.header(":material/request_quote: Calculator")
 
+
+def load_alam_defaults() -> None:
+    """Callback for the "Load defaults from Alam et al. 2026" button. Replaces the activities and direct costs with the
+    estimates from Alam et al. (2026), keeping the project and people.
+
+    The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
+    state: CalculatorState = CalculatorState.from_session_state(st.session_state)
+    state.with_default_costs(1.0 if usd_to_currency is None else usd_to_currency).apply_to_session_state(
+        st.session_state
+    )
+    st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
+
+
+st.markdown("""
+            Provide your best estimate of the activities and direct costs involved in preparing your refereed journal
+            article. If you would like a starting point for filling out this tool, you may load the conservative
+            estimates for a social sciences journal article from Alam et al. (2026), the publication accompanying this
+            tool.
+            """)
+st.button(
+    "Load defaults from Alam et al. 2026",
+    key="load-alam-defaults",
+    icon=":material/download:",
+    on_click=load_alam_defaults,
+)
+
 main_left, main_right = st.columns([1, 2])
 
 # Activities and costs setup pane
 with main_left:
+    # TODO: Include buttons to load information about the activities/phases.
     st.markdown("""
-                Provide details of the activities and costs involved in preparing your journal article. The process
-                has been divided between four distinct phases: incubation, data collection and analysis, manuscript
-                preparation, and peer review and journal editorial work.
+                The process has been divided between four distinct phases: **incubation**, **data collection and
+                analysis**, **manuscript preparation**, and **peer review and journal editorial work**. You may either
+                provide a total estimated hour count for each phase, or add individual activities and direct costs
+                to provide estimates on a more granular level.
                 """)
 
     for phase, phase_name in RESEARCH_PHASES.items():
@@ -696,21 +729,26 @@ with main_left:
                             this rate below.
                             """)
 
+                # Loading a state writes the sliders' values into their widget state, so seed it here rather than
+                # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
+                if "review-rounds" not in st.session_state:
+                    st.session_state["review-rounds"] = st.session_state["review_rounds"]
+                if "journal-submissions" not in st.session_state:
+                    st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
                 st.session_state["review_rounds"]: int = st.slider(
                     "Average number of review rounds per journal submission",
-                    min_value=1,
+                    min_value=0,
                     max_value=20,
-                    value=st.session_state["review_rounds"],
                     step=1,
                     key="review-rounds",
+                    help="From Raoult(2020) and LeBlanc et al. (2023), we estimate that ",
                 )
                 st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
 
                 st.session_state["journal_submissions"]: int = st.slider(
                     "Number of journals submitted to",
-                    min_value=1,
+                    min_value=0,
                     max_value=20,
-                    value=st.session_state["journal_submissions"],
                     step=1,
                     key="journal-submissions",
                 )
@@ -761,22 +799,23 @@ with main_left:
                 for group_key, group_activities in activity_groups.items():
                     with st.container(border=True):
                         # Offer the phase's preset activities, keeping any current custom name selectable.
-                        # A newly added activity has no name yet, so leave the selectbox unselected.
+                        # A newly added activity has no name yet, so leave the selectbox unselected. Seed the widget's
+                        # state rather than passing index=, as the browser keeps showing (and sends back) the value it
+                        # already holds for a reused key unless the new value is written into the widget's state.
                         current_activity_name: str | None = group_activities[0].name
                         activity_options: list[str] = ACTIVITY_OPTIONS.get(phase, [])
-                        activity_name_index: int | None
-                        if current_activity_name is None:
-                            activity_name_index = None
-                        else:
-                            if current_activity_name not in activity_options:
-                                activity_options = [current_activity_name] + activity_options
-                            activity_name_index = activity_options.index(current_activity_name)
+                        if current_activity_name is not None and current_activity_name not in activity_options:
+                            activity_options = [current_activity_name] + activity_options
+                        activity_name_key: str = f"activity-name-{group_key}"
+                        if activity_name_key not in st.session_state:
+                            st.session_state[activity_name_key] = current_activity_name
                         activity_name: str | None = st.selectbox(
                             "Activity",
                             options=activity_options,
-                            index=activity_name_index,
                             accept_new_options=True,
-                            key=f"activity-name-{group_key}",
+                            key=activity_name_key,
+                            on_change=apply_activity_default,
+                            args=[group_activities, group_key],
                         )
                         # Keep the name of every person's Activity in step with the renamed activity.
                         for group_activity in group_activities:
@@ -792,12 +831,15 @@ with main_left:
 
                         # One row of inputs per person assigned to this activity.
                         for person_index, group_activity in enumerate(group_activities):
-                            try:  # Get index of person in list of people.
-                                activity_person_index: int = list(st.session_state["people"].keys()).index(
+                            # Seed the widget's state rather than passing index=, as for the activity name. Fall back
+                            # to the first person if the assigned person has been removed.
+                            activity_person_key: str = f"activity-person-{group_activity.unique_key}"
+                            if st.session_state.get(activity_person_key) not in st.session_state["people"]:
+                                st.session_state[activity_person_key] = (
                                     group_activity.person.unique_key
+                                    if group_activity.person.unique_key in st.session_state["people"]
+                                    else next(iter(st.session_state["people"]))
                                 )
-                            except ValueError:
-                                activity_person_index: int = 0
 
                             # Only label the first row so the rows below it read as a list.
                             row_label_visibility: str = "visible" if person_index == 0 else "collapsed"
@@ -807,19 +849,24 @@ with main_left:
                             person_column.selectbox(
                                 "Assigned person",
                                 st.session_state["people"].keys(),
-                                key=f"activity-person-{group_activity.unique_key}",
-                                index=activity_person_index,
+                                key=activity_person_key,
                                 format_func=person_option_display,
                                 label_visibility=row_label_visibility,
                                 on_change=set_activity_person,
                                 args=[group_activity, group_activity.unique_key],
                             )
+                            # Choosing a preset activity writes its default hours into the widget's state, so pass
+                            # the "min" sentinel once it exists to avoid Streamlit's default-value-and-Session-State
+                            # warning.
+                            activity_hours_key: str = f"activity-hours-{group_activity.unique_key}"
                             group_activity.hours: float = hours_column.number_input(
                                 "Hours",
-                                key=f"activity-hours-{group_activity.unique_key}",
+                                key=activity_hours_key,
                                 min_value=0.0,
                                 step=0.5,
-                                value=float(group_activity.get_hours()),
+                                value="min"
+                                if activity_hours_key in st.session_state
+                                else float(group_activity.get_hours()),
                                 label_visibility=row_label_visibility,
                             )
                             # An activity always keeps its first person, so that row has no delete button.
@@ -827,7 +874,7 @@ with main_left:
                                 delete_column.button(
                                     "Del",
                                     key=f"delete-activity-person-{group_activity.unique_key}",
-                                    help=f"Remove {group_activity.person.name or 'this person'} from this activity",
+                                    help=f"Remove {group_activity.person.label} from this activity",
                                     icon=":material/delete:",
                                     on_click=delete_activity_person,
                                     args=[group_activity],
@@ -863,21 +910,21 @@ with main_left:
                 for phase_cost in phase_costs:
                     with st.container(border=True):
                         # Offer the phase's preset direct costs, keeping any current custom name selectable.
-                        # A newly added cost has no name yet, so leave the selectbox unselected.
+                        # A newly added cost has no name yet, so leave the selectbox unselected. Seed the widget's state
+                        # rather than passing index=, as for the activity name.
                         cost_options: list[str] = COST_OPTIONS.get(phase, [])
-                        cost_name_index: int | None
-                        if phase_cost.name is None:
-                            cost_name_index = None
-                        else:
-                            if phase_cost.name not in cost_options:
-                                cost_options = [phase_cost.name] + cost_options
-                            cost_name_index = cost_options.index(phase_cost.name)
+                        if phase_cost.name is not None and phase_cost.name not in cost_options:
+                            cost_options = [phase_cost.name] + cost_options
+                        cost_name_key: str = f"directcost-name-{phase_cost.unique_key}"
+                        if cost_name_key not in st.session_state:
+                            st.session_state[cost_name_key] = phase_cost.name
                         phase_cost.name: str | None = st.selectbox(
                             "Cost",
                             options=cost_options,
-                            index=cost_name_index,
                             accept_new_options=True,
-                            key=f"directcost-name-{phase_cost.unique_key}",
+                            key=cost_name_key,
+                            on_change=apply_direct_cost_default,
+                            args=[phase_cost],
                         )
                         # Create badge if new cost
                         if phase_cost.name is None:
@@ -1006,7 +1053,7 @@ def build_color_map(names: Sequence[str], palette: Sequence[str] | None = None) 
 phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
 item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
 person_color_map: dict[str, str] = build_color_map(
-    [activity.get_person().name or "Unnamed" for activity in st.session_state["activity_list"]]
+    [activity.get_person().label for activity in st.session_state["activity_list"]]
 )
 
 with main_right:
@@ -1061,7 +1108,7 @@ with main_right:
             "Cost": [activity.get_total_cost() for activity in st.session_state["activity_list"]],
             "Hours": [activity.get_hours() for activity in st.session_state["activity_list"]],
             "Phase": [RESEARCH_PHASES[activity.get_phase()] for activity in st.session_state["activity_list"]],
-            "Person": [activity.get_person().name or "Unnamed" for activity in st.session_state["activity_list"]],
+            "Person": [activity.get_person().label for activity in st.session_state["activity_list"]],
         }
     )
 
@@ -1080,7 +1127,22 @@ with main_right:
     node_costs: list[float] = list(sunburst.data[0].values)
     sunburst.data[0].text = [f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%" for cost in node_costs]
     sunburst.data[0].texttemplate = "%{label}<br>%{text}"
-    sunburst.update_layout(height=720)
+    # Sunburst traces cannot show a legend, so add an invisible placeholder trace per phase to create
+    # legend entries. The legend takes up the same space as the pie chart's legend, aligning the two charts.
+    for phase in (phase for phase in phase_color_map if phase in set(labour_df["Phase"])):
+        sunburst.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker={"color": phase_color_map[phase], "size": 12, "symbol": "square"},
+                name=phase,
+                hoverinfo="skip",
+            )
+        )
+    sunburst.update_xaxes(visible=False)
+    sunburst.update_yaxes(visible=False)
+    sunburst.update_layout(height=720, showlegend=True, legend={"itemclick": False, "itemdoubleclick": False})
     st.plotly_chart(sunburst, width="stretch")
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
@@ -1159,14 +1221,27 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
     return lines or [""]
 
 
+# Words left lowercase when title-casing field names, including te reo Māori particles (e.g. "o te Māori").
+_TITLE_CASE_MINOR_WORDS: set[str] = {"and", "of", "me", "o", "te"}
+
+
+def _title_case(text: str) -> str:
+    """Capitalises each word of a field name except minor words, e.g. "Agricultural Biotechnology"."""
+    words: list[str] = text.split()
+    return " ".join(
+        word if index > 0 and word in _TITLE_CASE_MINOR_WORDS else word[:1].upper() + word[1:]
+        for index, word in enumerate(words)
+    )
+
+
 def create_social_media_svg(
     country: str,
     international_collaborators: bool,
-    project_name: str,
     project_field: str,
     total_cost: float,
     total_hours: float,
     phase_costs: dict[str, float],
+    show_hours: bool = False,
 ) -> draw.Drawing:
     """Builds a portrait social-media card summarising a cost estimate.
 
@@ -1177,11 +1252,11 @@ def create_social_media_svg(
         country: Display name of the researcher's country.
         international_collaborators: Whether the project has collaborators from
             other countries; appends "+ others" after the country name.
-        project_name: Title of the paper/project ("" if the user left it blank).
-        project_field: Field of science the project sits in.
+        project_field: Name of the Field of Research group the project sits in, shown in the title.
         total_cost: Estimated total cost in the chosen country's currency.
         total_hours: Estimated total hours of labour.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
+        show_hours: Whether to show the estimated hours of labor below the total cost.
     """
     width: int = 1080
     height: int = 1360
@@ -1212,14 +1287,30 @@ def create_social_media_svg(
         )
     )
 
-    # Project title (wrapped, capped at three lines)
-    title_size: int = 62
+    # Blurb, introducing the title and figures below.
+    image.append(
+        draw.Text(
+            "Using the Cost of Knowledge calculator, I calculated that",
+            28,
+            margin,
+            162,
+            fill=muted,
+            font_family=SOCIAL_MEDIA_FONT,
+        )
+    )
+
+    # Title (wrapped, capped at three lines). Some Field of Research names are long, so the font shrinks until the
+    # title fits, with the characters per line scaled to match.
+    title: str = f"My {_title_case(project_field)} paper cost"
     title_line_height: float = 1.15
-    wrapped_title: list[str] = _wrap_text(project_name.strip() or "Untitled research project", 26)
+    for title_size in (62, 54, 46, 40):
+        wrapped_title: list[str] = _wrap_text(title, int(26 * 62 / title_size))
+        if len(wrapped_title) <= 3:
+            break
     title_lines: list[str] = wrapped_title[:3]
     if len(wrapped_title) > 3:
         title_lines[-1] = title_lines[-1].rstrip(".") + "…"
-    title_top: float = 184
+    title_top: float = 238
     image.append(
         draw.Text(
             title_lines,
@@ -1233,55 +1324,7 @@ def create_social_media_svg(
         )
     )
 
-    # Field of science and country
-    subtitle_y: float = title_top + title_size * title_line_height * (len(title_lines) - 1) + 66
-    subtitle: str = project_field
-    if country.strip():
-        country_text: str = country.strip()
-        if international_collaborators:
-            country_text = f"{country_text} + others"
-        subtitle = f"{project_field}  ·  {country_text}"
-    image.append(
-        draw.Text(
-            subtitle,
-            34,
-            margin,
-            subtitle_y,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
-    image.append(
-        draw.Line(
-            margin,
-            subtitle_y + 34,
-            width - margin,
-            subtitle_y + 34,
-            stroke="#ffffff",
-            stroke_width=2,
-            stroke_opacity=0.6,
-        )
-    )
-
-    # Blurb, sitting between the divider and the headline cost figures.
-    blurb_line_height: float = 1.3
-    blurb_lines: list[str] = _wrap_text(
-        "Using the Cost of Knowledge Calculator, I estimated the following cost for my research publication to be:",
-        74,
-    )
-    blurb_top: float = subtitle_y + 34 + 60
-    image.append(
-        draw.Text(
-            blurb_lines,
-            26,
-            margin,
-            blurb_top,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=blurb_line_height,
-        )
-    )
-    blurb_bottom: float = blurb_top + 26 * blurb_line_height * (len(blurb_lines) - 1)
+    title_bottom: float = title_top + title_size * title_line_height * (len(title_lines) - 1)
 
     # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
     # library is needed. The block is anchored to the bottom of the card so the
@@ -1295,9 +1338,9 @@ def create_social_media_svg(
 
     legend_row_h: int = 48
     legend_font: int = 28
-    # Bottom of the legend sits above the two footer lines, with generous padding
+    # Bottom of the legend sits above the three footer lines, with generous padding
     # around the larger, centred call-to-action line that follows it.
-    legend_last_y: float = height - 150
+    legend_last_y: float = height - 194
     legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h
     bar_x: int = margin
     bar_w: int = width - 2 * margin
@@ -1305,31 +1348,51 @@ def create_social_media_svg(
     bar_y: float = legend_first_y - 26 - 46 - bar_h
     bar_label_y: float = bar_y - 24
 
-    # Headline figures, vertically centred between the blurb and the breakdown.
-    # The two metrics are stacked with a deliberately tight gap and the block is
-    # pushed down from the blurb so a three-line project title still leaves the
-    # "Estimated total cost" line clear of the text above it.
-    metric_gap: int = 140
-    figures_block_h: int = 96 + metric_gap
-    zone_top: float = blurb_bottom + 90
-    zone_bottom: float = bar_label_y - 40
-    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
+    # Country and divider, sitting just above the breakdown. The country wraps upwards from the divider.
+    divider_y: float = bar_label_y - 58
+    subtitle: str = country.strip()
+    if subtitle and international_collaborators:
+        subtitle = f"{subtitle} + international collaborators"
+    subtitle_line_height: float = 1.2
+    subtitle_lines: list[str] = _wrap_text(subtitle, 48)
+    subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
     image.append(
         draw.Text(
-            "Estimated total cost",
-            30,
+            subtitle_lines,
+            34,
             margin,
-            figures_y,
+            subtitle_y,
             fill=muted,
             font_family=SOCIAL_MEDIA_FONT,
+            line_height=subtitle_line_height,
         )
     )
+    image.append(
+        draw.Line(
+            margin,
+            divider_y,
+            width - margin,
+            divider_y,
+            stroke="#ffffff",
+            stroke_width=2,
+            stroke_opacity=0.6,
+        )
+    )
+
+    # Headline figures, each label below its figure, vertically centred between the title and the country. Offsets
+    # are from the top of the block. The hours figure uses a smaller font than the cost to leave room for the
+    # breakdown below.
+    hours_size: int = 64
+    figures_block_h: int = 240 if show_hours else 116
+    zone_top: float = title_bottom + 50
+    zone_bottom: float = subtitle_y - 26 - 40
+    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
     image.append(
         draw.Text(
             format_currency(total_cost),
             88,
             margin,
-            figures_y + 84,
+            figures_y + 64,
             fill=ink,
             font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
@@ -1337,25 +1400,36 @@ def create_social_media_svg(
     )
     image.append(
         draw.Text(
-            "Estimated hours of labor",
+            "Estimated total cost",
             30,
             margin,
-            figures_y + metric_gap,
+            figures_y + 108,
             fill=muted,
             font_family=SOCIAL_MEDIA_FONT,
         )
     )
-    image.append(
-        draw.Text(
-            f"{total_hours:,.0f} hours",
-            88,
-            margin,
-            figures_y + metric_gap + 84,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
+    if show_hours:
+        image.append(
+            draw.Text(
+                f"{total_hours:,.0f} hours",
+                hours_size,
+                margin,
+                figures_y + 190,
+                fill=ink,
+                font_family=SOCIAL_MEDIA_FONT,
+                font_weight="bold",
+            )
         )
-    )
+        image.append(
+            draw.Text(
+                "Estimated hours of labor",
+                30,
+                margin,
+                figures_y + 232,
+                fill=muted,
+                font_family=SOCIAL_MEDIA_FONT,
+            )
+        )
 
     image.append(
         draw.Text(
@@ -1427,22 +1501,24 @@ def create_social_media_svg(
             "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
             28,
             width / 2,
-            height - 86,
+            height - 108,
             text_anchor="middle",
             fill=accent,
             font_weight="bold",
             font_family=SOCIAL_MEDIA_FONT,
         )
     )
+    # Credit, with the authors on their own line below.
     image.append(
         draw.Text(
-            "The University of Sydney Cost of Knowledge Team (Alam et al.) and SPARC.",
+            ["The University of Sydney and SPARC.", "Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026."],
             24,
             width - margin,
-            height - 40,
+            height - 64,
             text_anchor="end",
             fill=muted,
             font_family=SOCIAL_MEDIA_FONT,
+            line_height=28 / 24,
         )
     )
     return image
@@ -1457,11 +1533,11 @@ def social_media_svg_to_png(svg: str) -> bytes:
     return resvg_py.svg_to_bytes(svg_string=svg, sans_serif_family="Liberation Sans")
 
 
-def share_summary(total_cost: float, total_hours: float) -> str:
+def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
         f"Using the Cost of Knowledge Calculator, I estimated that my research publication cost "
-        f"{format_currency(total_cost)} and {total_hours:,.0f} hours of labor."
+        f"{format_currency(total_cost)}."
     )
 
 
@@ -1478,17 +1554,17 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
 
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
-def linkedin_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost, total_hours)}\n\n{call_to_action} at {url}"
+    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
-def x_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+def x_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to share."""
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost, total_hours)} {call_to_action}:"
+    text: str = f"{share_summary(total_cost)} {call_to_action}:"
     return f"https://x.com/intent/post?text={quote(text)}&url={quote(url, safe='')}"
 
 
@@ -1501,12 +1577,12 @@ def facebook_share_url(saved_url: str | None) -> str:
     return f"https://www.facebook.com/sharer/sharer.php?u={quote(url, safe='')}"
 
 
-def email_share_url(total_cost: float, total_hours: float, saved_url: str | None) -> str:
+def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
     url, call_to_action = share_link(saved_url)
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = f"{share_summary(total_cost, total_hours)}\r\n\r\n{call_to_action} at {url}"
+    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 
@@ -1601,24 +1677,33 @@ st.markdown("""
             Share your result using the buttons below.
             """)
 
+st.markdown("""
+            You may choose to show the total number of hours on your results image. However, for one-person or small
+            teams, this may be used to approximate your salary.
+            """)
+
+# Keyed so the choice persists across reruns; hours are hidden by default.
+if "share_show_hours" not in st.session_state:
+    st.session_state["share_show_hours"] = False
+st.toggle("Show estimated hours of labor on the image", key="share_show_hours")
+
 # Rendered fresh each run from the (persisted) project inputs and computed totals,
 # so it never needs its own st.session_state entry.
 social_media_svg: str = create_social_media_svg(
     country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
     international_collaborators=st.session_state["international_collaborators"],
-    project_name=st.session_state["project_name"] or "",
-    project_field=st.session_state["project_field"],
+    # Only the group name, as the division name would make the title too long for the card. Projects saved before
+    # Field of Research codes were used hold a broad field name instead.
+    project_field=(
+        FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
+        if st.session_state["project_field"] in FIELDS_OF_RESEARCH
+        else st.session_state["project_field"]
+    ),
     total_cost=total_cost,
     total_hours=total_hours,
     phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    show_hours=st.session_state["share_show_hours"],
 ).as_svg()
-
-_svg_slug: str = (
-    "".join(
-        char if char.isalnum() else "-" for char in (st.session_state["project_name"] or "cost-of-knowledge").lower()
-    ).strip("-")
-    or "cost-of-knowledge"
-)
 
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg, width=540)
@@ -1631,24 +1716,28 @@ saved_result_url: str | None = (
     else None
 )
 
+# TODO: Add names to our social media share message.
+# TODO: Move the save button here.
+# TODO: Add messaging above the share posts.
+
 with st.container(horizontal=True, horizontal_alignment="left"):
     st.download_button(
         "Download image",
         data=social_media_svg_to_png(social_media_svg),
-        file_name=f"{_svg_slug}-cost-estimate.png",
+        file_name="cost-of-knowledge-estimate.png",
         mime="image/png",
         icon=":material/image:",
         type="primary",
     )
     st.link_button(
         "Share on LinkedIn",
-        linkedin_share_url(total_cost, total_hours, saved_result_url),
+        linkedin_share_url(total_cost, saved_result_url),
         icon=":material/share:",
         help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
     )
     st.link_button(
         "Share on X",
-        x_share_url(total_cost, total_hours, saved_result_url),
+        x_share_url(total_cost, saved_result_url),
         icon=":material/share:",
         help="Share this tool on X. Download the image first and attach it to your post.",
     )
@@ -1660,7 +1749,7 @@ with st.container(horizontal=True, horizontal_alignment="left"):
     )
     st.link_button(
         "Share via email",
-        email_share_url(total_cost, total_hours, saved_result_url),
+        email_share_url(total_cost, saved_result_url),
         icon=":material/email:",
         help="Share this tool via email. Download the image first and attach it to your email.",
     )
@@ -1676,8 +1765,8 @@ with st.container(horizontal=True, horizontal_alignment="left"):
 
 
 st.markdown("""
-            :small[:material/copyright: Copyright 2026 Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh,
-            Ben Lay, Chang-yuan Loh, and Farzana Tanima.
+            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+            Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
             International License](https://creativecommons.org/licenses/by/4.0/).]
             """)

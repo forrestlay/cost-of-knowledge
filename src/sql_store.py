@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS people (
     researcher_role TEXT,
     person_type TEXT NOT NULL,
     hourly_rate NUMERIC NOT NULL,
+    -- Number of people sharing the hourly rate.
+    quantity INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (project_id, unique_key)
 );
 
@@ -140,6 +142,8 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         researcher_role VARCHAR(64),
         person_type TEXT NOT NULL,
         hourly_rate DOUBLE NOT NULL,
+        -- Number of people sharing the hourly rate.
+        quantity INTEGER NOT NULL DEFAULT 1,
         PRIMARY KEY (project_id, unique_key),
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     )
@@ -191,6 +195,9 @@ _ADD_PARENT_ID_MYSQL: str = (
 # Statements that add the researcher_role column to a people table created before it existed, for SQLite and MySQL.
 _ADD_RESEARCHER_ROLE_SQLITE: str = "ALTER TABLE people ADD COLUMN researcher_role TEXT"
 _ADD_RESEARCHER_ROLE_MYSQL: str = "ALTER TABLE people ADD COLUMN researcher_role VARCHAR(64)"
+# Statement that adds the quantity column to a people table created before it existed. Existing people get a quantity
+# of 1. Valid for both SQLite and MySQL.
+_ADD_QUANTITY: str = "ALTER TABLE people ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1"
 # Statement that adds the indirect_cost_percentage column to a projects table created before it existed. Existing
 # projects get the default rate of 40%. Valid for both SQLite and MySQL.
 _ADD_INDIRECT_COST_PERCENTAGE: str = (
@@ -255,7 +262,7 @@ def _columns(conn: Connection, table: str) -> set[str]:
 
 def _migrate(conn: Connection) -> None:
     """Adds the columns missing from tables created by older versions: projects.parent_id,
-    projects.indirect_cost_percentage and people.researcher_role.
+    projects.indirect_cost_percentage, people.researcher_role and people.quantity.
     """
     is_sqlite: bool = isinstance(conn, sqlite3.Connection)
     if "parent_id" not in _columns(conn, "projects"):
@@ -267,6 +274,9 @@ def _migrate(conn: Connection) -> None:
     if "researcher_role" not in _columns(conn, "people"):
         with _transaction(conn) as cursor:
             cursor.execute(_ADD_RESEARCHER_ROLE_SQLITE if is_sqlite else _ADD_RESEARCHER_ROLE_MYSQL)
+    if "quantity" not in _columns(conn, "people"):
+        with _transaction(conn) as cursor:
+            cursor.execute(_ADD_QUANTITY)
 
 
 def generate_public_id(size: int = PUBLIC_ID_LENGTH) -> str:
@@ -337,8 +347,8 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     cursor.executemany(
         _sql(
             conn,
-            "INSERT INTO people (project_id, position, unique_key, role, researcher_role, person_type, hourly_rate)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO people (project_id, position, unique_key, role, researcher_role, person_type, hourly_rate,"
+            " quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         ),
         [
             (
@@ -349,6 +359,7 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
                 person["role"],
                 person["person_type"],
                 person["hourly_rate"],
+                person["quantity"],
             )
             for position, (role, person) in enumerate(people_rows)
         ],
@@ -449,6 +460,7 @@ def _state_from_rows(
                 "person_type": row["person_type"],
                 "hourly_rate": row["hourly_rate"],
                 "role": row["researcher_role"],
+                "quantity": row["quantity"],
             }
         )
     activities: list[dict[str, Any]] = [

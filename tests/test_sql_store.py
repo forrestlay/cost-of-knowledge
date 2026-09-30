@@ -81,11 +81,18 @@ def conn(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Ite
     connection.close()
 
 
+def default_with_researcher() -> CalculatorState:
+    """The default state with one researcher, as the calculator has once one has been added."""
+    state: CalculatorState = CalculatorState.default()
+    state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 85)
+    return state
+
+
 def modified_state() -> CalculatorState:
-    state: CalculatorState = CalculatorState.default().with_default_costs()
+    state: CalculatorState = default_with_researcher().with_default_costs()
     state.international_collaborators = True
     state.indirect_cost_percentage = 55
-    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
+    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist", 3)
     state.people["2"] = second
     state.activities.append(Activity(None, second, "data", 20.5, 11, 11))
     state.direct_costs.pop()

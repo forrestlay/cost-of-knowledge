@@ -10,13 +10,20 @@ from src.calculator_state import SCHEMA_VERSION, CalculatorState
 from src.models import Activity, PeerReview, Person, PersonType
 
 
+def default_with_researcher() -> CalculatorState:
+    """The default state with one researcher, as the calculator has once one has been added."""
+    state: CalculatorState = CalculatorState.default()
+    state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 85)
+    return state
+
+
 def modified_state() -> CalculatorState:
     """A state with the Alam et al. (2026) estimates, a second person sharing an activity, a float rate and custom
     project details."""
-    state: CalculatorState = CalculatorState.default().with_default_costs()
+    state: CalculatorState = default_with_researcher().with_default_costs()
     state.user_country = "au"
     state.international_collaborators = True
-    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
+    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist", 3)
     state.people["2"] = second
     state.activities.append(Activity("Data collection", second, "data", 20, 11, 4))
     state.peer_review.review_rounds = 5
@@ -28,16 +35,33 @@ def test_default_totals() -> None:
     state: CalculatorState = CalculatorState.default()
     assert state.total_hours() == 0
     assert state.total_cost() == 0
-    assert [activity.get_name() for activity in state.activities if isinstance(activity, Activity)] == [
-        "Incubation (Overall Total)",
-        "Data collection and analysis (Overall Total)",
-        "Manuscript preparation (Overall Total)",
-    ]
+    assert state.people == {}
+    assert [activity for activity in state.activities if isinstance(activity, Activity)] == []
     assert state.direct_costs == []
 
 
+def test_with_default_costs_needs_a_researcher() -> None:
+    with pytest.raises(ValueError, match="researcher"):
+        CalculatorState.default().with_default_costs()
+
+
+def test_quantity_does_not_change_totals() -> None:
+    state: CalculatorState = default_with_researcher().with_default_costs()
+    hours: float = state.total_hours()
+    cost: float = state.total_cost()
+    state.people["1"].quantity = 2
+    assert state.total_hours() == hours
+    assert state.total_cost() == pytest.approx(cost)
+
+
+def test_missing_quantity_defaults_to_one() -> None:
+    data = modified_state().to_dict()
+    del data["people"][1]["quantity"]
+    assert CalculatorState.from_dict(data).people["2"].quantity == 1
+
+
 def test_with_default_costs_totals() -> None:
-    state: CalculatorState = CalculatorState.default().with_default_costs()
+    state: CalculatorState = default_with_researcher().with_default_costs()
     # 775.5 activity hours, 8 peer review hours and 15 journal editing hours at US$85, plus US$3,646 direct costs.
     assert state.total_hours() == 798.5
     assert state.total_cost() == pytest.approx(798.5 * 85 + 3646)
@@ -113,7 +137,7 @@ def test_missing_peer_review_raises() -> None:
 
 
 def test_duplicate_person_key_raises() -> None:
-    data = CalculatorState.default().to_dict()
+    data = default_with_researcher().to_dict()
     data["people"].append(dict(data["people"][0]))
     with pytest.raises(ValueError, match="Duplicate"):
         CalculatorState.from_dict(data)
@@ -127,4 +151,5 @@ def test_json_is_plain() -> None:
         "person_type": "RESEARCH_TEAM",
         "hourly_rate": 41.2,
         "role": "research_scientist",
+        "quantity": 3,
     }

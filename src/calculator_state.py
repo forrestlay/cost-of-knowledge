@@ -34,7 +34,6 @@ from src.models import (
     Person,
     PersonType,
 )
-from src.reference_data import RESEARCH_PHASES, ROLES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping, Sequence
@@ -58,8 +57,8 @@ DEFAULT_INDIRECT_COST_PERCENTAGE: int = 40
 # session state and ignores its value=/index= argument, so these must be cleared when a new state is applied or the
 # widgets would keep showing (and writing back) the previous calculator's values.
 WIDGET_KEY_PREFIXES: tuple[str, ...] = (
-    "person-role-",  # Researchers: role selectbox
-    "person-rate-",  # Researchers: hourly rate number_input
+    "add-person-",  # Study team: widgets of the form to add a researcher
+    "edit-person-",  # Study team: widgets of the dialog to edit a researcher
     "activity-name-",  # Calculator: activity name selectbox
     "activity-person-",  # Calculator: assigned person selectbox
     "activity-hours-",  # Calculator: hours number_input
@@ -77,8 +76,8 @@ WIDGET_KEYS: tuple[str, ...] = (
 _DEFAULT_COSTS: dict[str, Any] = json.loads(
     (Path(__file__).parent.parent / "data" / "default_costs.json").read_text(encoding="utf-8")
 )
-# Phases that start with an "(Overall Total)" activity. The editing phase has its own peer review and journal editorial
-# work activities instead.
+# Phases that start with an "(Overall Total)" activity once the first researcher is added. The editing phase has its own
+# peer review and journal editorial work activities instead.
 OVERALL_TOTAL_PHASES: tuple[str, ...] = ("incubation", "data", "writing")
 
 
@@ -163,15 +162,10 @@ class CalculatorState:
 
     @classmethod
     def default(cls) -> CalculatorState:
-        """Returns the calculator's starting state, with one "(Overall Total)" activity of 0 hours in each of the first
-        three phases, no peer review or journal editorial work and no direct costs.
+        """Returns the calculator's starting state, with no researchers, no peer review or journal editorial work and no
+        direct costs. Activities need a researcher, so the "(Overall Total)" activities are added with the first one.
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
-        default_person: Person = Person(
-            unique_key="1",
-            person_type=PersonType.RESEARCH_TEAM,
-            hourly_rate=hourly_rate,
-        )
         peer_reviewer: Person = Person(
             unique_key="Peer reviewer",
             person_type=PersonType.OTHER,
@@ -182,23 +176,16 @@ class CalculatorState:
             person_type=PersonType.OTHER,
             hourly_rate=hourly_rate,
         )
-        # Each Activity below is one person's share of an activity. Activities sharing a group_key form a single
-        # activity in the calculator, so the initial activities each start with one person and a group_key matching
-        # their key. The names match the "(Overall Total)" activities in data/costs.json.
         activities: list[BaseActivity] = [
-            Activity(f"{RESEARCH_PHASES[phase]} (Overall Total)", default_person, phase, 0, key, key)
-            for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
-        ]
-        activities += [
-            PeerReview(person=peer_reviewer, review_rounds=0, journal_submissions=0, unique_key=len(activities) + 1),
-            JournalEditing(person=journal_editor, journal_submissions=0, unique_key=len(activities) + 2),
+            PeerReview(person=peer_reviewer, review_rounds=0, journal_submissions=0, unique_key=1),
+            JournalEditing(person=journal_editor, journal_submissions=0, unique_key=2),
         ]
         return cls(
             user_country="",  # Blank until chosen. Amounts are in USD until then.
             international_collaborators=False,
             project_field="",  # Blank until chosen
             indirect_cost_percentage=DEFAULT_INDIRECT_COST_PERCENTAGE,
-            people={default_person.unique_key: default_person},
+            people={},
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
             activities=activities,
@@ -215,8 +202,13 @@ class CalculatorState:
         Args:
             usd_to_currency: Exchange rate from USD to the currency of this state's monetary values, applied to the
                 direct costs.
+
+        Raises:
+            ValueError: If this state has no research team members to assign the activities to.
         """
         state: CalculatorState = CalculatorState.from_dict(self.to_dict())
+        if not state.people:
+            raise ValueError("Add a researcher before loading the default estimates.")
         first_person: Person = next(iter(state.people.values()))
         # As in default(), each activity starts with one person and a group_key matching its key.
         activities: list[BaseActivity] = [
@@ -410,16 +402,9 @@ class CalculatorState:
         session_state["cost_list"] = self.direct_costs
         session_state["review_rounds"] = peer_review.review_rounds
         session_state["journal_submissions"] = peer_review.journal_submissions
-        # The hourly rate inputs have an int min_value, so passing a float rate (e.g. one calculated from a salary)
-        # as their value= would raise. Seed their widget state instead, as the salary dialog does.
-        for key, person in self.people.items():
-            session_state[f"person-rate-{key}"] = person.hourly_rate
         # Keys are reused (e.g. activity-hours-1 names whichever activity has unique_key 1), so the browser keeps
         # showing, and sends back on the next rerun, the value it already holds for a key unless the new value is
         # written into the widget's state. value= alone only reaches a widget the browser has not seen before.
-        for key, person in self.people.items():
-            # A role no longer in ROLES would show as the first role, so leave its selectbox unselected instead.
-            session_state[f"person-role-{key}"] = person.role if person.role in ROLES else None
         for activity in self.activities:
             if isinstance(activity, Activity):
                 session_state[f"activity-name-{activity.group_key}"] = activity.name

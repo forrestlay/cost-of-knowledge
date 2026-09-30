@@ -40,7 +40,13 @@ import resvg_py
 import streamlit as st
 
 from src import database, sql_store
-from src.calculator_state import DEFAULT_INDIRECT_COST_PERCENTAGE, CalculatorState, compute_costs, compute_hours
+from src.calculator_state import (
+    DEFAULT_INDIRECT_COST_PERCENTAGE,
+    OVERALL_TOTAL_PHASES,
+    CalculatorState,
+    compute_costs,
+    compute_hours,
+)
 from src.currency_rates import convert_currency
 from src.database import DatabaseType, get_database_type, init_database
 from src.models import (
@@ -106,10 +112,6 @@ TABLE_OF_CONTENTS: list[tuple[str, str]] = [
 # of these to a category keeps that phase or activity on the same Streamlit colour in
 # every chart. Charts with more than 10 categories fall back to px.colors.qualitative.Light24.
 STREAMLIT_CATEGORICAL_COLORS: list[str] = [f"#{n:06d}" for n in range(1, 11)]
-
-
-# Default hourly rate of labour for new people, in USD. Converted to the user's currency when a person is added.
-DEFAULT_HOURLY_RATE_USD: float = 85.0
 
 
 # Preset activities and direct costs offered in the calculator's selectboxes, loaded from data/costs.json.
@@ -227,12 +229,11 @@ def convert_monetary_values():
         st.session_state["peer_reviewer"],
         st.session_state["journal_editor"],
     ]
+    for person in people:
+        person.hourly_rate = convert(person.hourly_rate)
     # Keyed number_inputs keep their widget ID when value= changes, so the browser would keep showing (and send
     # back) the old amount. Writing the converted amount into the widget's state makes Streamlit push it to the
     # browser.
-    for person in people:
-        person.hourly_rate = convert(person.hourly_rate)
-        st.session_state[f"person-rate-{person.unique_key}"] = person.hourly_rate
     for direct_cost in st.session_state["cost_list"]:
         direct_cost.cost = convert(direct_cost.cost)
         st.session_state[f"directcost-cost-{direct_cost.unique_key}"] = direct_cost.cost
@@ -245,90 +246,233 @@ def convert_monetary_values():
 # -----------------------------------------------
 
 
-def add_person(key: str | None = None):
-    """Adds a new research team member to the tool.
+# Option of the researcher form's role selectbox for entering a salary instead of choosing a preset role.
+MANUAL_SALARY_OPTION: str = "manual_salary"
+# Keys of the widgets of the form to add a researcher. The dialog to edit a researcher uses its own keys.
+ADD_PERSON_FORM_KEY: str = "add-person"
 
-    Args:
-        key: A unique_key for the Person. If None, a numerical key will be assigned to the person automatically.
-    """
-    if key is None:
-        # First find the highest unique_key issued so far. Then add one to that key.
-        person_key_list: list[int] = [
-            int(person.unique_key) for person in st.session_state["people"].values() if person.unique_key.isdigit()
-        ]
-        key = str(max(person_key_list) + 1)
-    # Start new people at the default rate in the user's currency, or in USD if no exchange rate is available.
-    hourly_rate: float | None = convert_currency(DEFAULT_HOURLY_RATE_USD, "USD", currency_code())
-    st.session_state["people"][key] = Person(
-        unique_key=key,
-        person_type=PersonType.RESEARCH_TEAM,
-        hourly_rate=DEFAULT_HOURLY_RATE_USD if hourly_rate is None else round(hourly_rate, 2),
-    )
+
+def next_person_key() -> str:
+    """Returns an unused unique_key for a new research team member."""
+    person_key_list: list[int] = [
+        int(person.unique_key) for person in st.session_state["people"].values() if person.unique_key.isdigit()
+    ]
+    return str(max(person_key_list, default=0) + 1)
+
+
+def add_overall_total_activities(person: Person) -> None:
+    """Adds an "(Overall Total)" activity of 0 hours to each of the first three phases, assigned to the given person."""
+    for phase in OVERALL_TOTAL_PHASES:
+        activity_key: int = next_activity_key()
+        group_key: int = next_activity_group_key()
+        activity: Activity = Activity(
+            f"{RESEARCH_PHASES[phase]} (Overall Total)", person, phase, 0, activity_key, group_key
+        )
+        st.session_state["activity_list"].append(activity)
+        # Keys are reused, so write the activity's values into its widgets' state, as when a state is loaded.
+        st.session_state[f"activity-name-{group_key}"] = activity.name
+        st.session_state[f"activity-person-{activity_key}"] = person.unique_key
+        st.session_state[f"activity-hours-{activity_key}"] = 0.0
 
 
 def delete_person(key: str):
-    del st.session_state["people"][key]
+    """Deletes a research team member. Their activities are reassigned to the first remaining team member, or deleted
+    if there are none left.
+    """
+    people: dict[str, Person] = st.session_state["people"]
+    del people[key]
+    replacement: Person | None = next(iter(people.values()), None)
+    for activity in list(st.session_state["activity_list"]):
+        if not isinstance(activity, Activity) or activity.person.unique_key != key:
+            continue
+        if replacement is None:
+            st.session_state["activity_list"].remove(activity)
+        else:
+            activity.person = replacement
+            st.session_state[f"activity-person-{activity.unique_key}"] = replacement.unique_key
 
 
-def fill_role_rate(person: Person) -> None:
-    """Fills in the hourly rate for a person's current role, if they have one.
+def role_hourly_rate(role: str) -> float:
+    """Returns the preset hourly rate of a role in the user's currency.
 
     The preset rate excludes indirect costs, so the project-wide indirect cost rate is applied to it. The result is
     converted from USD to the user's currency, or left in USD if no exchange rate is available.
     """
-    if person.role is None:
-        return
     indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
-    rate_usd: float = ROLES[person.role].hourly_rate_usd * indirect_cost_multiplier
+    rate_usd: float = ROLES[role].hourly_rate_usd * indirect_cost_multiplier
     converted_rate: float | None = convert_currency(rate_usd, "USD", currency_code())
-    person.hourly_rate = rate_usd if converted_rate is None else round(converted_rate, 2)
-    # The hourly rate number_input ignores value= once it has its own widget state, so write the rate there too.
-    st.session_state[f"person-rate-{person.unique_key}"] = person.hourly_rate
-
-
-def apply_role_rate(person: Person) -> None:
-    """Callback for a person's Role selectbox. Stores the chosen role and fills in its preset hourly rate."""
-    person.role = st.session_state[f"person-role-{person.unique_key}"]
-    fill_role_rate(person)
+    return rate_usd if converted_rate is None else round(converted_rate, 2)
 
 
 def apply_indirect_cost_rate() -> None:
     """Callback for the indirect cost rate slider. Refreshes the hourly rate of everyone who has a role selected.
 
-    Rates that were entered manually or calculated from a salary (no role) are left alone.
+    Rates that were calculated from a salary (no role) are left alone.
     """
     for person in st.session_state["people"].values():
-        fill_role_rate(person)
+        if person.role is not None:
+            person.hourly_rate = role_hourly_rate(person.role)
 
 
-@st.dialog("Calculate your hourly rate")
-def calculate_hourly_rate(person: Person, key: str):
-    salary: int = st.number_input(f"What is your salary in {currency_code()}?", step=1, min_value=0)
-    months: int = st.number_input(
+def format_hourly_rate(hourly_rate: int | float) -> str:
+    """Formats an hourly rate in the user's currency, e.g. "$85.00 / hour"."""
+    return f"{currency_prefix()}{hourly_rate:,.2f} / hour"
+
+
+def calculate_hourly_rate(key: str, person: Person | None = None) -> None:
+    """Shows the inputs to calculate an hourly rate from a salary, inside a researcher form.
+
+    The hourly rate itself is calculated by salary_hourly_rate once the form is submitted.
+
+    Args:
+        key: Prefix of the keys of the inputs.
+        person: The researcher being edited, if any, whose current rate is kept if no salary is entered.
+    """
+    st.number_input(f"What is the researcher's salary in {currency_code()}?", step=1, min_value=0, key=f"{key}-salary")
+    st.number_input(
         "What is the period for which that salary is paid in months?",
         step=1,
         value=12,
         min_value=1,
+        key=f"{key}-months",
     )
-    weekly_hours: int = st.number_input(
-        "How many hours are you required to work per week?",
+    st.number_input(
+        "How many hours are they required to work per week?",
         step=1,
         value=40,
         min_value=1,
+        key=f"{key}-weekly-hours",
     )
     st.caption(
         f"The project-wide indirect cost rate of {st.session_state['indirect_cost_percentage']}% will be applied. "
         "You can change it in the Indirect Costs section."
     )
-    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
-    if st.button("Calculate"):
-        # Write the computed rate straight into the number_input's widget state so
-        # it shows on the next run. Once the widget exists its value can only be
-        # changed through its own session_state entry, not via its value= default.
-        st.session_state[f"person-rate-{key}"] = Person.salary_to_hourly_rate(
-            salary, weekly_hours, months, indirect_cost_multiplier
+    if person is not None and person.role is None:
+        st.caption(
+            f"Their current hourly rate is {format_hourly_rate(person.hourly_rate)}. Leave the salary at 0 to keep it."
         )
+
+
+def salary_hourly_rate(key: str) -> float:
+    """Calculates the hourly rate from the inputs shown by calculate_hourly_rate, including indirect costs."""
+    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
+    return round(
+        Person.salary_to_hourly_rate(
+            st.session_state[f"{key}-salary"],
+            st.session_state[f"{key}-weekly-hours"],
+            st.session_state[f"{key}-months"],
+            indirect_cost_multiplier,
+        ),
+        2,
+    )
+
+
+def save_researcher(key: str, person_key: str | None = None) -> None:
+    """Callback for a researcher form's submit button. Adds a research team member, or updates an existing one.
+
+    Args:
+        key: Prefix of the keys of the form's widgets.
+        person_key: unique_key of the researcher to update. If None, a new researcher is added.
+    """
+    people: dict[str, Person] = st.session_state["people"]
+    person: Person | None = people.get(person_key) if person_key is not None else None
+    choice: str | None = st.session_state[f"{key}-role"]
+    quantity: int = int(st.session_state[f"{key}-quantity"])
+
+    role: str | None = None
+    if choice is None:
+        st.toast("Choose a role or enter a salary first.", icon=":material/error:")
+        return
+    if choice == MANUAL_SALARY_OPTION:
+        if st.session_state[f"{key}-salary"] > 0:
+            hourly_rate: int | float = salary_hourly_rate(key)
+        elif person is not None and person.role is None:
+            hourly_rate = person.hourly_rate
+        else:
+            st.toast("Enter the researcher's salary first.", icon=":material/error:")
+            return
+    else:
+        role = choice
+        hourly_rate = role_hourly_rate(choice)
+
+    if person is None:
+        first_researcher: bool = not people
+        person = Person(next_person_key(), PersonType.RESEARCH_TEAM, hourly_rate, role, quantity)
+        people[person.unique_key] = person
+        # Activities need a researcher to be assigned to, so the starting activities appear with the first one.
+        if first_researcher and not any(isinstance(item, Activity) for item in st.session_state["activity_list"]):
+            add_overall_total_activities(person)
+        # The form clears itself, but not the role selectbox above it.
+        st.session_state[f"{key}-role"] = None
+        st.toast(f"Added {person.label}.", icon=":material/check_circle:")
+    else:
+        person.role = role
+        person.hourly_rate = hourly_rate
+        person.quantity = quantity
+    st.session_state[f"{key}-saved"] = True
+
+
+def researcher_form(key: str, person: Person | None = None) -> None:
+    """Shows the form to add a researcher, or to edit the given one.
+
+    The role selectbox sits above the form so that choosing to enter a salary shows its inputs straight away, as inputs
+    inside a form only update when it is submitted.
+
+    Args:
+        key: Prefix of the keys of the form's widgets.
+        person: The researcher to edit. If None, the form adds a new researcher.
+    """
+    role_key: str = f"{key}-role"
+    quantity_key: str = f"{key}-quantity"
+    # Seed the widgets' state rather than passing index= or value=, as reused keys keep the value the browser holds.
+    if role_key not in st.session_state:
+        if person is None:
+            st.session_state[role_key] = None
+        else:
+            st.session_state[role_key] = person.role if person.role in ROLES else MANUAL_SALARY_OPTION
+    if person is not None and quantity_key not in st.session_state:
+        st.session_state[quantity_key] = person.quantity
+
+    def role_display(option: str, country: str) -> str:
+        """Roles are shown by their US name, followed by their local name in the chosen country if it differs."""
+        return "Enter a salary manually" if option == MANUAL_SALARY_OPTION else ROLES[option].display_name(country)
+
+    choice: str | None = st.selectbox(
+        "Role",
+        options=[*ROLES, MANUAL_SALARY_OPTION],
+        # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
+        format_func=lambda option, country=st.session_state["user_country"]: role_display(option, country),
+        placeholder="Choose a role to fill in its median hourly rate based on US data, or enter a salary",
+        key=role_key,
+    )
+    with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
+        if choice == MANUAL_SALARY_OPTION:
+            calculate_hourly_rate(key, person)
+        elif choice is not None:
+            st.caption(
+                f"Hourly rate including the {st.session_state['indirect_cost_percentage']}% indirect cost rate: "
+                f"{format_hourly_rate(role_hourly_rate(choice))}"
+            )
+        st.number_input(
+            "Number of researchers with this hourly rate",
+            min_value=1,
+            step=1,
+            key=quantity_key,
+        )
+        submitted: bool = st.form_submit_button(
+            "Add researcher" if person is None else "Save changes",
+            icon=":material/person_add:" if person is None else ":material/save:",
+            on_click=save_researcher,
+            args=[key, None if person is None else person.unique_key],
+        )
+    # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
+    if submitted and st.session_state.pop(f"{key}-saved", False) and person is not None:
         st.rerun()
+
+
+@st.dialog("Edit researcher")
+def edit_researcher(person: Person) -> None:
+    researcher_form(f"edit-person-{person.unique_key}", person)
 
 
 # -----------------------------------------------
@@ -386,7 +530,7 @@ def add_activity(phase: str):
     st.session_state["activity_list"].append(
         Activity(
             None,
-            st.session_state["people"]["1"],
+            next(iter(st.session_state["people"].values())),
             phase,
             0.0,
             next_activity_key(),
@@ -405,7 +549,7 @@ def add_activity_person(activity: Activity):
     st.session_state["activity_list"].append(
         Activity(
             activity.name,
-            st.session_state["people"]["1"],
+            next(iter(st.session_state["people"].values())),
             activity.phase,
             0.0,
             next_activity_key(),
@@ -1092,40 +1236,41 @@ st.markdown("""
             displayed in the tool, and any costs already set will be converted based on recent exchange rates.
             """)
 
-st.selectbox(
-    "The country your research project is primarily associated with/where most of the costs are incurred",
-    COUNTRY_CODES,
-    format_func=lambda code: COUNTRY_NAMES[code],
-    key="user_country_select",
-    index=None,
-    placeholder="Choose a country. You may type to search for a country.",
-    on_change=convert_monetary_values,
-    help="The country chosen will determine the currency used for monetary values in this tool and the results "
-    "calculated. You may clear the textbox and type to search for a country.",
-)
-st.session_state["international_collaborators"] = st.radio(
-    "Does your project have international collaborators outside of the primary country?",
-    [False, True],
-    index=int(st.session_state["international_collaborators"]),
-    format_func=lambda answer: "Yes" if answer else "No",
-    horizontal=True,
-)
-# Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
-# used selectable, so loading it does not fail.
-field_options: list[str] = list(FIELDS_OF_RESEARCH)
-if st.session_state["project_field"] and st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
-    field_options = [st.session_state["project_field"], *field_options]
-# Blank (index=None) until a field is chosen; the selectbox returns None then.
-st.session_state["project_field"] = (
+with st.container(border=True):
     st.selectbox(
-        "Field of research your paper/project is located in",
-        field_options,
-        index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
-        placeholder="Choose a field of research. You may type to search for a field of research.",
-        format_func=field_of_research_display_name,
+        "The country your research project is primarily associated with/where most of the costs are incurred",
+        COUNTRY_CODES,
+        format_func=lambda code: COUNTRY_NAMES[code],
+        key="user_country_select",
+        index=None,
+        placeholder="Choose a country. You may type to search for a country.",
+        on_change=convert_monetary_values,
+        help="The country chosen will determine the currency used for monetary values in this tool and the results "
+        "calculated. You may clear the textbox and type to search for a country.",
     )
-    or ""
-)
+    st.session_state["international_collaborators"] = st.radio(
+        "Does your project have international collaborators outside of the primary country?",
+        [False, True],
+        index=int(st.session_state["international_collaborators"]),
+        format_func=lambda answer: "Yes" if answer else "No",
+        horizontal=True,
+    )
+    # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
+    # used selectable, so loading it does not fail.
+    field_options: list[str] = list(FIELDS_OF_RESEARCH)
+    if st.session_state["project_field"] and st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
+        field_options = [st.session_state["project_field"], *field_options]
+    # Blank (index=None) until a field is chosen; the selectbox returns None then.
+    st.session_state["project_field"] = (
+        st.selectbox(
+            "Field of research your paper/project is located in",
+            field_options,
+            index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
+            placeholder="Choose a field of research. You may type to search for a field of research.",
+            format_func=field_of_research_display_name,
+        )
+        or ""
+    )
 
 st.subheader("Indirect Costs")
 st.markdown(
@@ -1166,77 +1311,49 @@ with st.expander("Optional: Adjust indirect cost rate"):
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 # TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
 st.markdown("""
-            Provide estimates of the hourly rate (including on-costs such as administrative and laboratory costs)
-            for each of the people involved in the preparation of your refereed journal article in the incubation,
-            data collection and analysis, and manuscript preparation phases. Click on the 'Calculate hourly rate'
-            button to calculate the hourly rate based on a person's annual salary.
-            Choosing a person's role fills in an estimated median hourly rate for that role based on US data, which
-            you can then adjust.
-            The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
-            journal preparation process.
+            Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
+            preparation.
             """)
 
+with st.container(border=True):
+    st.markdown("**Add a researcher**")
+    researcher_form(ADD_PERSON_FORM_KEY)
+
+if not st.session_state["people"]:
+    st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
 for key, person in st.session_state["people"].items():
     with st.container(border=True):
-        st.markdown(f"**{person.label}**")
-
+        label_column, rate_column, quantity_column, button_column = st.columns(
+            [3, 1, 1, 1], vertical_alignment="center"
+        )
         # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
-        # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
-        # Seed the widget's state rather than passing index=, as the browser keeps showing (and sends back) the
-        # value it already holds for a reused key unless the new value is written into the widget's state.
-        role_key: str = f"person-role-{person.unique_key}"
-        if role_key not in st.session_state:
-            st.session_state[role_key] = person.role if person.role in ROLES else None
-        st.selectbox(
-            "Role",
-            options=list(ROLES),
-            format_func=lambda role, country=st.session_state["user_country"]: ROLES[role].display_name(country),
-            placeholder="Choose a role to fill in its median hourly rate based on US data",
-            key=role_key,
-            on_change=apply_role_rate,
-            args=[person],
+        role_name: str = (
+            ROLES[person.role].display_name(st.session_state["user_country"])
+            if person.role in ROLES
+            else "Salary entered manually"
         )
-
-        # Once the widget has its own session_state entry (e.g. after the
-        # "Calculate your hourly rate" dialog writes the computed rate into
-        # it) that value wins and value= is ignored, so pass the "min"
-        # sentinel instead of a default to avoid Streamlit's "created with a
-        # default value but also had its value set via the Session State API"
-        # warning.
-        person_rate_key: str = f"person-rate-{person.unique_key}"
-        person_rate_value: float | Literal["min"] = (
-            "min" if person_rate_key in st.session_state else float(person.hourly_rate)
-        )
-
-        # TODO: Include button to show information about the $85 estimate/benchmark.
-        person.hourly_rate: int | float = st.number_input(
-            f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
-            min_value=0.0,
-            value=person_rate_value,
-            key=person_rate_key,
-        )
-        with st.container(horizontal=True, horizontal_alignment="left"):
+        label_column.markdown(f"**{person.label}**  \n{role_name}")
+        rate_column.markdown(f"**Hourly rate**  \n{format_hourly_rate(person.hourly_rate)}")
+        quantity_column.markdown(f"**Quantity**  \n{person.quantity}")
+        with button_column.container(horizontal=True, horizontal_alignment="left"):
             if st.button(
-                "Calculate hourly wage using salary",
-                key=f"calculate-hourly-wage-{person.unique_key}",
+                "Edit",
+                key=f"edit-person-button-{person.unique_key}",
+                icon=":material/edit:",
             ):
-                calculate_hourly_rate(person, person.unique_key)
-            if person.person_type == PersonType.RESEARCH_TEAM and int(person.unique_key) > 1:
-                st.button(
-                    f"Delete {person.label}",
-                    key=f"delete-person-{person.unique_key}",
-                    icon=":material/delete:",
-                    on_click=delete_person,
-                    args=[person.unique_key],
-                )
-
-with st.container(horizontal=True, horizontal_alignment="left"):
-    st.button(
-        "Add researcher",
-        key="add-person",
-        icon=":material/add:",
-        on_click=add_person,
-    )
+                # Start the dialog's form from the researcher's current details.
+                for form_key in list(st.session_state.keys()):
+                    if isinstance(form_key, str) and form_key.startswith(f"edit-person-{person.unique_key}-"):
+                        del st.session_state[form_key]
+                edit_researcher(person)
+            st.button(
+                "Delete",
+                key=f"delete-person-{person.unique_key}",
+                icon=":material/delete:",
+                help=f"Delete {person.label}. Their activities are reassigned to the first remaining researcher.",
+                on_click=delete_person,
+                args=[person.unique_key],
+            )
 
 # -----------------------------------------------
 # Calculator
@@ -1255,6 +1372,8 @@ st.button(
     key="load-alam-defaults",
     icon=":material/download:",
     on_click=load_alam_defaults,
+    disabled=not st.session_state["people"],
+    help=None if st.session_state["people"] else "Add a researcher to assign the activities to first.",
 )
 
 # TODO: Include buttons to load information about the activities/phases.
@@ -1393,7 +1512,7 @@ for phase, phase_name in RESEARCH_PHASES.items():
                         key=activity_hours_key,
                         min_value=0.0,
                         step=0.5,
-                        value="min" if activity_hours_key in st.session_state else float(group_activity.get_hours()),
+                        value="min" if activity_hours_key in st.session_state else float(group_activity.hours),
                         label_visibility=row_label_visibility,
                     )
                     # An activity always keeps its first person, so that row has no delete button.
@@ -1494,6 +1613,8 @@ for phase, phase_name in RESEARCH_PHASES.items():
                 icon=":material/sprint:",
                 on_click=add_activity,
                 args=[phase],
+                disabled=not st.session_state["people"],
+                help=None if st.session_state["people"] else "Add a researcher to assign the activity to first.",
             )
             st.button(
                 "Add Direct Cost",

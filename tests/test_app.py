@@ -67,7 +67,9 @@ def run_app() -> AppTest:
 def test_defaults_unchanged() -> None:
     at: AppTest = run_app()
     assert metric_values(at) == ["$0 (USD)", "0 h", "$0 (USD)"]
-    assert at.selectbox(key="user_country_select").value == "us"
+    assert at.selectbox(key="user_country_select").value is None
+    field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
+    assert field_select.value is None
     assert at.selectbox(key="activity-name-1").value == "Incubation (Overall Total)"
     assert at.slider(key="review-rounds").value == 0
     assert at.slider(key="journal-submissions").value == 0

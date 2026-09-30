@@ -16,7 +16,6 @@ def modified_state() -> CalculatorState:
     state: CalculatorState = CalculatorState.default().with_default_costs()
     state.user_country = "au"
     state.international_collaborators = True
-    state.tool_step = 3
     second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
     state.people["2"] = second
     state.activities.append(Activity("Data collection", second, "data", 20, 11, 4))

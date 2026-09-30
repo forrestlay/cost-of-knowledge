@@ -3,7 +3,6 @@
 ## Code style
 
 - Use Python type hints where possible.
-- In main.py, keep functions close to the relevant UI element.
 
 ## Workflow
 

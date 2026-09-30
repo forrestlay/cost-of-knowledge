@@ -37,7 +37,6 @@ CREATE TABLE projects (
     international_collaborators INTEGER NOT NULL,
     project_name TEXT,
     project_field TEXT NOT NULL,
-    tool_step INTEGER NOT NULL,
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL
 );
@@ -85,6 +84,7 @@ def conn(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Ite
 def modified_state() -> CalculatorState:
     state: CalculatorState = CalculatorState.default().with_default_costs()
     state.international_collaborators = True
+    state.indirect_cost_percentage = 55
     second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
     state.people["2"] = second
     state.activities.append(Activity(None, second, "data", 20.5, 11, 11))

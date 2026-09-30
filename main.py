@@ -349,6 +349,17 @@ def format_hourly_rate(hourly_rate: int | float) -> str:
     return f"{currency_prefix()}{hourly_rate:,.2f} / hour"
 
 
+def hours_slider_label(person: Person) -> str:
+    """Label of a researcher's hours slider, e.g. "Researcher 1 (Assistant professor) hours ($85.00 / hour)".
+
+    The role is only included if it is a preset role, and not if the hourly rate was calculated from a salary.
+    """
+    role: str = (
+        f" ({ROLES[person.role].display_name(st.session_state['user_country'])})" if person.role in ROLES else ""
+    )
+    return f"{person.label}{role} hours ({format_hourly_rate(person.hourly_rate)})"
+
+
 def calculate_hourly_rate(key: str, person: Person | None = None) -> None:
     """Shows the inputs to calculate an hourly rate from a salary, inside a researcher form.
 
@@ -554,7 +565,7 @@ def simplified_phase_inputs(phase: str) -> None:
                 st.session_state["simplified_hours"].get(phase, {}).get(person.unique_key, 0.0)
             )
         st.session_state["simplified_hours"].setdefault(phase, {})[person.unique_key] = st.slider(
-            f"{person.label} hours",
+            hours_slider_label(person),
             min_value=0.0,
             max_value=float(MAX_RESEARCHER_HOURS),
             step=0.5,
@@ -769,7 +780,7 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
                 st.info("Add a researcher to assign hours to first.")
             for person in people.values():
                 st.slider(
-                    f"{person.label} hours",
+                    hours_slider_label(person),
                     min_value=0.0,
                     max_value=float(MAX_RESEARCHER_HOURS),
                     step=0.5,
@@ -1663,6 +1674,10 @@ st.markdown("""
             best estimate of the hours and direct costs involved in each phase of preparing your refereed journal
             article. If you would like a starting point, the default estimates are the conservative estimates for a
             social sciences journal article from Alam et al. (2026), the publication accompanying this tool.
+
+            For activities, input the estimated hours performed by each researcher. If there are multiple researchers
+            with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
+            per person).
             """)
 if st.session_state["calculator_mode"] == "granular":
     st.button(

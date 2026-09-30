@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS projects (
     user_country TEXT NOT NULL,
     international_collaborators INTEGER NOT NULL,
     project_field TEXT NOT NULL,
+    indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
@@ -120,6 +121,7 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         user_country VARCHAR(16) NOT NULL,
         international_collaborators INTEGER NOT NULL,
         project_field TEXT NOT NULL,
+        indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
@@ -189,6 +191,11 @@ _ADD_PARENT_ID_MYSQL: str = (
 # Statements that add the researcher_role column to a people table created before it existed, for SQLite and MySQL.
 _ADD_RESEARCHER_ROLE_SQLITE: str = "ALTER TABLE people ADD COLUMN researcher_role TEXT"
 _ADD_RESEARCHER_ROLE_MYSQL: str = "ALTER TABLE people ADD COLUMN researcher_role VARCHAR(64)"
+# Statement that adds the indirect_cost_percentage column to a projects table created before it existed. Existing
+# projects get the default rate of 40%. Valid for both SQLite and MySQL.
+_ADD_INDIRECT_COST_PERCENTAGE: str = (
+    "ALTER TABLE projects ADD COLUMN indirect_cost_percentage INTEGER NOT NULL DEFAULT 40"
+)
 
 # The URL-safe alphabet and default length of NanoID, giving about 126 bits of randomness per id.
 PUBLIC_ID_ALPHABET: str = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
@@ -247,11 +254,16 @@ def _columns(conn: Connection, table: str) -> set[str]:
 
 
 def _migrate(conn: Connection) -> None:
-    """Adds the columns missing from tables created by older versions: projects.parent_id and people.researcher_role."""
+    """Adds the columns missing from tables created by older versions: projects.parent_id,
+    projects.indirect_cost_percentage and people.researcher_role.
+    """
     is_sqlite: bool = isinstance(conn, sqlite3.Connection)
     if "parent_id" not in _columns(conn, "projects"):
         with _transaction(conn) as cursor:
             cursor.execute(_ADD_PARENT_ID_SQLITE if is_sqlite else _ADD_PARENT_ID_MYSQL)
+    if "indirect_cost_percentage" not in _columns(conn, "projects"):
+        with _transaction(conn) as cursor:
+            cursor.execute(_ADD_INDIRECT_COST_PERCENTAGE)
     if "researcher_role" not in _columns(conn, "people"):
         with _transaction(conn) as cursor:
             cursor.execute(_ADD_RESEARCHER_ROLE_SQLITE if is_sqlite else _ADD_RESEARCHER_ROLE_MYSQL)
@@ -455,6 +467,7 @@ def _state_from_rows(
                 "user_country": project["user_country"],
                 "international_collaborators": bool(project["international_collaborators"]),
                 "project_field": project["project_field"],
+                "indirect_cost_percentage": project["indirect_cost_percentage"],
             },
             "people": people["team"],
             "peer_reviewer": people["peer_reviewer"][0],

@@ -40,7 +40,7 @@ import resvg_py
 import streamlit as st
 
 from src import database, sql_store
-from src.calculator_state import CalculatorState, compute_costs, compute_hours
+from src.calculator_state import DEFAULT_INDIRECT_COST_PERCENTAGE, CalculatorState, compute_costs, compute_hours
 from src.currency_rates import convert_currency
 from src.database import DatabaseType, get_database_type, init_database
 from src.models import (
@@ -84,6 +84,21 @@ if current_page.url_path == RESULTS_PAGE.url_path:
 
 
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
+
+
+# Anchors of the page's main sections, and the table of contents in the sidebar that links to them.
+ARTICLE_ANCHOR: str = "your-article"
+PEOPLE_ANCHOR: str = "people-involved"
+CALCULATOR_ANCHOR: str = "calculator"
+RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
+SHARE_ANCHOR: str = "share-your-result"
+TABLE_OF_CONTENTS: list[tuple[str, str]] = [
+    (":material/article: Your article", ARTICLE_ANCHOR),
+    (":material/groups: People involved", PEOPLE_ANCHOR),
+    (":material/request_quote: Calculator", CALCULATOR_ANCHOR),
+    (":material/bar_chart: Your results", RESULTS_HEADER_ANCHOR),
+    (":material/share: Share your result", SHARE_ANCHOR),
+]
 
 
 # Placeholder hex values that Streamlit's frontend swaps for its theme's categorical
@@ -285,14 +300,11 @@ def calculate_hourly_rate(person: Person, key: str):
         value=40,
         min_value=1,
     )
-    indirect_cost_percentage: int = st.slider(
-        "Indirect costs multiplier",
-        step=1,
-        value=40,
-        min_value=0,
-        max_value=100,
+    st.caption(
+        f"The project-wide indirect cost rate of {st.session_state['indirect_cost_percentage']}% will be applied. "
+        "You can change it in the Indirect Costs section."
     )
-    indirect_cost_multiplier: float = 1 + (indirect_cost_percentage / 100)
+    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
     if st.button("Calculate"):
         # Write the computed rate straight into the number_input's widget state so
         # it shows on the next run. Once the widget exists its value can only be
@@ -464,16 +476,6 @@ def load_alam_defaults() -> None:
         st.session_state
     )
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
-
-
-def close_calculator() -> None:
-    """Callback for the buttons that finish the calculator. Collapses the calculator's expander and asks for the page to
-    scroll to the results header, so the user sees their results.
-
-    The expander is keyed with on_change="rerun", so its open state is driven by
-    st.session_state["calculator-expander"].
-    """
-    st.session_state["calculator-expander"] = False
 
 
 # -----------------------------------------------
@@ -989,6 +991,11 @@ if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
 
 
+# Streamlit drops a widget's session state when the widget is not rendered in a run (e.g. on another page), so reseed
+# the indirect cost rate slider's state rather than letting it fall back to its minimum.
+if "indirect_cost_percentage" not in st.session_state:
+    st.session_state["indirect_cost_percentage"] = DEFAULT_INDIRECT_COST_PERCENTAGE
+
 if "user_country_select" not in st.session_state:
     st.session_state["user_country_select"]: str | None = st.session_state["user_country"] or None
 
@@ -1019,12 +1026,17 @@ if query_project_id is not None and query_project_id != st.session_state.get("lo
 # -----------------------------------------------
 
 
+with st.sidebar:
+    st.subheader("Contents")
+    for toc_label, toc_anchor in TABLE_OF_CONTENTS:
+        st.markdown(f"[{toc_label}](#{toc_anchor})")
+
 st.title("Cost of Knowledge Calculator")
 # TODO: Refer to journal article consistently - project/paper/etc.
 st.markdown(
     """
-            **As a researcher, have you thought about what it really costs to take a journal article from ideation to
-            publication?**
+            <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
+            journal article from ideation to publication?**</span>
 
             "Debates about the economics of scholarly publishing typically focus on subscription prices, article
             processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
@@ -1054,431 +1066,441 @@ with st.expander("About the data", expanded=False):
                 """)
 
 
-with st.expander(
-    ":material/calculate: Calculate the cost of your refereed journal article",
-    expanded=True,
-    key="calculator-expander",
-    on_change="rerun",
-):
-    # -----------------------------------------------
-    # User and Project
-    # -----------------------------------------------
+# -----------------------------------------------
+# User and Project
+# -----------------------------------------------
 
-    st.header(":material/article: Your Refereed Journal Article")
-    st.markdown("""
-                Please fill in some details about the refereed journal article you will estimate the cost for using this
-                tool. The country primarily associated with this journal article will determine the currency that is
-                displayed in the tool, and any costs already set will be converted based on recent exchange rates.
-                """)
+st.header(":material/article: Your Refereed Journal Article", anchor=ARTICLE_ANCHOR)
+st.markdown("""
+            Please fill in some details about the refereed journal article you will estimate the cost for using this
+            tool. The country primarily associated with this journal article will determine the currency that is
+            displayed in the tool, and any costs already set will be converted based on recent exchange rates.
+            """)
 
+st.selectbox(
+    "The country your research project is primarily associated with/where most of the costs are incurred",
+    COUNTRY_CODES,
+    format_func=lambda code: COUNTRY_NAMES[code],
+    key="user_country_select",
+    index=None,
+    placeholder="Choose a country. You may type to search for a country.",
+    on_change=convert_monetary_values,
+    help="The country chosen will determine the currency used for monetary values in this tool and the results "
+    "calculated. You may clear the textbox and type to search for a country.",
+)
+st.session_state["international_collaborators"] = st.radio(
+    "Does your project have international collaborators outside of the primary country?",
+    [False, True],
+    index=int(st.session_state["international_collaborators"]),
+    format_func=lambda answer: "Yes" if answer else "No",
+    horizontal=True,
+)
+# Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
+# used selectable, so loading it does not fail.
+field_options: list[str] = list(FIELDS_OF_RESEARCH)
+if st.session_state["project_field"] and st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
+    field_options = [st.session_state["project_field"], *field_options]
+# Blank (index=None) until a field is chosen; the selectbox returns None then.
+st.session_state["project_field"] = (
     st.selectbox(
-        "The country your research project is primarily associated with/where most of the costs are incurred",
-        COUNTRY_CODES,
-        format_func=lambda code: COUNTRY_NAMES[code],
-        key="user_country_select",
-        index=None,
-        placeholder="Choose a country. You may type to search for a country.",
-        on_change=convert_monetary_values,
-        help="The country chosen will determine the currency used for monetary values in this tool and the results "
-        "calculated. You may clear the textbox and type to search for a country.",
+        "Field of research your paper/project is located in",
+        field_options,
+        index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
+        placeholder="Choose a field of research. You may type to search for a field of research.",
+        format_func=field_of_research_display_name,
     )
-    st.session_state["international_collaborators"] = st.radio(
-        "Does your project have international collaborators outside of the primary country?",
-        [False, True],
-        index=int(st.session_state["international_collaborators"]),
-        format_func=lambda answer: "Yes" if answer else "No",
-        horizontal=True,
-    )
-    # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
-    # used selectable, so loading it does not fail.
-    field_options: list[str] = list(FIELDS_OF_RESEARCH)
-    if st.session_state["project_field"] and st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
-        field_options = [st.session_state["project_field"], *field_options]
-    # Blank (index=None) until a field is chosen; the selectbox returns None then.
-    st.session_state["project_field"] = (
+    or ""
+)
+
+st.subheader("Indirect Costs")
+st.markdown(
+    """
+    There are costs that you do not incur directly as a researcher, but would still be considered part of
+    the cost of preparing and publishing a refereed journal article. These indirect costs include
+    university/institution administrative costs, infrastructure costs including laboratories and equipment,
+    journal subscriptions, database and software licenses, and open access agreements.
+
+    To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
+    rate of 40% sourced from Azoulay et al. (2026)<sup>3</sup>, being an approximate middle ground within
+    the range of effective rates they observe from a sample of US universities.
+    """,
+    unsafe_allow_html=True,
+)
+# The widget's own session_state entry persists the rate across reruns; the salary dialog reads it from there.
+st.slider(
+    "Project-wide indirect cost rate (%)",
+    step=1,
+    min_value=0,
+    max_value=100,
+    key="indirect_cost_percentage",
+    help="Applied equally to every hourly rate calculated from a salary.",
+)
+
+# -----------------------------------------------
+# Study team
+# -----------------------------------------------
+
+st.header(":material/groups: People Involved in the Article Preparation Process", anchor=PEOPLE_ANCHOR)
+# TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
+st.markdown("""
+            Provide estimates of the hourly rate (including on-costs such as administrative and laboratory costs)
+            for each of the people involved in the preparation of your refereed journal article in the incubation,
+            data collection and analysis, and manuscript preparation phases. Click on the 'Calculate hourly rate'
+            button to calculate the hourly rate based on a person's annual salary.
+            Choosing a person's role fills in an estimated median hourly rate for that role based on US data, which
+            you can then adjust.
+            The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
+            journal preparation process.
+            """)
+
+for key, person in st.session_state["people"].items():
+    with st.container(border=True):
+        st.markdown(f"**{person.label}**" + (" (you)" if key == "1" else ""))
+
+        # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
+        # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
+        # Seed the widget's state rather than passing index=, as the browser keeps showing (and sends back) the
+        # value it already holds for a reused key unless the new value is written into the widget's state.
+        role_key: str = f"person-role-{person.unique_key}"
+        if role_key not in st.session_state:
+            st.session_state[role_key] = person.role if person.role in ROLES else None
         st.selectbox(
-            "Field of research your paper/project is located in",
-            field_options,
-            index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
-            placeholder="Choose a field of research. You may type to search for a field of research.",
-            format_func=field_of_research_display_name,
-        )
-        or ""
-    )
-
-    # -----------------------------------------------
-    # Study team
-    # -----------------------------------------------
-
-    st.header(":material/groups: People Involved in the Article Preparation Process")
-    # TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
-    st.markdown("""
-                Provide estimates of the hourly rate (including on-costs such as administrative and laboratory costs)
-                for each of the people involved in the preparation of your refereed journal article in the incubation,
-                data collection and analysis, and manuscript preparation phases. Click on the 'Calculate hourly rate'
-                button to calculate the hourly rate based on a person's annual salary.
-                Choosing a person's role fills in an estimated median hourly rate for that role based on US data, which
-                you can then adjust.
-                The hourly rates below will be used to calculate the cost of labor for most of the steps involved in the
-                journal preparation process.
-                """)
-
-    for key, person in st.session_state["people"].items():
-        with st.container(border=True):
-            st.markdown(f"**{person.label}**" + (" (you)" if key == "1" else ""))
-
-            # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
-            # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
-            # Seed the widget's state rather than passing index=, as the browser keeps showing (and sends back) the
-            # value it already holds for a reused key unless the new value is written into the widget's state.
-            role_key: str = f"person-role-{person.unique_key}"
-            if role_key not in st.session_state:
-                st.session_state[role_key] = person.role if person.role in ROLES else None
-            st.selectbox(
-                "Role",
-                options=list(ROLES),
-                format_func=lambda role, country=st.session_state["user_country"]: ROLES[role].display_name(country),
-                placeholder="Choose a role to fill in its median hourly rate based on US data",
-                key=role_key,
-                on_change=apply_role_rate,
-                args=[person],
-            )
-
-            # Once the widget has its own session_state entry (e.g. after the
-            # "Calculate your hourly rate" dialog writes the computed rate into
-            # it) that value wins and value= is ignored, so pass the "min"
-            # sentinel instead of a default to avoid Streamlit's "created with a
-            # default value but also had its value set via the Session State API"
-            # warning.
-            person_rate_key: str = f"person-rate-{person.unique_key}"
-            person_rate_value: float | Literal["min"] = (
-                "min" if person_rate_key in st.session_state else float(person.hourly_rate)
-            )
-
-            # TODO: Include button to show information about the $85 estimate/benchmark.
-            person.hourly_rate: int | float = st.number_input(
-                f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
-                min_value=0.0,
-                value=person_rate_value,
-                key=person_rate_key,
-            )
-            with st.container(horizontal=True, horizontal_alignment="left"):
-                if st.button(
-                    "Calculate hourly wage using salary",
-                    key=f"calculate-hourly-wage-{person.unique_key}",
-                ):
-                    calculate_hourly_rate(person, person.unique_key)
-                if person.person_type == PersonType.RESEARCH_TEAM and int(person.unique_key) > 1:
-                    st.button(
-                        f"Delete {person.label}",
-                        key=f"delete-person-{person.unique_key}",
-                        icon=":material/delete:",
-                        on_click=delete_person,
-                        args=[person.unique_key],
-                    )
-
-    with st.container(horizontal=True, horizontal_alignment="left"):
-        st.button(
-            "Add researcher",
-            key="add-person",
-            icon=":material/add:",
-            on_click=add_person,
+            "Role",
+            options=list(ROLES),
+            format_func=lambda role, country=st.session_state["user_country"]: ROLES[role].display_name(country),
+            placeholder="Choose a role to fill in its median hourly rate based on US data",
+            key=role_key,
+            on_change=apply_role_rate,
+            args=[person],
         )
 
-    # -----------------------------------------------
-    # Calculator
-    # -----------------------------------------------
+        # Once the widget has its own session_state entry (e.g. after the
+        # "Calculate your hourly rate" dialog writes the computed rate into
+        # it) that value wins and value= is ignored, so pass the "min"
+        # sentinel instead of a default to avoid Streamlit's "created with a
+        # default value but also had its value set via the Session State API"
+        # warning.
+        person_rate_key: str = f"person-rate-{person.unique_key}"
+        person_rate_value: float | Literal["min"] = (
+            "min" if person_rate_key in st.session_state else float(person.hourly_rate)
+        )
 
-    st.header(":material/request_quote: Calculator")
-
-    st.markdown("""
-                Provide your best estimate of the activities and direct costs involved in preparing your refereed
-                journal article. If you would like a starting point for filling out this tool, you may load the
-                conservative estimates for a social sciences journal article from Alam et al. (2026), the publication
-                accompanying this tool.
-                """)
-    st.button(
-        "Load defaults from Alam et al. 2026",
-        key="load-alam-defaults",
-        icon=":material/download:",
-        on_click=load_alam_defaults,
-    )
-
-    # TODO: Include buttons to load information about the activities/phases.
-    st.markdown("""
-                The process has been divided between four distinct phases: **incubation**, **data collection and
-                analysis**, **manuscript preparation**, and **peer review and journal editorial work**. You may either
-                provide a total estimated hour count for each phase, or add individual activities and direct costs
-                to provide estimates on a more granular level.
-                """)
-
-    for phase, phase_name in RESEARCH_PHASES.items():
-        # Handle special phases.
-        if phase == "editing":
-            st.subheader(phase_name)
-            st.markdown("""
-                        The cost of peer review and journal editorial work is based on the number of journals
-                        submitted to and the average number of review rounds across journal submissions. We
-                        assume that peer reviewers and journal editors have an average hourly rate of labour
-                        equivalent to the loaded rate of a mid-career associate professor, though you may change
-                        this rate below.
-                        """)
-
-            # Loading a state writes the sliders' values into their widget state, so seed it here rather than
-            # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
-            if "review-rounds" not in st.session_state:
-                st.session_state["review-rounds"] = st.session_state["review_rounds"]
-            if "journal-submissions" not in st.session_state:
-                st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
-            st.session_state["review_rounds"]: int = st.slider(
-                "Average number of review rounds per journal submission",
-                min_value=0,
-                max_value=20,
-                step=1,
-                key="review-rounds",
-                help="From Raoult(2020) and LeBlanc et al. (2023), we estimate that ",
-            )
-            st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
-
-            st.session_state["journal_submissions"]: int = st.slider(
-                "Number of journals submitted to",
-                min_value=0,
-                max_value=20,
-                step=1,
-                key="journal-submissions",
-            )
-            st.session_state["peer_review_activity"].journal_submissions: int = st.session_state["journal_submissions"]
-            st.session_state["journal_editing_activity"].journal_submissions: int = st.session_state[
-                "journal_submissions"
-            ]
-
-            st.session_state["peer_reviewer"].hourly_rate: int | float = st.number_input(
-                f"Hourly rate of peer reviewer (in {currency_code()})",
-                min_value=0.0,
-                value=float(st.session_state["peer_reviewer"].hourly_rate),
-            )
-            st.session_state["journal_editor"].hourly_rate: int | float = st.number_input(
-                f"Hourly rate of journal editor (in {currency_code()})",
-                min_value=0.0,
-                value=float(st.session_state["journal_editor"].hourly_rate),
-            )
-        else:
-            st.subheader(phase_name)
-            phase_activities: list[Activity] = [
-                activity
-                for activity in st.session_state["activity_list"]
-                if isinstance(activity, Activity) and activity.get_phase() == phase
-            ]
-            # Group the phase's activities by group_key, as every person assigned to an activity is held as a
-            # separate Activity sharing that key.
-            activity_groups: dict[int, list[Activity]] = {}
-            for phase_activity in phase_activities:
-                activity_groups.setdefault(phase_activity.group_key, []).append(phase_activity)
-
-            for group_key, group_activities in activity_groups.items():
-                with st.container(border=True):
-                    # Offer the phase's preset activities, keeping any current custom name selectable.
-                    # A newly added activity has no name yet, so leave the selectbox unselected. Seed the widget's
-                    # state rather than passing index=, as the browser keeps showing (and sends back) the value it
-                    # already holds for a reused key unless the new value is written into the widget's state.
-                    current_activity_name: str | None = group_activities[0].name
-                    activity_options: list[str] = ACTIVITY_OPTIONS.get(phase, [])
-                    if current_activity_name is not None and current_activity_name not in activity_options:
-                        activity_options = [current_activity_name] + activity_options
-                    activity_name_key: str = f"activity-name-{group_key}"
-                    if activity_name_key not in st.session_state:
-                        st.session_state[activity_name_key] = current_activity_name
-                    activity_name: str | None = st.selectbox(
-                        "Activity",
-                        options=activity_options,
-                        accept_new_options=True,
-                        key=activity_name_key,
-                        on_change=apply_activity_default,
-                        args=[group_activities, group_key],
-                    )
-                    # Keep the name of every person's Activity in step with the renamed activity.
-                    for group_activity in group_activities:
-                        group_activity.name: str | None = activity_name
-
-                    # Create badge if new activity
-                    if activity_name is None:
-                        st.badge(
-                            "New activity, fill in details",
-                            icon=":material/exclamation:",
-                            color="orange",
-                        )
-
-                    # One row of inputs per person assigned to this activity.
-                    for person_index, group_activity in enumerate(group_activities):
-                        # Seed the widget's state rather than passing index=, as for the activity name. Fall back
-                        # to the first person if the assigned person has been removed.
-                        activity_person_key: str = f"activity-person-{group_activity.unique_key}"
-                        if st.session_state.get(activity_person_key) not in st.session_state["people"]:
-                            st.session_state[activity_person_key] = (
-                                group_activity.person.unique_key
-                                if group_activity.person.unique_key in st.session_state["people"]
-                                else next(iter(st.session_state["people"]))
-                            )
-
-                        # Only label the first row so the rows below it read as a list.
-                        row_label_visibility: str = "visible" if person_index == 0 else "collapsed"
-                        person_column, hours_column, delete_column = st.columns([2, 1, 1], vertical_alignment="bottom")
-                        person_column.selectbox(
-                            "Assigned person",
-                            st.session_state["people"].keys(),
-                            key=activity_person_key,
-                            format_func=person_option_display,
-                            label_visibility=row_label_visibility,
-                            on_change=set_activity_person,
-                            args=[group_activity, group_activity.unique_key],
-                        )
-                        # Choosing a preset activity writes its default hours into the widget's state, so pass
-                        # the "min" sentinel once it exists to avoid Streamlit's default-value-and-Session-State
-                        # warning.
-                        activity_hours_key: str = f"activity-hours-{group_activity.unique_key}"
-                        group_activity.hours: float = hours_column.number_input(
-                            "Hours",
-                            key=activity_hours_key,
-                            min_value=0.0,
-                            step=0.5,
-                            value="min"
-                            if activity_hours_key in st.session_state
-                            else float(group_activity.get_hours()),
-                            label_visibility=row_label_visibility,
-                        )
-                        # An activity always keeps its first person, so that row has no delete button.
-                        if person_index > 0:
-                            delete_column.button(
-                                "Del",
-                                key=f"delete-activity-person-{group_activity.unique_key}",
-                                help=f"Remove {group_activity.person.label} from this activity",
-                                icon=":material/delete:",
-                                on_click=delete_activity_person,
-                                args=[group_activity],
-                            )
-
-                    # Show badge if nobody assigned to the activity has been given any hours.
-                    if compute_hours(group_activities) == 0.0:
-                        st.badge(
-                            "Hours are set to 0",
-                            icon=":material/exclamation:",
-                            color="orange",
-                        )
-
-                    with st.container(horizontal=True, horizontal_alignment="left"):
-                        st.button(
-                            "Add person",
-                            key=f"add-activity-person-{group_key}",
-                            icon=":material/person_add:",
-                            on_click=add_activity_person,
-                            args=[group_activities[0]],
-                        )
-                        st.button(
-                            "Delete activity",
-                            key=f"delete-activity-{group_key}",
-                            icon=":material/delete:",
-                            on_click=delete_activity,
-                            args=[group_activities],
-                        )
-
-            phase_costs: list[DirectCost] = [
-                direct_cost for direct_cost in st.session_state["cost_list"] if direct_cost.phase == phase
-            ]
-            for phase_cost in phase_costs:
-                with st.container(border=True):
-                    # Offer the phase's preset direct costs, keeping any current custom name selectable.
-                    # A newly added cost has no name yet, so leave the selectbox unselected. Seed the widget's state
-                    # rather than passing index=, as for the activity name.
-                    cost_options: list[str] = COST_OPTIONS.get(phase, [])
-                    if phase_cost.name is not None and phase_cost.name not in cost_options:
-                        cost_options = [phase_cost.name] + cost_options
-                    cost_name_key: str = f"directcost-name-{phase_cost.unique_key}"
-                    if cost_name_key not in st.session_state:
-                        st.session_state[cost_name_key] = phase_cost.name
-                    phase_cost.name: str | None = st.selectbox(
-                        "Cost",
-                        options=cost_options,
-                        accept_new_options=True,
-                        key=cost_name_key,
-                        on_change=apply_direct_cost_default,
-                        args=[phase_cost],
-                    )
-                    # Create badge if new cost
-                    if phase_cost.name is None:
-                        st.badge(
-                            "New cost, fill in details",
-                            icon=":material/exclamation:",
-                            color="orange",
-                        )
-
-                    # Currency conversion writes into the widget's state, so pass the "min" sentinel once it
-                    # exists to avoid Streamlit's default-value-and-Session-State warning.
-                    directcost_cost_key: str = f"directcost-cost-{phase_cost.unique_key}"
-                    phase_cost.cost: float = st.number_input(
-                        f"Cost ({currency_code()})",
-                        key=directcost_cost_key,
-                        min_value=0.0,
-                        step=0.50,
-                        value="min" if directcost_cost_key in st.session_state else float(phase_cost.cost),
-                    )
-                    # Show badge if hours is 0.
-                    if phase_cost.cost == 0.0:
-                        st.badge(
-                            f"Cost is set to {format_currency(0)}",
-                            icon=":material/exclamation:",
-                            color="orange",
-                        )
-
-                    st.button(
-                        "Delete direct cost",
-                        key=f"delete-direct-cost-{phase_cost.unique_key}",
-                        icon=":material/delete:",
-                        on_click=delete_direct_cost,
-                        args=[phase_cost],
-                    )
-
-            with st.container(horizontal=True, horizontal_alignment="left"):
-                st.button(
-                    "Add Activity",
-                    key=f"add-activity-{phase}",
-                    icon=":material/sprint:",
-                    on_click=add_activity,
-                    args=[phase],
-                )
-                st.button(
-                    "Add Direct Cost",
-                    key=f"add-direct-cost-{phase}",
-                    icon=":material/request_quote:",
-                    on_click=add_direct_cost,
-                    args=[phase],
-                )
-
-    # Special phase for saving to the database, shown only when a database is configured.
-    if DATABASE_TYPE in ("sqlite", "mysql"):
-        st.subheader("Save and share your result?")
-        st.markdown("""
-                    If you would like to share your result with others, we will require your permission to save
-                    the information you have input into this tool. If you are happy to do so, please click on the
-                    button below. You can then share your result with the buttons below.
-                    """)
+        # TODO: Include button to show information about the $85 estimate/benchmark.
+        person.hourly_rate: int | float = st.number_input(
+            f"Hourly rate of labor including indirect on-costs (in {currency_code()})",
+            min_value=0.0,
+            value=person_rate_value,
+            key=person_rate_key,
+        )
         with st.container(horizontal=True, horizontal_alignment="left"):
-            # The on_click callback only closes the calculator. Saving is not done in the callback, as callbacks run
-            # before the script copies unkeyed widget values into session state.
             if st.button(
-                "Save your result to share",
-                icon=":material/save:",
-                type="primary",
-                help="Save your inputs to the database. Saving again after making changes saves them as a new "
-                "result, generating a new share link. Old links will not show your changes.",
-                on_click=close_calculator,
+                "Calculate hourly wage using salary",
+                key=f"calculate-hourly-wage-{person.unique_key}",
             ):
-                save_to_database()
+                calculate_hourly_rate(person, person.unique_key)
+            if person.person_type == PersonType.RESEARCH_TEAM and int(person.unique_key) > 1:
+                st.button(
+                    f"Delete {person.label}",
+                    key=f"delete-person-{person.unique_key}",
+                    icon=":material/delete:",
+                    on_click=delete_person,
+                    args=[person.unique_key],
+                )
+
+with st.container(horizontal=True, horizontal_alignment="left"):
+    st.button(
+        "Add researcher",
+        key="add-person",
+        icon=":material/add:",
+        on_click=add_person,
+    )
+
+# -----------------------------------------------
+# Calculator
+# -----------------------------------------------
+
+st.header(":material/request_quote: Calculator", anchor=CALCULATOR_ANCHOR)
+
+st.markdown("""
+            Provide your best estimate of the activities and direct costs involved in preparing your refereed
+            journal article. If you would like a starting point for filling out this tool, you may load the
+            conservative estimates for a social sciences journal article from Alam et al. (2026), the publication
+            accompanying this tool.
+            """)
+st.button(
+    "Load defaults from Alam et al. 2026",
+    key="load-alam-defaults",
+    icon=":material/download:",
+    on_click=load_alam_defaults,
+)
+
+# TODO: Include buttons to load information about the activities/phases.
+st.markdown("""
+            The process has been divided between four distinct phases: **incubation**, **data collection and
+            analysis**, **manuscript preparation**, and **peer review and journal editorial work**. You may either
+            provide a total estimated hour count for each phase, or add individual activities and direct costs
+            to provide estimates on a more granular level.
+            """)
+
+for phase, phase_name in RESEARCH_PHASES.items():
+    # Handle special phases.
+    if phase == "editing":
+        st.subheader(phase_name)
+        st.markdown("""
+                    The cost of peer review and journal editorial work is based on the number of journals
+                    submitted to and the average number of review rounds across journal submissions. We
+                    assume that peer reviewers and journal editors have an average hourly rate of labour
+                    equivalent to the loaded rate of a mid-career associate professor, though you may change
+                    this rate below.
+                    """)
+
+        # Loading a state writes the sliders' values into their widget state, so seed it here rather than
+        # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
+        if "review-rounds" not in st.session_state:
+            st.session_state["review-rounds"] = st.session_state["review_rounds"]
+        if "journal-submissions" not in st.session_state:
+            st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
+        st.session_state["review_rounds"]: int = st.slider(
+            "Average number of review rounds per journal submission",
+            min_value=0,
+            max_value=20,
+            step=1,
+            key="review-rounds",
+            help="From Raoult(2020) and LeBlanc et al. (2023), we estimate that ",
+        )
+        st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
+
+        st.session_state["journal_submissions"]: int = st.slider(
+            "Number of journals submitted to",
+            min_value=0,
+            max_value=20,
+            step=1,
+            key="journal-submissions",
+        )
+        st.session_state["peer_review_activity"].journal_submissions: int = st.session_state["journal_submissions"]
+        st.session_state["journal_editing_activity"].journal_submissions: int = st.session_state["journal_submissions"]
+
+        st.session_state["peer_reviewer"].hourly_rate: int | float = st.number_input(
+            f"Hourly rate of peer reviewer (in {currency_code()})",
+            min_value=0.0,
+            value=float(st.session_state["peer_reviewer"].hourly_rate),
+        )
+        st.session_state["journal_editor"].hourly_rate: int | float = st.number_input(
+            f"Hourly rate of journal editor (in {currency_code()})",
+            min_value=0.0,
+            value=float(st.session_state["journal_editor"].hourly_rate),
+        )
+    else:
+        st.subheader(phase_name)
+        phase_activities: list[Activity] = [
+            activity
+            for activity in st.session_state["activity_list"]
+            if isinstance(activity, Activity) and activity.get_phase() == phase
+        ]
+        # Group the phase's activities by group_key, as every person assigned to an activity is held as a
+        # separate Activity sharing that key.
+        activity_groups: dict[int, list[Activity]] = {}
+        for phase_activity in phase_activities:
+            activity_groups.setdefault(phase_activity.group_key, []).append(phase_activity)
+
+        for group_key, group_activities in activity_groups.items():
+            with st.container(border=True):
+                # Offer the phase's preset activities, keeping any current custom name selectable.
+                # A newly added activity has no name yet, so leave the selectbox unselected. Seed the widget's
+                # state rather than passing index=, as the browser keeps showing (and sends back) the value it
+                # already holds for a reused key unless the new value is written into the widget's state.
+                current_activity_name: str | None = group_activities[0].name
+                activity_options: list[str] = ACTIVITY_OPTIONS.get(phase, [])
+                if current_activity_name is not None and current_activity_name not in activity_options:
+                    activity_options = [current_activity_name] + activity_options
+                activity_name_key: str = f"activity-name-{group_key}"
+                if activity_name_key not in st.session_state:
+                    st.session_state[activity_name_key] = current_activity_name
+                activity_name: str | None = st.selectbox(
+                    "Activity",
+                    options=activity_options,
+                    accept_new_options=True,
+                    key=activity_name_key,
+                    on_change=apply_activity_default,
+                    args=[group_activities, group_key],
+                )
+                # Keep the name of every person's Activity in step with the renamed activity.
+                for group_activity in group_activities:
+                    group_activity.name: str | None = activity_name
+
+                # Create badge if new activity
+                if activity_name is None:
+                    st.badge(
+                        "New activity, fill in details",
+                        icon=":material/exclamation:",
+                        color="orange",
+                    )
+
+                # One row of inputs per person assigned to this activity.
+                for person_index, group_activity in enumerate(group_activities):
+                    # Seed the widget's state rather than passing index=, as for the activity name. Fall back
+                    # to the first person if the assigned person has been removed.
+                    activity_person_key: str = f"activity-person-{group_activity.unique_key}"
+                    if st.session_state.get(activity_person_key) not in st.session_state["people"]:
+                        st.session_state[activity_person_key] = (
+                            group_activity.person.unique_key
+                            if group_activity.person.unique_key in st.session_state["people"]
+                            else next(iter(st.session_state["people"]))
+                        )
+
+                    # Only label the first row so the rows below it read as a list.
+                    row_label_visibility: str = "visible" if person_index == 0 else "collapsed"
+                    person_column, hours_column, delete_column = st.columns([2, 1, 1], vertical_alignment="bottom")
+                    person_column.selectbox(
+                        "Assigned person",
+                        st.session_state["people"].keys(),
+                        key=activity_person_key,
+                        format_func=person_option_display,
+                        label_visibility=row_label_visibility,
+                        on_change=set_activity_person,
+                        args=[group_activity, group_activity.unique_key],
+                    )
+                    # Choosing a preset activity writes its default hours into the widget's state, so pass
+                    # the "min" sentinel once it exists to avoid Streamlit's default-value-and-Session-State
+                    # warning.
+                    activity_hours_key: str = f"activity-hours-{group_activity.unique_key}"
+                    group_activity.hours: float = hours_column.number_input(
+                        "Hours",
+                        key=activity_hours_key,
+                        min_value=0.0,
+                        step=0.5,
+                        value="min" if activity_hours_key in st.session_state else float(group_activity.get_hours()),
+                        label_visibility=row_label_visibility,
+                    )
+                    # An activity always keeps its first person, so that row has no delete button.
+                    if person_index > 0:
+                        delete_column.button(
+                            "Del",
+                            key=f"delete-activity-person-{group_activity.unique_key}",
+                            help=f"Remove {group_activity.person.label} from this activity",
+                            icon=":material/delete:",
+                            on_click=delete_activity_person,
+                            args=[group_activity],
+                        )
+
+                # Show badge if nobody assigned to the activity has been given any hours.
+                if compute_hours(group_activities) == 0.0:
+                    st.badge(
+                        "Hours are set to 0",
+                        icon=":material/exclamation:",
+                        color="orange",
+                    )
+
+                with st.container(horizontal=True, horizontal_alignment="left"):
+                    st.button(
+                        "Add person",
+                        key=f"add-activity-person-{group_key}",
+                        icon=":material/person_add:",
+                        on_click=add_activity_person,
+                        args=[group_activities[0]],
+                    )
+                    st.button(
+                        "Delete activity",
+                        key=f"delete-activity-{group_key}",
+                        icon=":material/delete:",
+                        on_click=delete_activity,
+                        args=[group_activities],
+                    )
+
+        phase_costs: list[DirectCost] = [
+            direct_cost for direct_cost in st.session_state["cost_list"] if direct_cost.phase == phase
+        ]
+        for phase_cost in phase_costs:
+            with st.container(border=True):
+                # Offer the phase's preset direct costs, keeping any current custom name selectable.
+                # A newly added cost has no name yet, so leave the selectbox unselected. Seed the widget's state
+                # rather than passing index=, as for the activity name.
+                cost_options: list[str] = COST_OPTIONS.get(phase, [])
+                if phase_cost.name is not None and phase_cost.name not in cost_options:
+                    cost_options = [phase_cost.name] + cost_options
+                cost_name_key: str = f"directcost-name-{phase_cost.unique_key}"
+                if cost_name_key not in st.session_state:
+                    st.session_state[cost_name_key] = phase_cost.name
+                phase_cost.name: str | None = st.selectbox(
+                    "Cost",
+                    options=cost_options,
+                    accept_new_options=True,
+                    key=cost_name_key,
+                    on_change=apply_direct_cost_default,
+                    args=[phase_cost],
+                )
+                # Create badge if new cost
+                if phase_cost.name is None:
+                    st.badge(
+                        "New cost, fill in details",
+                        icon=":material/exclamation:",
+                        color="orange",
+                    )
+
+                # Currency conversion writes into the widget's state, so pass the "min" sentinel once it
+                # exists to avoid Streamlit's default-value-and-Session-State warning.
+                directcost_cost_key: str = f"directcost-cost-{phase_cost.unique_key}"
+                phase_cost.cost: float = st.number_input(
+                    f"Cost ({currency_code()})",
+                    key=directcost_cost_key,
+                    min_value=0.0,
+                    step=0.50,
+                    value="min" if directcost_cost_key in st.session_state else float(phase_cost.cost),
+                )
+                # Show badge if hours is 0.
+                if phase_cost.cost == 0.0:
+                    st.badge(
+                        f"Cost is set to {format_currency(0)}",
+                        icon=":material/exclamation:",
+                        color="orange",
+                    )
+
+                st.button(
+                    "Delete direct cost",
+                    key=f"delete-direct-cost-{phase_cost.unique_key}",
+                    icon=":material/delete:",
+                    on_click=delete_direct_cost,
+                    args=[phase_cost],
+                )
+
+        with st.container(horizontal=True, horizontal_alignment="left"):
             st.button(
-                "Continue without saving",
-                key="close-without-saving",
-                icon=":material/close:",
-                on_click=close_calculator,
+                "Add Activity",
+                key=f"add-activity-{phase}",
+                icon=":material/sprint:",
+                on_click=add_activity,
+                args=[phase],
             )
+            st.button(
+                "Add Direct Cost",
+                key=f"add-direct-cost-{phase}",
+                icon=":material/request_quote:",
+                on_click=add_direct_cost,
+                args=[phase],
+            )
+
+# Special phase for saving to the database, shown only when a database is configured.
+if DATABASE_TYPE in ("sqlite", "mysql"):
+    st.subheader("Save and share your result?")
+    st.markdown("""
+                If you would like to share your result with others, we will require your permission to save
+                the information you have input into this tool. If you are happy to do so, please click on the
+                button below. You can then share your result with the buttons below.
+                """)
+    with st.container(horizontal=True, horizontal_alignment="left"):
+        if st.button(
+            "Save your result to share",
+            icon=":material/save:",
+            type="primary",
+            help="Save your inputs to the database. Saving again after making changes saves them as a new "
+            "result, generating a new share link. Old links will not show your changes.",
+        ):
+            save_to_database()
+        st.button(
+            "Continue without saving",
+            key="close-without-saving",
+            icon=":material/close:",
+        )
 
 
 # Visualisation pane
@@ -1500,7 +1522,6 @@ person_color_map: dict[str, str] = build_color_map(
 )
 
 
-RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
 st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
 
 
@@ -1672,7 +1693,7 @@ st.plotly_chart(labour_chart, width="stretch")
 # -----------------------------------------------
 
 
-st.header(":material/share: Share your result")
+st.header(":material/share: Share your result", anchor=SHARE_ANCHOR)
 
 
 st.markdown("""
@@ -1780,8 +1801,12 @@ st.markdown(
             <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
             Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
             https://doi.org/10.7208/chicago/9780226805597.003.0002;
-            alter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
+            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
             review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
+
+            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
+            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
+            5, 133–182. https://doi.org/10.1086/738903
 
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.

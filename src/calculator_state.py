@@ -50,6 +50,9 @@ type SessionStateKey = str | int
 # is read by ignoring the names, with no roles.
 SCHEMA_VERSION: int = 2
 SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2)
+# Project-wide indirect cost rate (%) applied to hourly rates calculated from a salary. Projects saved before the rate
+# was stored are loaded with this rate.
+DEFAULT_INDIRECT_COST_PERCENTAGE: int = 40
 
 # Keys of the widgets in main.py whose values are held in st.session_state. A keyed widget takes its value from
 # session state and ignores its value=/index= argument, so these must be cleared when a new state is applied or the
@@ -65,6 +68,7 @@ WIDGET_KEY_PREFIXES: tuple[str, ...] = (
 )
 WIDGET_KEYS: tuple[str, ...] = (
     "user_country_select",  # You and your project: country selectbox
+    "indirect_cost_percentage",  # Indirect Costs: project-wide indirect cost rate slider
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
 )
@@ -128,6 +132,7 @@ class CalculatorState:
         international_collaborators: Whether the project has collaborators outside the primary country.
         project_field: 4-digit Field of Research code of the project (a key of reference_data.FIELDS_OF_RESEARCH), or
             a broad field name (e.g. "Social sciences") for projects saved before codes were used.
+        indirect_cost_percentage: Project-wide indirect cost rate, as a percentage of the direct hourly rate.
         people: Research team members, keyed by unique_key, in display order.
         peer_reviewer: The Person assigned to the peer review activity.
         journal_editor: The Person assigned to the journal editorial work activity.
@@ -139,6 +144,7 @@ class CalculatorState:
     user_country: str
     international_collaborators: bool
     project_field: str
+    indirect_cost_percentage: int
     people: dict[str, Person]
     peer_reviewer: Person
     journal_editor: Person
@@ -191,6 +197,7 @@ class CalculatorState:
             user_country="",  # Blank until chosen. Amounts are in USD until then.
             international_collaborators=False,
             project_field="",  # Blank until chosen
+            indirect_cost_percentage=DEFAULT_INDIRECT_COST_PERCENTAGE,
             people={default_person.unique_key: default_person},
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
@@ -281,6 +288,7 @@ class CalculatorState:
                 "user_country": self.user_country,
                 "international_collaborators": self.international_collaborators,
                 "project_field": self.project_field,
+                "indirect_cost_percentage": self.indirect_cost_percentage,
             },
             "people": [person.to_dict() for person in self.people.values()],
             "peer_reviewer": self.peer_reviewer.to_dict(),
@@ -331,6 +339,7 @@ class CalculatorState:
             user_country=project["user_country"],
             international_collaborators=bool(project["international_collaborators"]),
             project_field=project["project_field"],
+            indirect_cost_percentage=int(project.get("indirect_cost_percentage", DEFAULT_INDIRECT_COST_PERCENTAGE)),
             people=people,
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
@@ -362,6 +371,7 @@ class CalculatorState:
             user_country=session_state["user_country"],
             international_collaborators=session_state["international_collaborators"],
             project_field=session_state["project_field"],
+            indirect_cost_percentage=session_state["indirect_cost_percentage"],
             people=session_state["people"],
             peer_reviewer=session_state["peer_reviewer"],
             journal_editor=session_state["journal_editor"],
@@ -390,6 +400,7 @@ class CalculatorState:
         session_state["user_country_select"] = self.user_country or None
         session_state["international_collaborators"] = self.international_collaborators
         session_state["project_field"] = self.project_field
+        session_state["indirect_cost_percentage"] = self.indirect_cost_percentage
         session_state["people"] = self.people
         session_state["peer_reviewer"] = self.peer_reviewer
         session_state["journal_editor"] = self.journal_editor

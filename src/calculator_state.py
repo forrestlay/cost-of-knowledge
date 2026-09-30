@@ -123,7 +123,8 @@ class CalculatorState:
     """Every input to the calculator.
 
     Attributes:
-        user_country: Lowercase country code of the country the project is associated with (e.g. "us").
+        user_country: Lowercase country code of the country the project is associated with (e.g. "us"), or "" if not
+            yet chosen, in which case amounts are in USD.
         international_collaborators: Whether the project has collaborators outside the primary country.
         project_field: 4-digit Field of Research code of the project (a key of reference_data.FIELDS_OF_RESEARCH), or
             a broad field name (e.g. "Social sciences") for projects saved before codes were used.
@@ -187,9 +188,9 @@ class CalculatorState:
             JournalEditing(person=journal_editor, journal_submissions=0, unique_key=len(activities) + 2),
         ]
         return cls(
-            user_country="us",
+            user_country="",  # Blank until chosen. Amounts are in USD until then.
             international_collaborators=False,
-            project_field="3001",  # Accounting, auditing and accountability
+            project_field="",  # Blank until chosen
             people={default_person.unique_key: default_person},
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
@@ -385,7 +386,8 @@ class CalculatorState:
 
         session_state["user_country"] = self.user_country
         # The country selectbox has no index=, so seed its widget state or it would show the first country in the list.
-        session_state["user_country_select"] = self.user_country
+        # None leaves it blank.
+        session_state["user_country_select"] = self.user_country or None
         session_state["international_collaborators"] = self.international_collaborators
         session_state["project_field"] = self.project_field
         session_state["people"] = self.people

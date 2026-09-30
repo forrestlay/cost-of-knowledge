@@ -124,7 +124,7 @@ COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
 
 def currency_code() -> str:
     """ISO 4217 code (e.g. "USD") of the currency of the country chosen by the user."""
-    return COUNTRY_CURRENCIES[st.session_state["user_country"]][0]
+    return COUNTRY_CURRENCIES.get(st.session_state["user_country"], COUNTRY_CURRENCIES["us"])[0]
 
 
 def currency_prefix() -> str:
@@ -132,7 +132,7 @@ def currency_prefix() -> str:
 
     The currency symbol (e.g. "$"), or the ISO code and a space (e.g. "AED ") for currencies without one.
     """
-    code, symbol = COUNTRY_CURRENCIES[st.session_state["user_country"]]
+    code, symbol = COUNTRY_CURRENCIES.get(st.session_state["user_country"], COUNTRY_CURRENCIES["us"])
     return symbol if symbol != code else f"{code} "
 
 
@@ -188,8 +188,10 @@ def load_from_database(public_id: str) -> None:
 def convert_monetary_values():
     """Converts every monetary value to the currency of the newly selected country, then updates user_country."""
     from_code: str = currency_code()
-    to_code: str = COUNTRY_CURRENCIES[st.session_state["user_country_select"]][0]
-    st.session_state["user_country"] = st.session_state["user_country_select"]
+    # The selectbox is None when cleared, which falls back to USD like the blank starting state.
+    selected_country: str = st.session_state["user_country_select"] or ""
+    to_code: str = COUNTRY_CURRENCIES.get(selected_country, COUNTRY_CURRENCIES["us"])[0]
+    st.session_state["user_country"] = selected_country
     if from_code == to_code:
         return
 
@@ -609,7 +611,7 @@ def create_social_media_svg(
 
     # Title (wrapped, capped at three lines). Some Field of Research names are long, so the font shrinks until the
     # title fits, with the characters per line scaled to match.
-    title: str = f"My {_title_case(project_field)} paper cost"
+    title: str = " ".join(f"My {_title_case(project_field)} paper cost".split())
     title_line_height: float = 1.15
     for title_size in (62, 54, 46, 40):
         wrapped_title: list[str] = _wrap_text(title, int(26 * 62 / title_size))
@@ -988,7 +990,7 @@ if "activity_list" not in st.session_state:
 
 
 if "user_country_select" not in st.session_state:
-    st.session_state["user_country_select"]: str = st.session_state["user_country"]
+    st.session_state["user_country_select"]: str | None = st.session_state["user_country"] or None
 
 
 # Create and initialise the database set by DATABASE_TYPE, if any. Saving is disabled when it is "none".
@@ -1019,27 +1021,33 @@ if query_project_id is not None and query_project_id != st.session_state.get("lo
 
 st.title("Cost of Knowledge Calculator")
 # TODO: Refer to journal article consistently - project/paper/etc.
-st.caption(
-    "The tool will enable you to calculate the approximate cost of preparing a refereed journal article from conception"
-    " to publication."
-)
+st.markdown(
+    """
+            **As a researcher, have you thought about what it really costs to take a journal article from ideation to
+            publication?**
 
-
-st.markdown("""
-            Debates about the economics of scholarly publishing typically focus on subscription prices, article
+            "Debates about the economics of scholarly publishing typically focus on subscription prices, article
             processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-            incurred in producing the research that makes scholarly publishing possible. This tool aims to make visible
-            the substantial investment underpinning scholarly publishing.
-            """)
+            incurred in producing the research that makes scholarly publishing possible."<sup>1</sup> This tool aims to
+            make visible the substantial investment underpinning scholarly publishing.
+
+            Using this tool, you can estimate the costs of the academic labor, opportunity costs and
+            institutional resources that were involved in the process of preparing and publishing one of your
+            refereed journal articles. Use your **best estimate** of the time and costs involved - if you aren't sure,
+            we have provided estimates of the median time required for preparing a social science article from Alam et
+            al. (2026), the publication accompanying this tool.
+
+            The results of this tool should not be taken to reflect or quantify the value of research, only the costs
+            involved in preparing a refereed journal article. Prior literature has established that research provides
+            substantial economic and social returns<sup>2</sup>, and with this tool we instead seek to draw attention
+            to the resources required for scholarly publishing.
+            """,
+    unsafe_allow_html=True,
+)
 
 
 with st.expander("About the data", expanded=False):
     st.markdown("""
-                The tool starts empty, so that you can enter your own best estimate of the cost of preparing one of your
-                refereed journal articles. If you would like a starting point, the Calculator can load the
-                conservative estimates of the activities and direct costs involved in preparing a social sciences
-                journal article, sourced from Alam et al. (2026), the publication accompanying this tool.
-
                 The hourly rates offered for each researcher role are median US rates including indirect on-costs, and
                 are converted to your country's currency along with the direct costs. You can replace any rate or cost
                 with your own figure.
@@ -1068,7 +1076,11 @@ with st.expander(
         COUNTRY_CODES,
         format_func=lambda code: COUNTRY_NAMES[code],
         key="user_country_select",
+        index=None,
+        placeholder="Choose a country. You may type to search for a country.",
         on_change=convert_monetary_values,
+        help="The country chosen will determine the currency used for monetary values in this tool and the results "
+        "calculated. You may clear the textbox and type to search for a country.",
     )
     st.session_state["international_collaborators"] = st.radio(
         "Does your project have international collaborators outside of the primary country?",
@@ -1080,13 +1092,18 @@ with st.expander(
     # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
     # used selectable, so loading it does not fail.
     field_options: list[str] = list(FIELDS_OF_RESEARCH)
-    if st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
+    if st.session_state["project_field"] and st.session_state["project_field"] not in FIELDS_OF_RESEARCH:
         field_options = [st.session_state["project_field"], *field_options]
-    st.session_state["project_field"] = st.selectbox(
-        "Field of research your paper/project is located in",
-        field_options,
-        index=field_options.index(st.session_state["project_field"]),
-        format_func=field_of_research_display_name,
+    # Blank (index=None) until a field is chosen; the selectbox returns None then.
+    st.session_state["project_field"] = (
+        st.selectbox(
+            "Field of research your paper/project is located in",
+            field_options,
+            index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
+            placeholder="Choose a field of research. You may type to search for a field of research.",
+            format_func=field_of_research_display_name,
+        )
+        or ""
     )
 
     # -----------------------------------------------
@@ -1756,9 +1773,20 @@ with st.container(horizontal=True, horizontal_alignment="left"):
         )
 
 
-st.markdown("""
+st.markdown(
+    """
+            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
+
+            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
+            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+            https://doi.org/10.7208/chicago/9780226805597.003.0002;
+            alter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
+            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
+
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
             International License](https://creativecommons.org/licenses/by/4.0/).]
-            """)
+            """,
+    unsafe_allow_html=True,
+)

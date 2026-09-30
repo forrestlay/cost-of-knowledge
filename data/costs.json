@@ -26,12 +26,6 @@
       "tooltip": "Any other incubation activity not listed above."
     },
     {
-      "name": "Incubation (Overall Total)",
-      "phase": "incubation",
-      "default_hours": 0,
-      "tooltip": "The total hours of labor for the whole incubation phase, for when you only know the overall figure rather than a breakdown by activity."
-    },
-    {
       "name": "Data collection",
       "phase": "data",
       "default_hours": 48.5,
@@ -56,12 +50,6 @@
       "tooltip": "Any other data collection or analysis activity not listed above."
     },
     {
-      "name": "Data collection and analysis (Overall Total)",
-      "phase": "data",
-      "default_hours": 0,
-      "tooltip": "The total hours of labor for the whole data collection and analysis phase, for when you only know the overall figure rather than a breakdown by activity."
-    },
-    {
       "name": "Writing and manuscript preparation",
       "phase": "writing",
       "default_hours": 100,
@@ -72,12 +60,6 @@
       "phase": "writing",
       "default_hours": 123,
       "tooltip": "Time spent preparing for, travelling to and presenting the research at conferences."
-    },
-    {
-      "name": "Manuscript preparation (Overall Total)",
-      "phase": "writing",
-      "default_hours": 0,
-      "tooltip": "The total hours of labor for the whole manuscript preparation phase, for when you only know the overall figure rather than a breakdown by activity."
     }
   ],
   "direct_costs": [

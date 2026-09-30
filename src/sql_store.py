@@ -5,8 +5,7 @@ tables. Saving changes to a saved project creates a new row whose parent_id is t
 from, so saved results that have been shared are never overwritten. Rows are built from CalculatorState.to_dict() and
 loaded back through CalculatorState.from_dict(), so the dict format remains the single definition of what is serialised.
 
-No names are stored. Databases created by older versions have nullable user_name and project_name columns in the
-projects table and a name column in the people table, which are left NULL by new saves and ignored when loading.
+No names are stored. Databases created by older versions are not migrated and must be reset.
 
 Functions take either a sqlite3 connection or a PyMySQL connection. Queries are written with "?" placeholders, which
 are rewritten to PyMySQL's "%s" placeholders when needed.
@@ -57,6 +56,9 @@ CREATE TABLE IF NOT EXISTS projects (
     international_collaborators INTEGER NOT NULL,
     project_field TEXT NOT NULL,
     indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
+    -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables count
+    -- towards the totals.
+    calculator_mode TEXT NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
@@ -106,6 +108,26 @@ CREATE TABLE IF NOT EXISTS direct_costs (
     cost NUMERIC NOT NULL,
     PRIMARY KEY (project_id, unique_key)
 );
+
+-- Simplified estimate of the hours of a researcher in a phase.
+CREATE TABLE IF NOT EXISTS simplified_hours (
+    project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    phase TEXT NOT NULL,
+    person_key TEXT NOT NULL,
+    hours NUMERIC NOT NULL,
+    PRIMARY KEY (project_id, phase, person_key),
+    FOREIGN KEY (project_id, person_key) REFERENCES people (project_id, unique_key)
+);
+
+-- Simplified estimate of the total direct costs of a phase.
+CREATE TABLE IF NOT EXISTS simplified_direct_costs (
+    project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    phase TEXT NOT NULL,
+    cost NUMERIC NOT NULL,
+    PRIMARY KEY (project_id, phase)
+);
 """
 
 # The tables of SCHEMA for MySQL, one statement each. MySQL ignores foreign keys declared inline on a column, needs
@@ -124,6 +146,9 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         international_collaborators INTEGER NOT NULL,
         project_field TEXT NOT NULL,
         indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
+        -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables
+        -- count towards the totals.
+        calculator_mode VARCHAR(16) NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
@@ -181,27 +206,28 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     )
     """,
-)
-
-# Statements that add the parent_id column to a projects table created before it existed, for SQLite and MySQL. SQLite
-# allows a foreign key on an added column only when its default is NULL, which it is here.
-_ADD_PARENT_ID_SQLITE: str = (
-    "ALTER TABLE projects ADD COLUMN parent_id INTEGER REFERENCES projects (id) ON DELETE SET NULL"
-)
-_ADD_PARENT_ID_MYSQL: str = (
-    "ALTER TABLE projects ADD COLUMN parent_id INTEGER,"
-    " ADD FOREIGN KEY (parent_id) REFERENCES projects (id) ON DELETE SET NULL"
-)
-# Statements that add the researcher_role column to a people table created before it existed, for SQLite and MySQL.
-_ADD_RESEARCHER_ROLE_SQLITE: str = "ALTER TABLE people ADD COLUMN researcher_role TEXT"
-_ADD_RESEARCHER_ROLE_MYSQL: str = "ALTER TABLE people ADD COLUMN researcher_role VARCHAR(64)"
-# Statement that adds the quantity column to a people table created before it existed. Existing people get a quantity
-# of 1. Valid for both SQLite and MySQL.
-_ADD_QUANTITY: str = "ALTER TABLE people ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1"
-# Statement that adds the indirect_cost_percentage column to a projects table created before it existed. Existing
-# projects get the default rate of 40%. Valid for both SQLite and MySQL.
-_ADD_INDIRECT_COST_PERCENTAGE: str = (
-    "ALTER TABLE projects ADD COLUMN indirect_cost_percentage INTEGER NOT NULL DEFAULT 40"
+    """
+    CREATE TABLE IF NOT EXISTS simplified_hours (
+        project_id INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        phase VARCHAR(32) NOT NULL,
+        person_key VARCHAR(255) NOT NULL,
+        hours DOUBLE NOT NULL,
+        PRIMARY KEY (project_id, phase, person_key),
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id, person_key) REFERENCES people (project_id, unique_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS simplified_direct_costs (
+        project_id INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        phase VARCHAR(32) NOT NULL,
+        cost DOUBLE NOT NULL,
+        PRIMARY KEY (project_id, phase),
+        FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    )
+    """,
 )
 
 # The URL-safe alphabet and default length of NanoID, giving about 126 bits of randomness per id.
@@ -237,9 +263,9 @@ def connect(database: str) -> sqlite3.Connection:
 
 
 def init_db(conn: Connection) -> None:
-    """Creates the tables if they do not exist, and adds any columns missing from tables created by older versions.
+    """Creates the tables if they do not exist. For SQLite, also enables foreign keys on the connection.
 
-    For SQLite, also enables foreign keys on the connection.
+    Databases created by older versions are not migrated and must be reset.
     """
     if isinstance(conn, sqlite3.Connection):
         conn.execute("PRAGMA foreign_keys = ON")
@@ -249,34 +275,6 @@ def init_db(conn: Connection) -> None:
             for statement in MYSQL_SCHEMA:
                 cursor.execute(statement)
         conn.commit()
-    _migrate(conn)
-
-
-def _columns(conn: Connection, table: str) -> set[str]:
-    """Returns the names of a table's columns."""
-    with closing(conn.cursor()) as cursor:
-        cursor.execute(f"SELECT * FROM {table} WHERE 1 = 0")
-        cursor.fetchall()
-        return {description[0] for description in cursor.description or ()}
-
-
-def _migrate(conn: Connection) -> None:
-    """Adds the columns missing from tables created by older versions: projects.parent_id,
-    projects.indirect_cost_percentage, people.researcher_role and people.quantity.
-    """
-    is_sqlite: bool = isinstance(conn, sqlite3.Connection)
-    if "parent_id" not in _columns(conn, "projects"):
-        with _transaction(conn) as cursor:
-            cursor.execute(_ADD_PARENT_ID_SQLITE if is_sqlite else _ADD_PARENT_ID_MYSQL)
-    if "indirect_cost_percentage" not in _columns(conn, "projects"):
-        with _transaction(conn) as cursor:
-            cursor.execute(_ADD_INDIRECT_COST_PERCENTAGE)
-    if "researcher_role" not in _columns(conn, "people"):
-        with _transaction(conn) as cursor:
-            cursor.execute(_ADD_RESEARCHER_ROLE_SQLITE if is_sqlite else _ADD_RESEARCHER_ROLE_MYSQL)
-    if "quantity" not in _columns(conn, "people"):
-        with _transaction(conn) as cursor:
-            cursor.execute(_ADD_QUANTITY)
 
 
 def generate_public_id(size: int = PUBLIC_ID_LENGTH) -> str:
@@ -336,7 +334,7 @@ def _project_values(state: CalculatorState) -> dict[str, Any]:
 
 
 def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: CalculatorState) -> None:
-    """Inserts the people, activities and direct costs of a state for the given project."""
+    """Inserts the people, activities, direct costs and simplified estimates of a state for the given project."""
     data: dict[str, Any] = state.to_dict()
 
     people_rows: list[tuple[str, dict[str, Any]]] = [
@@ -383,6 +381,22 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
         [
             (project_id, position, cost["unique_key"], cost["name"], cost["phase"], cost["cost"])
             for position, cost in enumerate(data["direct_costs"])
+        ],
+    )
+    cursor.executemany(
+        _sql(
+            conn, "INSERT INTO simplified_hours (project_id, position, phase, person_key, hours) VALUES (?, ?, ?, ?, ?)"
+        ),
+        [
+            (project_id, position, hours["phase"], hours["person_key"], hours["hours"])
+            for position, hours in enumerate(data["simplified_hours"])
+        ],
+    )
+    cursor.executemany(
+        _sql(conn, "INSERT INTO simplified_direct_costs (project_id, position, phase, cost) VALUES (?, ?, ?, ?)"),
+        [
+            (project_id, position, cost["phase"], cost["cost"])
+            for position, cost in enumerate(data["simplified_direct_costs"])
         ],
     )
 
@@ -439,8 +453,8 @@ def update_project(conn: Connection, public_id: str, state: CalculatorState) -> 
             ),
             (_now(), *values.values(), project_id),
         )
-        # Activities reference people, so remove them first.
-        for table in ("activities", "direct_costs", "people"):
+        # Activities and simplified hours reference people, so remove them first.
+        for table in ("activities", "simplified_hours", "simplified_direct_costs", "direct_costs", "people"):
             cursor.execute(_sql(conn, f"DELETE FROM {table} WHERE project_id = ?"), (project_id,))
         _insert_children(conn, cursor, project_id, state)
 
@@ -450,6 +464,8 @@ def _state_from_rows(
     people_rows: list[dict[str, Any]],
     activity_rows: list[dict[str, Any]],
     direct_cost_rows: list[dict[str, Any]],
+    simplified_hours_rows: list[dict[str, Any]],
+    simplified_direct_cost_rows: list[dict[str, Any]],
 ) -> CalculatorState:
     """Builds a CalculatorState from a projects row and its child rows, each in position order."""
     people: dict[str, list[dict[str, Any]]] = {"team": [], "peer_reviewer": [], "journal_editor": []}
@@ -480,12 +496,20 @@ def _state_from_rows(
                 "international_collaborators": bool(project["international_collaborators"]),
                 "project_field": project["project_field"],
                 "indirect_cost_percentage": project["indirect_cost_percentage"],
+                "calculator_mode": project["calculator_mode"],
             },
             "people": people["team"],
             "peer_reviewer": people["peer_reviewer"][0],
             "journal_editor": people["journal_editor"][0],
             "activities": activities,
             "direct_costs": direct_costs,
+            "simplified_hours": [
+                {"phase": row["phase"], "person_key": row["person_key"], "hours": row["hours"]}
+                for row in simplified_hours_rows
+            ],
+            "simplified_direct_costs": [
+                {"phase": row["phase"], "cost": row["cost"]} for row in simplified_direct_cost_rows
+            ],
         }
     )
 
@@ -510,7 +534,12 @@ def load_project(conn: Connection, public_id: str) -> CalculatorState:
             return _fetch_dicts(cursor)
 
         return _state_from_rows(
-            project, select_children("people"), select_children("activities"), select_children("direct_costs")
+            project,
+            select_children("people"),
+            select_children("activities"),
+            select_children("direct_costs"),
+            select_children("simplified_hours"),
+            select_children("simplified_direct_costs"),
         )
 
 
@@ -537,6 +566,8 @@ def load_projects(conn: Connection) -> list[tuple[dict[str, Any], CalculatorStat
         people: dict[int, list[dict[str, Any]]] = select_children("people")
         activities: dict[int, list[dict[str, Any]]] = select_children("activities")
         direct_costs: dict[int, list[dict[str, Any]]] = select_children("direct_costs")
+        simplified_hours: dict[int, list[dict[str, Any]]] = select_children("simplified_hours")
+        simplified_direct_costs: dict[int, list[dict[str, Any]]] = select_children("simplified_direct_costs")
 
     return [
         (
@@ -546,6 +577,8 @@ def load_projects(conn: Connection) -> list[tuple[dict[str, Any], CalculatorStat
                 people.get(project["id"], []),
                 activities.get(project["id"], []),
                 direct_costs.get(project["id"], []),
+                simplified_hours.get(project["id"], []),
+                simplified_direct_costs.get(project["id"], []),
             ),
         )
         for project in projects
@@ -563,6 +596,6 @@ def list_projects(conn: Connection) -> list[dict[str, Any]]:
 
 
 def delete_project(conn: Connection, public_id: str) -> None:
-    """Deletes a saved project along with its people, activities and direct costs."""
+    """Deletes a saved project along with its people, activities, direct costs and simplified estimates."""
     with _transaction(conn) as cursor:
         cursor.execute(_sql(conn, "DELETE FROM projects WHERE public_id = ?"), (public_id,))

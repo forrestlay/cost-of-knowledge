@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from src.calculator_state import SCHEMA_VERSION, CalculatorState
+from src.calculator_state import SCHEMA_VERSION, CalculatorState, default_phase_hours
 from src.models import Activity, PeerReview, Person, PersonType
 
 
@@ -33,8 +33,14 @@ def modified_state() -> CalculatorState:
 
 def test_default_totals() -> None:
     state: CalculatorState = CalculatorState.default()
+    # Peer review and journal editorial work only count once a researcher has been added.
     assert state.total_hours() == 0
     assert state.total_cost() == 0
+    state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 85)
+    # Three review rounds of one journal submission is 8 hours, and journal editorial work is 15, at US$85.
+    assert state.total_hours() == 23
+    assert state.total_cost() == pytest.approx(23 * 85)
+    del state.people["1"]
     assert state.people == {}
     assert [activity for activity in state.activities if isinstance(activity, Activity)] == []
     assert state.direct_costs == []
@@ -65,6 +71,22 @@ def test_with_default_costs_totals() -> None:
     # 775.5 activity hours, 8 peer review hours and 15 journal editing hours at US$85, plus US$3,646 direct costs.
     assert state.total_hours() == 798.5
     assert state.total_cost() == pytest.approx(798.5 * 85 + 3646)
+
+
+def test_simplified_totals_ignore_granular_estimates() -> None:
+    state: CalculatorState = default_with_researcher().with_default_costs()
+    state.calculator_mode = "simplified"
+    state.simplified_hours = {"incubation": {"1": 100.0}}
+    state.simplified_direct_costs = {"writing": 500.0}
+    # Peer review and journal editorial work count in both modes: 8 + 15 hours.
+    assert state.total_hours() == 123
+    assert state.total_cost() == pytest.approx(123 * 85 + 500)
+    assert state.summary()["phase_costs"]["incubation"] == pytest.approx(100 * 85)
+    assert CalculatorState.from_json(state.to_json()) == state
+
+
+def test_default_phase_hours() -> None:
+    assert default_phase_hours() == {"incubation": 286.0, "data": 266.5, "writing": 223.0}
 
 
 def test_json_round_trip() -> None:

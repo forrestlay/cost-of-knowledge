@@ -55,7 +55,7 @@ def load_results() -> pd.DataFrame:
 
     rows: list[dict[str, Any]] = []
     for project, state in projects:
-        combined: list[Cost] = [*state.activities, *state.direct_costs]  # ty:ignore[invalid-assignment]
+        combined: list[Cost] = [*state.effective_activities(), *state.effective_direct_costs()]  # ty:ignore[invalid-assignment]
         rows.append(
             {
                 "public_id": project["public_id"],

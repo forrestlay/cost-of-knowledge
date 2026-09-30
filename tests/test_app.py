@@ -9,7 +9,7 @@ from typing import Any
 from streamlit.runtime.state.common import TESTING_KEY
 from streamlit.testing.v1 import AppTest
 
-from src.calculator_state import CalculatorState, SessionStateKey
+from src.calculator_state import OVERALL_TOTAL_PHASES, CalculatorState, SessionStateKey
 from src.currency_rates import convert_currency
 from src.models import Activity, Person, PersonType
 from src.reference_data import ROLES
@@ -58,9 +58,13 @@ def run(at: AppTest) -> None:
     assert not at.exception
 
 
-def run_app() -> AppTest:
+def run_app(mode: str = "granular") -> AppTest:
+    """Runs the app in the given calculator mode. Most tests exercise the granular calculator, so it is the default."""
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    if mode != at.radio(key="calculator-mode").value:
+        at.radio(key="calculator-mode").set_value(mode)
+        run(at)
     return at
 
 
@@ -93,33 +97,34 @@ def default_with_researcher() -> CalculatorState:
 
 def test_defaults_unchanged() -> None:
     at: AppTest = run_app()
+    # Nothing counts until a researcher has been added, including the peer review and journal editorial work.
     assert metric_values(at) == ["$0 (USD)", "0 h", "$0 (USD)"]
     assert at.selectbox(key="user_country_select").value is None
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
     assert field_select.value is None
     assert at.session_state["people"] == {}
     assert at.selectbox(key="add-person-role").value is None
-    assert at.slider(key="review-rounds").value == 0
-    assert at.slider(key="journal-submissions").value == 0
+    assert at.slider(key="review-rounds").value == 3
+    assert at.slider(key="journal-submissions").value == 1
     assert not any(box.key == "activity-name-1" for box in at.selectbox)
     assert all(button.disabled for button in at.button if button.key and button.key.startswith("add-activity-"))
     assert at.button(key="load-alam-defaults").disabled
 
 
-def test_first_researcher_adds_starting_activities() -> None:
+def test_first_researcher_starts_without_activities() -> None:
     at: AppTest = run_app()
     person: Person = add_researcher(at)
     assert person.label == "Researcher 1"
-    assert at.selectbox(key="activity-name-1").value == "Incubation (Overall Total)"
-    # Peer review and journal editorial work take the first two activity keys.
-    assert at.selectbox(key="activity-person-3").value == "1"
+    assert not any(isinstance(a, Activity) for a in at.session_state["activity_list"])
+    assert at.session_state["cost_list"] == []
     # The form is emptied ready for the next researcher.
     assert at.selectbox(key="add-person-role").value is None
     assert not at.button(key="load-alam-defaults").disabled
-
-    # Later researchers do not add activities.
+    # Each researcher gets an hours slider in the form to add an activity.
+    assert at.slider(key="add-item-hours-1").value == 0.0
+    assert at.slider(key="add-item-hours-1").max == 800.0
     add_researcher(at)
-    assert len([a for a in at.session_state["activity_list"] if isinstance(a, Activity)]) == 3
+    assert at.slider(key="add-item-hours-2").value == 0.0
 
 
 def load_alam_defaults(at: AppTest) -> None:
@@ -136,9 +141,12 @@ def test_load_alam_defaults() -> None:
     run(at)
     run(at)
     assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
-    assert at.number_input(key="activity-hours-1").value == 55.0
-    assert at.number_input(key="directcost-cost-1").value == 246.0
-    assert at.selectbox(key="activity-name-1").value == "Ideation and conception"
+    first_activity: Activity = next(a for a in at.session_state["activity_list"] if isinstance(a, Activity))
+    assert (first_activity.name, first_activity.hours) == ("Ideation and conception", 55.0)
+    assert at.session_state["cost_list"][0].cost == 246.0
+    # Each activity and direct cost is listed with buttons to edit and delete it.
+    assert at.button(key="item-activity-1-edit")
+    assert at.button(key="item-direct-cost-1-delete")
     assert at.slider(key="review-rounds").value == 3
 
 
@@ -147,10 +155,14 @@ def test_editing_people_keeps_loaded_activities() -> None:
     add_researcher_at_rate(at)
     load_alam_defaults(at)
     add_researcher(at, "lecturer")
-    assert at.selectbox(key="activity-name-1").value == "Ideation and conception"
-    assert at.number_input(key="activity-hours-1").value == 55.0
-    assert at.selectbox(key="activity-person-1").value == "1"
-    assert at.selectbox(key="directcost-name-1").value == "Participant incentivization"
+    first_activity: Activity = next(a for a in at.session_state["activity_list"] if isinstance(a, Activity))
+    assert (first_activity.name, first_activity.hours, first_activity.person.unique_key) == (
+        "Ideation and conception",
+        55.0,
+        "1",
+    )
+    assert at.session_state["cost_list"][0].name == "Participant incentivization"
+    assert at.button(key="item-activity-1-edit")
     assert not at.warning
 
 
@@ -164,13 +176,16 @@ def test_load_alam_defaults_keeps_country_and_rates() -> None:
     assert cost is not None
     assert at.selectbox(key="user_country_select").value == "au"
     assert at.session_state["people"]["1"].hourly_rate == 100
-    assert at.number_input(key="directcost-cost-1").value == round(cost, 2)
+    assert at.session_state["cost_list"][0].cost == round(cost, 2)
 
 
 def test_session_state_round_trip() -> None:
-    at: AppTest = run_app()
+    at: AppTest = run_app("simplified")
     state: CalculatorState = CalculatorState.from_session_state(AppTestSessionState(at))
-    assert CalculatorState.from_json(state.to_json()) == CalculatorState.default()
+    expected: CalculatorState = CalculatorState.default()
+    # The calculator's widgets write an entry for every phase, even when it is 0.
+    expected.simplified_direct_costs = dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0)
+    assert CalculatorState.from_json(state.to_json()) == expected
 
 
 def test_import_replaces_edited_widgets() -> None:
@@ -178,10 +193,11 @@ def test_import_replaces_edited_widgets() -> None:
     add_researcher_at_rate(at)
     load_alam_defaults(at)
     # Edit widgets so they hold their own state, which the import must override.
-    at.number_input(key="activity-hours-1").set_value(1000.0)
+    at.slider(key="add-item-hours-1").set_value(300.0)
     at.slider(key="review-rounds").set_value(10)
     run(at)
-    assert metric_values(at)[1] == "1758 h"
+    # 798 hours, and the peer review going from 8 to 22 hours.
+    assert metric_values(at)[1] == "812 h"
 
     imported: CalculatorState = default_with_researcher().with_default_costs()
     imported.people["1"].hourly_rate = 50.5
@@ -203,7 +219,8 @@ def test_import_replaces_edited_widgets() -> None:
         f"{restored.total_hours():.0f} h",
         "$3,646 (USD)",
     ]
-    assert at.number_input(key="activity-hours-1").value == 55.0
+    assert at.slider(key="add-item-hours-1").value == 0.0
+    assert at.button(key="item-activity-1-edit")
     assert at.slider(key="review-rounds").value == 2
     assert at.selectbox(key="user_country_select").value == "us"
     assert CalculatorState.from_session_state(AppTestSessionState(at)) == restored
@@ -280,11 +297,20 @@ def test_deleting_researcher_reassigns_activities() -> None:
     at: AppTest = run_app()
     add_researcher(at)
     add_researcher(at, "lecturer")
-    at.session_state["activity_list"][2].person = at.session_state["people"]["2"]
+    first, second = at.session_state["people"].values()
+    at.session_state["activity_list"].extend(
+        [
+            Activity("Solo", second, "data", 10, 3, 1),
+            Activity("Shared", first, "data", 5, 4, 2),
+            Activity("Shared", second, "data", 7, 5, 2),
+        ]
+    )
     at.button(key="delete-person-2").click()
     run(at)
     assert list(at.session_state["people"]) == ["1"]
-    assert {a.person.unique_key for a in at.session_state["activity_list"] if isinstance(a, Activity)} == {"1"}
+    activities: list[Activity] = [a for a in at.session_state["activity_list"] if isinstance(a, Activity)]
+    # Hours of an activity both researchers worked on are added together.
+    assert [(a.name, a.person.unique_key, a.hours) for a in activities] == [("Solo", "1", 10), ("Shared", "1", 12)]
 
     # Deleting the last researcher deletes the activities that were assigned to them.
     at.button(key="delete-person-1").click()
@@ -293,41 +319,115 @@ def test_deleting_researcher_reassigns_activities() -> None:
     assert not any(isinstance(a, Activity) for a in at.session_state["activity_list"])
 
 
-def test_choosing_activity_fills_default_hours() -> None:
+def test_adding_activity() -> None:
     at: AppTest = run_app()
     add_researcher(at)
-    at.selectbox(key="activity-name-1").set_value("Grant applications")
+    add_researcher(at, "lecturer")
+    # Choosing a preset fills in its default hours for the first researcher.
+    at.selectbox(key="add-item-name").set_value("Grant applications")
     run(at)
-    assert at.number_input(key="activity-hours-3").value == 171.0
-    assert next(a for a in at.session_state["activity_list"] if isinstance(a, Activity)).hours == 171.0
-
-    # AppTest cannot enter a custom name (accept_new_options), so check a preset with a default of 0 hours instead.
-    at.selectbox(key="activity-name-1").set_value("Other")
+    assert at.slider(key="add-item-hours-1").value == 171.0
+    assert at.slider(key="add-item-hours-2").value == 0.0
+    at.slider(key="add-item-hours-2").set_value(20.5)
+    next(button for button in at.button if button.label == "Add activity").click()
     run(at)
-    assert at.number_input(key="activity-hours-3").value == 0.0
-    assert next(a for a in at.session_state["activity_list"] if isinstance(a, Activity)).name == "Other"
+    activities: list[Activity] = [a for a in at.session_state["activity_list"] if isinstance(a, Activity)]
+    assert [(a.name, a.phase, a.person.unique_key, a.hours) for a in activities] == [
+        ("Grant applications", "incubation", "1", 171.0),
+        ("Grant applications", "incubation", "2", 20.5),
+    ]
+    assert len({a.group_key for a in activities}) == 1
+    # The form is emptied, and the activity listed under its phase.
+    assert at.selectbox(key="add-item-name").value is None
+    assert at.slider(key="add-item-hours-1").value == 0.0
+    assert at.button(key=f"item-activity-{activities[0].group_key}-edit")
+    assert metric_values(at)[1] == f"{171 + 20.5 + 23:.0f} h"
 
 
-def test_choosing_direct_cost_fills_default_cost() -> None:
+def test_adding_activity_needs_a_name_and_hours() -> None:
+    at: AppTest = run_app()
+    add_researcher(at)
+    # Without a name, nothing is added.
+    next(button for button in at.button if button.label == "Add activity").click()
+    run(at)
+    assert not any(isinstance(a, Activity) for a in at.session_state["activity_list"])
+    # Without hours, nothing is added.
+    at.selectbox(key="add-item-name").set_value("Other")
+    run(at)
+    assert at.slider(key="add-item-hours-1").value == 0.0
+    next(button for button in at.button if button.label == "Add activity").click()
+    run(at)
+    assert not any(isinstance(a, Activity) for a in at.session_state["activity_list"])
+
+
+def test_editing_and_deleting_activity() -> None:
+    at: AppTest = run_app()
+    add_researcher_at_rate(at)
+    add_researcher(at, "lecturer")
+    at.selectbox(key="add-item-phase").set_value("data")
+    run(at)
+    at.selectbox(key="add-item-name").set_value("Data analysis")
+    run(at)
+    next(button for button in at.button if button.label == "Add activity").click()
+    run(at)
+    group_key: int = next(a for a in at.session_state["activity_list"] if isinstance(a, Activity)).group_key
+
+    at.button(key=f"item-activity-{group_key}-edit").click()
+    run(at)
+    edit_key: str = f"edit-item-activity-{group_key}"
+    assert at.selectbox(key=f"{edit_key}-name").value == "Data analysis"
+    assert at.slider(key=f"{edit_key}-hours-1").value == 157.5
+    at.slider(key=f"{edit_key}-hours-1").set_value(0.0)
+    at.slider(key=f"{edit_key}-hours-2").set_value(10.0)
+    next(button for button in at.button if button.label == "Save changes").click()
+    run(at)
+    activities: list[Activity] = [a for a in at.session_state["activity_list"] if isinstance(a, Activity)]
+    # The first researcher was removed from the activity, and the second added.
+    assert [(a.person.unique_key, a.hours) for a in activities] == [("2", 10.0)]
+
+    at.button(key=f"item-activity-{group_key}-delete").click()
+    run(at)
+    assert not any(isinstance(a, Activity) for a in at.session_state["activity_list"])
+
+
+def test_adding_editing_and_deleting_direct_cost() -> None:
     at: AppTest = run_app()
     add_researcher(at)
     at.selectbox(key="user_country_select").set_value("au")
     run(at)
-    load_alam_defaults(at)
-    at.selectbox(key="directcost-name-1").set_value("Software")
+    at.radio(key="add-item-kind").set_value("direct_cost")
+    at.selectbox(key="add-item-phase").set_value("data")
     run(at)
-    assert at.number_input(key="directcost-cost-1").value == 0.0
-
-    at.selectbox(key="directcost-name-1").set_value("Participant incentivization")
+    # The presets are those of the chosen phase, and choosing one fills in its default cost in the user's currency.
+    assert "Participant incentivization" in at.selectbox(key="add-item-name").options
+    at.selectbox(key="add-item-name").set_value("Participant incentivization")
     run(at)
     cost: float | None = convert_currency(246, "USD", "AUD")
     assert cost is not None
-    assert at.number_input(key="directcost-cost-1").value == round(cost, 2)
-    assert at.session_state["cost_list"][0].cost == round(cost, 2)
+    assert at.number_input(key="add-item-cost").value == round(cost, 2)
+    next(button for button in at.button if button.label == "Add direct cost").click()
+    run(at)
+    assert [(c.name, c.phase, c.cost) for c in at.session_state["cost_list"]] == [
+        ("Participant incentivization", "data", round(cost, 2))
+    ]
+    assert at.selectbox(key="add-item-name").value is None
+    assert at.number_input(key="add-item-cost").value == 0.0
+
+    at.button(key="item-direct-cost-1-edit").click()
+    run(at)
+    assert at.number_input(key="edit-item-direct_cost-1-cost").value == round(cost, 2)
+    at.number_input(key="edit-item-direct_cost-1-cost").set_value(500.0)
+    next(button for button in at.button if button.label == "Save changes").click()
+    run(at)
+    assert at.session_state["cost_list"][0].cost == 500.0
+
+    at.button(key="item-direct-cost-1-delete").click()
+    run(at)
+    assert at.session_state["cost_list"] == []
 
 
 def test_field_of_research_select() -> None:
-    at: AppTest = run_app()
+    at: AppTest = run_app("simplified")
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
     assert field_select.value == "3501"
     assert field_select.options[0] == "Agricultural, veterinary and food sciences/Agricultural biotechnology"
@@ -341,3 +441,87 @@ def test_field_of_research_select() -> None:
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
     assert field_select.value == "Social sciences"
     assert field_select.options[0] == "Social sciences"
+
+
+def test_simplified_is_the_default_mode() -> None:
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+    assert at.radio(key="calculator-mode").value == "simplified"
+    assert not any(box.key == "activity-name-1" for box in at.selectbox)
+    assert not any(button.key == "load-alam-defaults" for button in at.button)
+    assert [cost.key for cost in at.number_input if cost.key and cost.key.startswith("simplified-cost-")] == [
+        f"simplified-cost-{phase}" for phase in OVERALL_TOTAL_PHASES
+    ]
+
+
+def test_simplified_first_researcher_starts_with_default_hours() -> None:
+    at: AppTest = run_app("simplified")
+    add_researcher_at_rate(at)
+    add_researcher(at, "lecturer")
+    run(at)
+    assert at.slider(key="simplified-hours-incubation-1").value == 286.0
+    assert at.slider(key="simplified-hours-data-1").value == 266.5
+    assert at.slider(key="simplified-hours-writing-1").value == 223.0
+    assert at.slider(key="simplified-hours-incubation-2").value == 0.0
+    assert at.slider(key="simplified-hours-incubation-1").max == 800.0
+    # 775.5 hours of research and 23 hours of peer review and journal editorial work, at US$85.
+    assert metric_values(at) == [f"${(775.5 + 23) * 85:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$0 (USD)"]
+
+
+def test_simplified_estimates() -> None:
+    at: AppTest = run_app("simplified")
+    add_researcher_at_rate(at)
+    at.slider(key="simplified-hours-incubation-1").set_value(100.0)
+    at.slider(key="simplified-hours-data-1").set_value(0.0)
+    at.slider(key="simplified-hours-writing-1").set_value(0.0)
+    at.number_input(key="simplified-cost-data").set_value(250.0)
+    run(at)
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
+
+    # The granular estimates are separate, and the mode chosen decides which count.
+    at.radio(key="calculator-mode").set_value("granular")
+    run(at)
+    assert metric_values(at) == ["$1,955 (USD)", "23 h", "$0 (USD)"]
+    at.radio(key="calculator-mode").set_value("simplified")
+    run(at)
+    assert at.slider(key="simplified-hours-incubation-1").value == 100.0
+    assert at.number_input(key="simplified-cost-data").value == 250.0
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
+
+
+def test_simplified_direct_costs_convert_with_currency() -> None:
+    at: AppTest = run_app("simplified")
+    at.number_input(key="simplified-cost-data").set_value(100.0)
+    run(at)
+    at.selectbox(key="user_country_select").set_value("au")
+    run(at)
+    cost: float | None = convert_currency(100, "USD", "AUD")
+    assert cost is not None
+    assert at.number_input(key="simplified-cost-data").value == round(cost, 2)
+
+
+def test_deleting_researcher_moves_simplified_hours() -> None:
+    at: AppTest = run_app("simplified")
+    add_researcher(at)
+    add_researcher(at, "lecturer")
+    at.slider(key="simplified-hours-incubation-2").set_value(50.0)
+    at.slider(key="simplified-hours-data-2").set_value(600.0)
+    run(at)
+    at.button(key="delete-person-1").click()
+    run(at)
+    assert list(at.session_state["people"]) == ["2"]
+    assert at.slider(key="simplified-hours-incubation-2").value == 336.0
+    # The hours are capped at the slider's maximum.
+    assert at.slider(key="simplified-hours-data-2").value == 800.0
+
+
+def test_sunburst_only_shown_in_granular_mode() -> None:
+    # AppTest cannot read Plotly charts, so look for the caption shown beneath the sunburst.
+    def sunburst_caption_shown(at: AppTest) -> bool:
+        return any(caption.value.startswith("Percentages are calculated") for caption in at.caption)
+
+    at: AppTest = run_app("simplified")
+    assert not sunburst_caption_shown(at)
+    at.radio(key="calculator-mode").set_value("granular")
+    run(at)
+    assert sunburst_caption_shown(at)

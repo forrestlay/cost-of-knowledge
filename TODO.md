@@ -4,41 +4,41 @@
 - [X] Change names to "Researcher 1", etc.
 - [ ] Include language that currency conversions are anchored to US benchmarks.
 - [X] Don't prefill numbers into the calculator; instead add a button to let users prefill the paper's numbers instead. Start with a blank slate.
-- [ ] Include our estimates in the text explaining inputs, not prefilled.
+- [X] Include our estimates in the text explaining inputs, not prefilled.
 - [ ] Perhaps include commentary for each graph explaining what we find on average, we assume X for hour count.
-- [ ] Hourly rate - explain our estimate, if you know yours accurately can fill in.
-- [ ] Introduction: Tool/project is not about placing value on the contribution of research to society.
-- [ ] BUG: Deleting activities too fast will result in error.
+- [X] Hourly rate - explain our estimate, if you know yours accurately can fill in.
+- [X] Introduction: Tool/project is not about placing value on the contribution of research to society.
+- [X] BUG: Deleting activities too fast will result in error.
 - [X] Social media share image should have hours removed to prevent calculating someone's salary.
 - [X] Give people option to fill in hours for a phase as a whole instead of individual activities.
-- [ ] Add a toggle to allow users to choose the median/average hours for an activity and then users can adjust above or below. Add information to explain why the median/average was chosen.
+- [X] Add a toggle to allow users to choose the median/average hours for an activity and then users can adjust above or below. Add information to explain why the median/average was chosen.
 - [ ] Tooltips for information about estimates.
 - [ ] Give users question about funding/cost of papers - how much publishers contribute vs public funding?
 - [ ] Pie chart too small on phone.
 - [ ] Add a separate page that allows people to share their result without revealing the hours, potentially through a more limited set of graphs.
 - [ ] Move the save to database button to the bottom above the share to social media buttons.
-- [ ] Include instructions for selectboxes that they can type to search fields. Default to blank.
-- [ ] Explain the indirect costs multiplier.
-- [ ] Clear explanation at start of what the tool is meant for.
+- [X] Include instructions for selectboxes that they can type to search fields. Default to blank.
+- [X] Explain the indirect costs multiplier.
+- [X] Clear explanation at start of what the tool is meant for.
   - [ ] Make users comfortable with entering estimates in.
-- [ ] Tool usability
-  - [ ] Get rid of collapsibles.
-  - [ ] Move the calculator inputs to above the graphs.
-  - [ ] ! Shrink down to four phases instead of activities and direct costs.
+- [X] Tool usability
+  - [X] Get rid of collapsibles.
+  - [X] Move the calculator inputs to above the graphs.
+  - [X] ! Shrink down to four phases instead of activities and direct costs.
 - [ ] Need a call to action for sharing.
 - [ ] Add an indicator variable for when users used the prefill.
-- [ ] Move the number of journals submitted above the number of review rounds. Change the minimum back to 1. Explain what is meant by review rounds.
-- [ ] Remove the (US) from the role titles. Replace with the country equivalent instead of showing side by side.
-- [ ] Make clear that default hours are prefilled for activities.
-- [ ] Footnotes for referencing.
+- [X] Move the number of journals submitted above the number of review rounds. Change the minimum back to 1. Explain what is meant by review rounds.
+- [X] Remove the (US) from the role titles. Replace with the country equivalent instead of showing side by side.
+- [X] Make clear that default hours are prefilled for activities.
+- [X] Footnotes for referencing.
 - [ ] Include a reset to zero button for the calculator.
-- [ ] Slider centered around our paper averages for each phase.
+- [X] Slider centered around our paper averages for each phase.
 - [ ] Add save and share at bottom as well as where it is now.
-- [ ] Add quantity to role for larger teams.
-- [ ] Start with a question "As a researcher, do you want to know how much your paper costs from ideation to acceptance?" Punch up wording.
+- [X] Add quantity to role for larger teams.
+- [X] Start with a question "As a researcher, do you want to know how much your paper costs from ideation to acceptance?" Punch up wording.
 - [ ] Include versioning in the data collected.
 - [ ] Estimate of "Once accepted, provide an estimate of how much it costs the publisher to publish your journal article."
 - [ ] Link to Sparc privacy policy
 - [ ] Checkbox to opt in to saving data, messaging around future research purposes.
 - [ ] Data stored behind login wall.
-- [ ] Remove "you" from Researcher 1 and make text more general instead of personalised.
+- [X] Remove "you" from Researcher 1 and make text more general instead of personalised.

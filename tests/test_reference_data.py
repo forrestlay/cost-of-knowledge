@@ -16,11 +16,11 @@ def test_roles_are_valid() -> None:
 
 def test_role_display_name() -> None:
     role = ROLES["assistant_professor"]
-    assert role.display_name("us") == "Assistant Professor (US)"
-    assert role.display_name("au") == "Assistant Professor (US) / Lecturer (Australia)"
+    assert role.display_name("us") == "Assistant Professor"
+    assert role.display_name("au") == "Assistant Professor (Australia equivalent: Senior Lecturer)"
     # Countries without a local label, or whose local label matches the US one, show only the US label.
-    assert role.display_name("fr") == "Assistant Professor (US)"
-    assert ROLES["research_assistant"].display_name("au") == "Research Assistant (US)"
+    assert role.display_name("fr") == "Assistant Professor"
+    assert ROLES["research_assistant"].display_name("au") == "Research Assistant"
 
 
 def test_fields_of_research() -> None:

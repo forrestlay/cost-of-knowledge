@@ -8,7 +8,6 @@ dropped before and after each test, so use a database for testing only.
 from __future__ import annotations
 
 import os
-import sqlite3
 from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
@@ -24,26 +23,15 @@ if TYPE_CHECKING:
 
     from src.sql_store import Connection
 
-# The SQLite projects table as it was before the parent_id column was added.
-SCHEMA_WITHOUT_PARENT_ID: str = """
-CREATE TABLE projects (
-    id INTEGER PRIMARY KEY,
-    public_id VARCHAR(21) NOT NULL UNIQUE,
-    schema_version INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    user_name TEXT,
-    user_country TEXT NOT NULL,
-    international_collaborators INTEGER NOT NULL,
-    project_name TEXT,
-    project_field TEXT NOT NULL,
-    total_cost NUMERIC NOT NULL,
-    total_hours NUMERIC NOT NULL
-);
-"""
-
 # Child tables first, as they reference projects.
-TABLES: tuple[str, ...] = ("activities", "direct_costs", "people", "projects")
+TABLES: tuple[str, ...] = (
+    "activities",
+    "simplified_hours",
+    "simplified_direct_costs",
+    "direct_costs",
+    "people",
+    "projects",
+)
 
 
 def drop_tables(connection: Connection) -> None:
@@ -81,11 +69,18 @@ def conn(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Ite
     connection.close()
 
 
+def default_with_researcher() -> CalculatorState:
+    """The default state with one researcher, as the calculator has once one has been added."""
+    state: CalculatorState = CalculatorState.default()
+    state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 85)
+    return state
+
+
 def modified_state() -> CalculatorState:
-    state: CalculatorState = CalculatorState.default().with_default_costs()
+    state: CalculatorState = default_with_researcher().with_default_costs()
     state.international_collaborators = True
     state.indirect_cost_percentage = 55
-    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist")
+    second: Person = Person("2", PersonType.RESEARCH_TEAM, 41.2, "research_scientist", 3)
     state.people["2"] = second
     state.activities.append(Activity(None, second, "data", 20.5, 11, 11))
     state.direct_costs.pop()
@@ -146,29 +141,24 @@ def test_deleting_parent_keeps_child(conn: Connection) -> None:
     assert project["parent_id"] is None
 
 
-def test_init_db_adds_parent_id_to_existing_table() -> None:
-    with closing(sqlite3.connect(":memory:")) as connection:
-        # The projects table as created before parent_id was added.
-        connection.executescript(SCHEMA_WITHOUT_PARENT_ID)
-        sql_store.init_db(connection)
-        parent_public_id: str = sql_store.save_project(connection, CalculatorState.default())
-        sql_store.save_project(connection, modified_state(), parent_public_id)
-        assert [project["parent_id"] is None for project in sql_store.list_projects(connection)] == [False, True]
+def test_save_and_load_simplified_estimates(conn: Connection) -> None:
+    state: CalculatorState = default_with_researcher()
+    state.people["2"] = Person("2", PersonType.RESEARCH_TEAM, 40)
+    state.simplified_hours = {"incubation": {"1": 286, "2": 12.5}, "data": {"1": 266.5}}
+    state.simplified_direct_costs = {"data": 250.5, "writing": 3400}
+    public_id: str = sql_store.save_project(conn, state)
+    restored: CalculatorState = sql_store.load_project(conn, public_id)
+    assert restored == state
+    assert restored.calculator_mode == "simplified"
+    assert restored.total_hours() == 286 + 12.5 + 266.5 + 23
+    assert restored.total_cost() == pytest.approx((286 + 266.5 + 23) * 85 + 12.5 * 40 + 250.5 + 3400)
 
-
-def test_init_db_adds_researcher_role_to_existing_table() -> None:
-    with closing(sqlite3.connect(":memory:")) as connection:
-        # The people table as created before researcher_role was added.
-        connection.executescript(SCHEMA_WITHOUT_PARENT_ID)
-        connection.execute(
-            "CREATE TABLE people (project_id INTEGER NOT NULL, position INTEGER NOT NULL, unique_key TEXT NOT NULL,"
-            " role TEXT NOT NULL, name TEXT, person_type TEXT NOT NULL, hourly_rate NUMERIC NOT NULL,"
-            " PRIMARY KEY (project_id, unique_key))"
-        )
-        sql_store.init_db(connection)
-        state: CalculatorState = modified_state()
-        public_id: str = sql_store.save_project(connection, state)
-        assert sql_store.load_project(connection, public_id) == state
+    # Granular mode ignores the simplified estimates, which are kept.
+    state.calculator_mode = "granular"
+    sql_store.update_project(conn, public_id, state)
+    restored = sql_store.load_project(conn, public_id)
+    assert restored == state
+    assert restored.total_hours() == 23
 
 
 def test_update_missing_project_raises(conn: Connection) -> None:

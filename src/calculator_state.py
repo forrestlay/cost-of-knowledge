@@ -21,7 +21,7 @@ limitations under the License.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,7 +34,7 @@ from src.models import (
     Person,
     PersonType,
 )
-from src.reference_data import RESEARCH_PHASES, ROLES
+from src.reference_data import RESEARCH_PHASES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, MutableMapping, Sequence
@@ -47,9 +47,17 @@ type SessionStateKey = str | int
 
 # Bump when the serialised format changes, and teach CalculatorState.from_dict to read the older versions.
 # Version 2 removed the user's name, the project's name and people's names, and added people's roles. Version 1 data
-# is read by ignoring the names, with no roles.
-SCHEMA_VERSION: int = 2
-SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2)
+# is read by ignoring the names, with no roles. Version 3 added the calculator mode and the simplified estimates. Older
+# data is read in granular mode with no simplified estimates.
+SCHEMA_VERSION: int = 3
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3)
+# The two ways of estimating activities and costs in the calculator. Simplified takes an overall number of hours per
+# researcher and an overall direct cost for each phase in OVERALL_TOTAL_PHASES. Granular takes individual activities and
+# direct costs.
+CALCULATOR_MODES: tuple[str, ...] = ("simplified", "granular")
+DEFAULT_CALCULATOR_MODE: str = "simplified"
+# Maximum hours of a researcher in a phase, or on an activity.
+MAX_RESEARCHER_HOURS: int = 800
 # Project-wide indirect cost rate (%) applied to hourly rates calculated from a salary. Projects saved before the rate
 # was stored are loaded with this rate.
 DEFAULT_INDIRECT_COST_PERCENTAGE: int = 40
@@ -58,28 +66,39 @@ DEFAULT_INDIRECT_COST_PERCENTAGE: int = 40
 # session state and ignores its value=/index= argument, so these must be cleared when a new state is applied or the
 # widgets would keep showing (and writing back) the previous calculator's values.
 WIDGET_KEY_PREFIXES: tuple[str, ...] = (
-    "person-role-",  # Researchers: role selectbox
-    "person-rate-",  # Researchers: hourly rate number_input
-    "activity-name-",  # Calculator: activity name selectbox
-    "activity-person-",  # Calculator: assigned person selectbox
-    "activity-hours-",  # Calculator: hours number_input
-    "directcost-name-",  # Calculator: direct cost name selectbox
-    "directcost-cost-",  # Calculator: direct cost number_input
+    "add-person-",  # Study team: widgets of the form to add a researcher
+    "edit-person-",  # Study team: widgets of the dialog to edit a researcher
+    "add-item-",  # Calculator: widgets of the form to add an activity or direct cost
+    "edit-item-",  # Calculator: widgets of the dialog to edit an activity or direct cost
+    "simplified-hours-",  # Calculator: simplified estimate's hours slider of a researcher in a phase
+    "simplified-cost-",  # Calculator: simplified estimate's direct costs number_input of a phase
 )
 WIDGET_KEYS: tuple[str, ...] = (
     "user_country_select",  # You and your project: country selectbox
     "indirect_cost_percentage",  # Indirect Costs: project-wide indirect cost rate slider
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
+    "calculator-mode",  # Calculator: simplified or granular estimates radio
 )
 # Conservative estimates of the activities and costs of a social sciences journal article from Alam et al. (2026),
 # loaded from data/default_costs.json, and the starting hourly rate of the calculator's people.
 _DEFAULT_COSTS: dict[str, Any] = json.loads(
     (Path(__file__).parent.parent / "data" / "default_costs.json").read_text(encoding="utf-8")
 )
-# Phases that start with an "(Overall Total)" activity. The editing phase has its own peer review and journal editorial
-# work activities instead.
+# Phases whose hours and direct costs are estimated as overall totals in the simplified calculator, and that can have
+# activities and direct costs added in the granular calculator. The editing phase has its own peer review and journal
+# editorial work activities instead.
 OVERALL_TOTAL_PHASES: tuple[str, ...] = ("incubation", "data", "writing")
+
+
+def default_phase_hours() -> dict[str, float]:
+    """Returns the total hours of each phase in OVERALL_TOTAL_PHASES in the default estimates from Alam et al. (2026),
+    which the first researcher starts with in the simplified calculator.
+    """
+    hours: dict[str, float] = dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0)
+    for activity in _DEFAULT_COSTS["activities"]:
+        hours[activity["phase"]] += float(activity["hours"])
+    return hours
 
 
 def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
@@ -136,9 +155,16 @@ class CalculatorState:
         people: Research team members, keyed by unique_key, in display order.
         peer_reviewer: The Person assigned to the peer review activity.
         journal_editor: The Person assigned to the journal editorial work activity.
-        activities: Every activity in calculator order, including exactly one PeerReview and one JournalEditing.
-            Activities reference Persons in people, peer_reviewer or journal_editor by object identity.
-        direct_costs: Direct costs in calculator order.
+        activities: Every granular activity in calculator order, including exactly one PeerReview and one
+            JournalEditing. Activities reference Persons in people, peer_reviewer or journal_editor by object identity.
+        direct_costs: Granular direct costs in calculator order.
+        calculator_mode: One of CALCULATOR_MODES. Decides whether the granular activities and direct costs, or the
+            simplified estimates, count towards the totals. The peer review and journal editorial work activities count
+            in both modes.
+        simplified_hours: Simplified estimate of the hours of each researcher in each phase, keyed by phase and then
+            by the researcher's unique_key. Missing entries are 0 hours.
+        simplified_direct_costs: Simplified estimate of the total direct costs of each phase, keyed by phase. Missing
+            entries are 0.
     """
 
     user_country: str
@@ -150,6 +176,9 @@ class CalculatorState:
     journal_editor: Person
     activities: list[BaseActivity]
     direct_costs: list[DirectCost]
+    calculator_mode: str = DEFAULT_CALCULATOR_MODE
+    simplified_hours: dict[str, dict[str, float]] = field(default_factory=dict)
+    simplified_direct_costs: dict[str, float] = field(default_factory=dict)
 
     @property
     def peer_review(self) -> PeerReview:
@@ -163,15 +192,10 @@ class CalculatorState:
 
     @classmethod
     def default(cls) -> CalculatorState:
-        """Returns the calculator's starting state, with one "(Overall Total)" activity of 0 hours in each of the first
-        three phases, no peer review or journal editorial work and no direct costs.
+        """Returns the calculator's starting state, with no researchers, one journal submission with three rounds of
+        peer review, and no direct costs.
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
-        default_person: Person = Person(
-            unique_key="1",
-            person_type=PersonType.RESEARCH_TEAM,
-            hourly_rate=hourly_rate,
-        )
         peer_reviewer: Person = Person(
             unique_key="Peer reviewer",
             person_type=PersonType.OTHER,
@@ -182,41 +206,76 @@ class CalculatorState:
             person_type=PersonType.OTHER,
             hourly_rate=hourly_rate,
         )
-        # Each Activity below is one person's share of an activity. Activities sharing a group_key form a single
-        # activity in the calculator, so the initial activities each start with one person and a group_key matching
-        # their key. The names match the "(Overall Total)" activities in data/costs.json.
         activities: list[BaseActivity] = [
-            Activity(f"{RESEARCH_PHASES[phase]} (Overall Total)", default_person, phase, 0, key, key)
-            for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
-        ]
-        activities += [
-            PeerReview(person=peer_reviewer, review_rounds=0, journal_submissions=0, unique_key=len(activities) + 1),
-            JournalEditing(person=journal_editor, journal_submissions=0, unique_key=len(activities) + 2),
+            PeerReview(person=peer_reviewer, review_rounds=3, journal_submissions=1, unique_key=1),
+            JournalEditing(person=journal_editor, journal_submissions=1, unique_key=2),
         ]
         return cls(
             user_country="",  # Blank until chosen. Amounts are in USD until then.
             international_collaborators=False,
             project_field="",  # Blank until chosen
             indirect_cost_percentage=DEFAULT_INDIRECT_COST_PERCENTAGE,
-            people={default_person.unique_key: default_person},
+            people={},
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,
             activities=activities,
             direct_costs=[],
         )
 
+    def effective_activities(self) -> list[BaseActivity]:
+        """Returns the activities that count towards the totals in the current calculator mode.
+
+        There are none until a researcher has been added, so the totals start at 0.
+
+        In granular mode these are the activities. In simplified mode they are an "(Overall Total)" activity for each
+        researcher with hours in a phase, along with the peer review and journal editorial work activities.
+        """
+        if not self.people:
+            return []
+        if self.calculator_mode != "simplified":
+            return list(self.activities)
+        simplified: list[BaseActivity] = []
+        for phase in OVERALL_TOTAL_PHASES:
+            for person in self.people.values():
+                hours: float = self.simplified_hours.get(phase, {}).get(person.unique_key, 0.0)
+                if hours > 0:
+                    key: int = len(simplified) + 1
+                    simplified.append(
+                        Activity(f"{RESEARCH_PHASES[phase]} (Overall Total)", person, phase, hours, key, key)
+                    )
+        return simplified + [activity for activity in self.activities if not isinstance(activity, Activity)]
+
+    def effective_direct_costs(self) -> list[DirectCost]:
+        """Returns the direct costs that count towards the totals in the current calculator mode.
+
+        In simplified mode these are an "(Overall Total)" direct cost for each phase with a cost.
+        """
+        if self.calculator_mode != "simplified":
+            return list(self.direct_costs)
+        return [
+            DirectCost(f"{RESEARCH_PHASES[phase]} (Overall Total)", phase, self.simplified_direct_costs[phase], key)
+            for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
+            if self.simplified_direct_costs.get(phase, 0.0) > 0
+        ]
+
     def with_default_costs(self, usd_to_currency: float = 1.0) -> CalculatorState:
         """Returns a copy of this state with its activities and direct costs replaced by the conservative estimates for
         a social sciences journal article from Alam et al. (2026), loaded from data/default_costs.json.
 
-        The project, people and hourly rates are kept. Every activity is assigned to the first research team member,
+        The result is in granular mode, as the estimates are individual activities and direct costs. The project, people
+        and hourly rates are kept. Every activity is assigned to the first research team member,
         and the peer reviewer and journal editor keep their rates.
 
         Args:
             usd_to_currency: Exchange rate from USD to the currency of this state's monetary values, applied to the
                 direct costs.
+
+        Raises:
+            ValueError: If this state has no research team members to assign the activities to.
         """
         state: CalculatorState = CalculatorState.from_dict(self.to_dict())
+        if not state.people:
+            raise ValueError("Add a researcher before loading the default estimates.")
         first_person: Person = next(iter(state.people.values()))
         # As in default(), each activity starts with one person and a group_key matching its key.
         activities: list[BaseActivity] = [
@@ -239,6 +298,7 @@ class CalculatorState:
             ),
         ]
         state.activities = activities
+        state.calculator_mode = "granular"
         state.direct_costs = [
             DirectCost(cost["name"], cost["phase"], round(cost["cost"] * usd_to_currency, 2), key)
             for key, cost in enumerate(_DEFAULT_COSTS["direct_costs"], start=1)
@@ -251,11 +311,12 @@ class CalculatorState:
 
     def total_cost(self) -> float:
         """Total cost of every activity and direct cost in US$."""
-        return compute_costs([*self.activities, *self.direct_costs])  # ty:ignore[invalid-argument-type]
+        combined: list[Cost] = [*self.effective_activities(), *self.effective_direct_costs()]  # ty:ignore[invalid-assignment]
+        return compute_costs(combined)
 
     def total_hours(self) -> float:
         """Total hours of labour across every activity."""
-        return compute_hours(self.activities)
+        return compute_hours(self.effective_activities())
 
     def summary(self, phase_labels: Mapping[str, str] | None = None) -> dict[str, Any]:
         """Derived totals for this state. Written alongside exports for reference and ignored on import.
@@ -264,7 +325,7 @@ class CalculatorState:
             phase_labels: Optional mapping of phase key to display name (e.g. reference_data.RESEARCH_PHASES). Phases
                 are keyed by their phase key when omitted.
         """
-        combined: list[Cost] = [*self.activities, *self.direct_costs]  # ty:ignore[invalid-assignment]
+        combined: list[Cost] = [*self.effective_activities(), *self.effective_direct_costs()]  # ty:ignore[invalid-assignment]
         phases: list[str] = list(dict.fromkeys(item.phase for item in combined))
         if phase_labels is not None:
             phases = list(dict.fromkeys([*phase_labels, *phases]))
@@ -289,12 +350,21 @@ class CalculatorState:
                 "international_collaborators": self.international_collaborators,
                 "project_field": self.project_field,
                 "indirect_cost_percentage": self.indirect_cost_percentage,
+                "calculator_mode": self.calculator_mode,
             },
             "people": [person.to_dict() for person in self.people.values()],
             "peer_reviewer": self.peer_reviewer.to_dict(),
             "journal_editor": self.journal_editor.to_dict(),
             "activities": [activity.to_dict() for activity in self.activities],  # ty:ignore[unresolved-attribute]
             "direct_costs": [direct_cost.to_dict() for direct_cost in self.direct_costs],
+            "simplified_hours": [
+                {"phase": phase, "person_key": person_key, "hours": hours}
+                for phase, phase_hours in self.simplified_hours.items()
+                for person_key, hours in phase_hours.items()
+            ],
+            "simplified_direct_costs": [
+                {"phase": phase, "cost": cost} for phase, cost in self.simplified_direct_costs.items()
+            ],
             "summary": self.summary(),
         }
 
@@ -335,6 +405,15 @@ class CalculatorState:
                 raise ValueError(f"Expected exactly one {special_type.__name__} activity, found {count}.")
 
         project: Mapping[str, Any] = data["project"]
+        calculator_mode: str = project.get("calculator_mode", "granular")
+        if calculator_mode not in CALCULATOR_MODES:
+            raise ValueError(f"Unknown calculator_mode {calculator_mode!r}.")
+        simplified_hours: dict[str, dict[str, float]] = {}
+        for hours_data in data.get("simplified_hours", []):
+            person_key: str = str(hours_data["person_key"])
+            if person_key not in people:
+                raise ValueError(f"Simplified hours reference unknown person_key {person_key!r}.")
+            simplified_hours.setdefault(hours_data["phase"], {})[person_key] = hours_data["hours"]
         return cls(
             user_country=project["user_country"],
             international_collaborators=bool(project["international_collaborators"]),
@@ -345,6 +424,11 @@ class CalculatorState:
             journal_editor=journal_editor,
             activities=activities,
             direct_costs=[DirectCost.from_dict(cost_data) for cost_data in data["direct_costs"]],
+            calculator_mode=calculator_mode,
+            simplified_hours=simplified_hours,
+            simplified_direct_costs={
+                cost_data["phase"]: cost_data["cost"] for cost_data in data.get("simplified_direct_costs", [])
+            },
         )
 
     def to_json(self, indent: int | None = 2) -> str:
@@ -377,6 +461,9 @@ class CalculatorState:
             journal_editor=session_state["journal_editor"],
             activities=list(session_state["activity_list"]),
             direct_costs=list(session_state["cost_list"]),
+            calculator_mode=session_state["calculator_mode"],
+            simplified_hours=session_state["simplified_hours"],
+            simplified_direct_costs=session_state["simplified_direct_costs"],
         )
 
     def apply_to_session_state(self, session_state: MutableMapping[SessionStateKey, Any]) -> None:
@@ -408,25 +495,17 @@ class CalculatorState:
         session_state["journal_editing_activity"] = journal_editing
         session_state["activity_list"] = self.activities
         session_state["cost_list"] = self.direct_costs
+        session_state["calculator_mode"] = self.calculator_mode
+        session_state["simplified_hours"] = self.simplified_hours
+        session_state["simplified_direct_costs"] = self.simplified_direct_costs
         session_state["review_rounds"] = peer_review.review_rounds
         session_state["journal_submissions"] = peer_review.journal_submissions
-        # The hourly rate inputs have an int min_value, so passing a float rate (e.g. one calculated from a salary)
-        # as their value= would raise. Seed their widget state instead, as the salary dialog does.
-        for key, person in self.people.items():
-            session_state[f"person-rate-{key}"] = person.hourly_rate
-        # Keys are reused (e.g. activity-hours-1 names whichever activity has unique_key 1), so the browser keeps
-        # showing, and sends back on the next rerun, the value it already holds for a key unless the new value is
-        # written into the widget's state. value= alone only reaches a widget the browser has not seen before.
-        for key, person in self.people.items():
-            # A role no longer in ROLES would show as the first role, so leave its selectbox unselected instead.
-            session_state[f"person-role-{key}"] = person.role if person.role in ROLES else None
-        for activity in self.activities:
-            if isinstance(activity, Activity):
-                session_state[f"activity-name-{activity.group_key}"] = activity.name
-                session_state[f"activity-person-{activity.unique_key}"] = activity.person.unique_key
-                session_state[f"activity-hours-{activity.unique_key}"] = float(activity.hours)
-        for direct_cost in self.direct_costs:
-            session_state[f"directcost-name-{direct_cost.unique_key}"] = direct_cost.name
-            session_state[f"directcost-cost-{direct_cost.unique_key}"] = float(direct_cost.cost)
         session_state["review-rounds"] = peer_review.review_rounds
         session_state["journal-submissions"] = peer_review.journal_submissions
+        for phase in OVERALL_TOTAL_PHASES:
+            for person_key in self.people:
+                session_state[f"simplified-hours-{phase}-{person_key}"] = float(
+                    self.simplified_hours.get(phase, {}).get(person_key, 0.0)
+                )
+            session_state[f"simplified-cost-{phase}"] = float(self.simplified_direct_costs.get(phase, 0.0))
+        session_state["calculator-mode"] = self.calculator_mode

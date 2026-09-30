@@ -57,12 +57,14 @@ class Person:
         person_type: Whether person is a research team member or other.
         hourly_rate: Cost of person's labour per hour.
         role: Key of the person's role in reference_data.ROLES (e.g. "assistant_professor"), or None if not chosen.
+        quantity: Number of people who share this hourly rate. Recorded for display only; it does not affect costs.
     """
 
     unique_key: str
     person_type: PersonType
     hourly_rate: int | float
     role: str | None = None
+    quantity: int = 1
 
     @property
     def label(self) -> str:
@@ -102,19 +104,22 @@ class Person:
             "person_type": self.person_type.name,
             "hourly_rate": self.hourly_rate,
             "role": self.role,
+            "quantity": self.quantity,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Person:
         """Creates a Person from a dict produced by ``to_dict``.
 
-        Ignores the "name" key written by schema version 1, which has no "role" key.
+        Ignores the "name" key written by schema version 1, which has no "role" key. Data saved before quantities
+        existed has no "quantity" key, and is loaded with a quantity of 1.
         """
         return cls(
             unique_key=str(data["unique_key"]),
             person_type=PersonType[data["person_type"]],
             hourly_rate=data["hourly_rate"],
             role=data.get("role"),
+            quantity=int(data.get("quantity") or 1),
         )
 
 
@@ -185,7 +190,7 @@ class Activity(BaseActivity):
 
     def get_total_cost(self) -> int | float:
         """Returns the total cost of this activity in dollars."""
-        total_cost: int | float = self.person.hourly_rate * self.hours
+        total_cost: int | float = self.person.hourly_rate * self.get_hours()
         return total_cost
 
     def get_phase(self) -> str:

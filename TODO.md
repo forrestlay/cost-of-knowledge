@@ -38,3 +38,7 @@
 - [ ] Start with a question "As a researcher, do you want to know how much your paper costs from ideation to acceptance?" Punch up wording.
 - [ ] Include versioning in the data collected.
 - [ ] Estimate of "Once accepted, provide an estimate of how much it costs the publisher to publish your journal article."
+- [ ] Link to Sparc privacy policy
+- [ ] Checkbox to opt in to saving data, messaging around future research purposes.
+- [ ] Data stored behind login wall.
+- [ ] Remove "you" from Researcher 1 and make text more general instead of personalised.

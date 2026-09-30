@@ -270,19 +270,35 @@ def delete_person(key: str):
     del st.session_state["people"][key]
 
 
-def apply_role_rate(person: Person) -> None:
-    """Callback for a person's Role selectbox. Stores the chosen role and fills in its preset hourly rate.
+def fill_role_rate(person: Person) -> None:
+    """Fills in the hourly rate for a person's current role, if they have one.
 
-    The preset rate is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    The preset rate excludes indirect costs, so the project-wide indirect cost rate is applied to it. The result is
+    converted from USD to the user's currency, or left in USD if no exchange rate is available.
     """
-    person.role = st.session_state[f"person-role-{person.unique_key}"]
     if person.role is None:
         return
-    rate_usd: float = ROLES[person.role].hourly_rate_usd
+    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
+    rate_usd: float = ROLES[person.role].hourly_rate_usd * indirect_cost_multiplier
     converted_rate: float | None = convert_currency(rate_usd, "USD", currency_code())
     person.hourly_rate = rate_usd if converted_rate is None else round(converted_rate, 2)
     # The hourly rate number_input ignores value= once it has its own widget state, so write the rate there too.
     st.session_state[f"person-rate-{person.unique_key}"] = person.hourly_rate
+
+
+def apply_role_rate(person: Person) -> None:
+    """Callback for a person's Role selectbox. Stores the chosen role and fills in its preset hourly rate."""
+    person.role = st.session_state[f"person-role-{person.unique_key}"]
+    fill_role_rate(person)
+
+
+def apply_indirect_cost_rate() -> None:
+    """Callback for the indirect cost rate slider. Refreshes the hourly rate of everyone who has a role selected.
+
+    Rates that were entered manually or calculated from a salary (no role) are left alone.
+    """
+    for person in st.session_state["people"].values():
+        fill_role_rate(person)
 
 
 @st.dialog("Calculate your hourly rate")
@@ -1032,7 +1048,6 @@ with st.sidebar:
         st.markdown(f"[{toc_label}](#{toc_anchor})")
 
 st.title("Cost of Knowledge Calculator")
-# TODO: Refer to journal article consistently - project/paper/etc.
 st.markdown(
     """
             <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
@@ -1043,11 +1058,11 @@ st.markdown(
             incurred in producing the research that makes scholarly publishing possible."<sup>1</sup> This tool aims to
             make visible the substantial investment underpinning scholarly publishing.
 
-            Using this tool, you can estimate the costs of the academic labor, opportunity costs and
-            institutional resources that were involved in the process of preparing and publishing one of your
-            refereed journal articles. Use your **best estimate** of the time and costs involved - if you aren't sure,
-            we have provided estimates of the median time required for preparing a social science article from Alam et
-            al. (2026), the publication accompanying this tool.
+            Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
+            your refereed journal articles (including the cost of academic labor and institutional resources). Use your
+            **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
+            median time required for preparing a social science article from Alam et al. (2026), the publication
+            accompanying this tool.
 
             The results of this tool should not be taken to reflect or quantify the value of research, only the costs
             involved in preparing a refereed journal article. Prior literature has established that research provides
@@ -1115,32 +1130,40 @@ st.session_state["project_field"] = (
 st.subheader("Indirect Costs")
 st.markdown(
     """
-    There are costs that you do not incur directly as a researcher, but would still be considered part of
+    These are costs that you do not incur directly as a researcher, but would still be considered part of
     the cost of preparing and publishing a refereed journal article. These indirect costs include
-    university/institution administrative costs, infrastructure costs including laboratories and equipment,
-    journal subscriptions, database and software licenses, and open access agreements.
+    **university/institution administrative costs, infrastructure costs including laboratories and equipment,
+    journal subscriptions, database and software licenses, and open access agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
     rate of 40% sourced from Azoulay et al. (2026)<sup>3</sup>, being an approximate middle ground within
-    the range of effective rates they observe from a sample of US universities.
+    the range of effective indirect cost recovery rates they observe from a sample of US universities.
     """,
     unsafe_allow_html=True,
 )
-# The widget's own session_state entry persists the rate across reruns; the salary dialog reads it from there.
-st.slider(
-    "Project-wide indirect cost rate (%)",
-    step=1,
-    min_value=0,
-    max_value=100,
-    key="indirect_cost_percentage",
-    help="Applied equally to every hourly rate calculated from a salary.",
-)
+with st.expander("Optional: Adjust indirect cost rate"):
+    # The widget's own session_state entry persists the rate across reruns; the salary dialog reads it from there.
+    st.markdown(
+        """
+        If you are aware of your institution's Indirect Cost Rate (also known as an Indirect Cost Recovery rate or
+        an On-cost Rate), you may adjust that rate here.
+        """
+    )
+    st.slider(
+        "Project-wide indirect cost rate (%)",
+        step=1,
+        min_value=0,
+        max_value=100,
+        key="indirect_cost_percentage",
+        on_change=apply_indirect_cost_rate,
+        help="Applied equally to every hourly rate calculated from a salary.",
+    )
 
 # -----------------------------------------------
 # Study team
 # -----------------------------------------------
 
-st.header(":material/groups: People Involved in the Article Preparation Process", anchor=PEOPLE_ANCHOR)
+st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 # TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
 st.markdown("""
             Provide estimates of the hourly rate (including on-costs such as administrative and laboratory costs)
@@ -1155,7 +1178,7 @@ st.markdown("""
 
 for key, person in st.session_state["people"].items():
     with st.container(border=True):
-        st.markdown(f"**{person.label}**" + (" (you)" if key == "1" else ""))
+        st.markdown(f"**{person.label}**")
 
         # Roles are shown by their US name, followed by their local name in the chosen country if it differs.
         # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
@@ -1280,6 +1303,7 @@ for phase, phase_name in RESEARCH_PHASES.items():
         st.session_state["peer_review_activity"].journal_submissions: int = st.session_state["journal_submissions"]
         st.session_state["journal_editing_activity"].journal_submissions: int = st.session_state["journal_submissions"]
 
+        # TODO: Remove or state that these rates reflect 40% indirect rate.
         st.session_state["peer_reviewer"].hourly_rate: int | float = st.number_input(
             f"Hourly rate of peer reviewer (in {currency_code()})",
             min_value=0.0,

@@ -85,7 +85,7 @@ def calculator_page() -> None:
 # The saved results page is reached only by its URL (e.g. BASE-URL/results), so navigation is hidden and the calculator
 # does not link to it.
 RESULTS_PAGE: st.Page = st.Page("app_pages/results.py", title="Saved results", url_path="results")
-current_page: st.Page = st.navigation(
+current_page: st.Page = st.navigation(  # ty: ignore[call-non-callable]
     [st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True), RESULTS_PAGE], position="hidden"
 )
 if current_page.url_path == RESULTS_PAGE.url_path:
@@ -157,7 +157,7 @@ def currency_prefix() -> str:
     return symbol if symbol != code else f"{code} "
 
 
-def format_currency(x: int | float) -> str:
+def format_currency(x: float) -> str:
     """Formats an int or float to a string in the currency of the country chosen by the user."""
     return f"{currency_prefix()}{x:,.0f} ({currency_code()})"
 
@@ -216,7 +216,7 @@ def convert_monetary_values():
     if from_code == to_code:
         return
 
-    def convert(amount: int | float) -> float:
+    def convert(amount: float) -> float:
         converted: float | None = convert_currency(amount, from_code, to_code)
         return 0.0 if converted is None else round(converted, 2)
 
@@ -344,7 +344,7 @@ def apply_indirect_cost_rate() -> None:
             person.hourly_rate = role_hourly_rate(person.role)
 
 
-def format_hourly_rate(hourly_rate: int | float) -> str:
+def format_hourly_rate(hourly_rate: float) -> str:
     """Formats an hourly rate in the user's currency, e.g. "$85.00 / hour"."""
     return f"{currency_prefix()}{hourly_rate:,.2f} / hour"
 
@@ -1446,7 +1446,7 @@ if "indirect_cost_percentage" not in st.session_state:
     st.session_state["indirect_cost_percentage"] = DEFAULT_INDIRECT_COST_PERCENTAGE
 
 if "user_country_select" not in st.session_state:
-    st.session_state["user_country_select"]: str | None = st.session_state["user_country"] or None
+    st.session_state["user_country_select"] = st.session_state["user_country"] or None
 
 
 # Create and initialise the database set by DATABASE_TYPE, if any. Saving is disabled when it is "none".
@@ -1610,7 +1610,7 @@ with st.container(border=True):
 
 if not st.session_state["people"]:
     st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
-for key, person in st.session_state["people"].items():
+for person in st.session_state["people"].values():
     with st.container(border=True):
         label_column, rate_column, quantity_column, button_column = st.columns(
             [3, 1, 1, 1], vertical_alignment="center"
@@ -1729,17 +1729,17 @@ if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
     st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
-st.session_state["journal_submissions"]: int = st.slider(
+st.session_state["journal_submissions"] = st.slider(
     "Number of journals submitted to",
     min_value=1,
     max_value=20,
     step=1,
     key="journal-submissions",
 )
-st.session_state["peer_review_activity"].journal_submissions: int = st.session_state["journal_submissions"]
-st.session_state["journal_editing_activity"].journal_submissions: int = st.session_state["journal_submissions"]
+st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
+st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
 
-st.session_state["review_rounds"]: int = st.slider(
+st.session_state["review_rounds"] = st.slider(
     "Average number of review rounds per journal submission",
     min_value=1,
     max_value=20,
@@ -1748,7 +1748,7 @@ st.session_state["review_rounds"]: int = st.slider(
     help="We estimate that the first round of review involves 4 hours of work, with subsequent rounds "
     "involving 2 hours each.",
 )
-st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
+st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
 # Special phase for saving to the database, shown only when a database is configured.
 if DATABASE_TYPE in ("sqlite", "mysql"):

@@ -18,8 +18,9 @@ limitations under the License.
 """
 
 import math
-import streamlit as st
+
 import graphviz
+import streamlit as st
 
 # Initial variable setup.
 
@@ -101,11 +102,11 @@ class ActivityNode:
         else:
             html_label = (
                 html_label
-                + f'<TR><TD ALIGN="CENTER">{format(self.hours, ",")} hours x ${format(self.hourly_cost, ",")} = ${format(self.total_cost(), ",")}</TD></TR>'
+                + f'<TR><TD ALIGN="CENTER">{format(self.hours, ",")} hours x ${format(self.hourly_cost, ",")}'
+                + f' = ${format(self.total_cost(), ",")}</TD></TR>'
             )
 
-        html_label = html_label + "</TABLE>>"
-        return html_label
+        return html_label + "</TABLE>>"
 
 
 class CostNode:
@@ -157,8 +158,7 @@ class CostNode:
                 + f'<TR><TD ALIGN="CENTER">${format(self.total_cost(), ",")}</TD></TR>'
             )
 
-        html_label = html_label + "</TABLE>>"
-        return html_label
+        return html_label + "</TABLE>>"
 
 
 class TotalNode:
@@ -216,8 +216,7 @@ class TotalNode:
             html_label
             + f'<TR><TD ALIGN="CENTER">${format(self.total_cost(), ",")}</TD></TR>'
         )
-        html_label = html_label + "</TABLE>>"
-        return html_label
+        return html_label + "</TABLE>>"
 
 
 # Initialise all of the ActivityNodes and TotalNodes for the graph.

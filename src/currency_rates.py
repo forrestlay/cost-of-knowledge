@@ -24,7 +24,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
-from datetime import date
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 from urllib.parse import urlencode
@@ -144,10 +144,10 @@ def _load_usd_rates(today: str) -> dict[str, float] | None:
 
 def get_usd_exchange_rates() -> dict[str, float] | None:
     """Returns exchange rates as units of each currency (by ISO 4217 code) per 1 USD, or None if unavailable."""
-    return _load_usd_rates(date.today().isoformat())
+    return _load_usd_rates(datetime.now(tz=UTC).date().isoformat())
 
 
-def convert_currency(amount: int | float, from_code: str, to_code: str) -> float | None:
+def convert_currency(amount: float, from_code: str, to_code: str) -> float | None:
     """Converts an amount between two currencies via their USD exchange rates.
 
     Returns:

@@ -502,6 +502,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         submitted: bool = st.form_submit_button(
             "Add researcher" if person is None else "Save changes",
             icon=":material/person_add:" if person is None else ":material/save:",
+            type="primary",
             on_click=save_researcher,
             args=[key, None if person is None else person.unique_key],
         )
@@ -792,6 +793,7 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
             f"Add {ITEM_KINDS[kind].lower()}" if not editing else "Save changes",
             icon=":material/add:" if not editing else ":material/save:",
             disabled=kind == "activity" and not people,
+            type="primary",
             on_click=save_item,
             args=[key, item_kind, item_id],
         )
@@ -1477,8 +1479,30 @@ if query_project_id is not None and query_project_id != st.session_state.get("lo
 
 with st.sidebar:
     st.subheader("Contents")
-    for toc_label, toc_anchor in TABLE_OF_CONTENTS:
-        st.markdown(f"[{toc_label}](#{toc_anchor})")
+    # Anchor links cannot be st.page_link elements, so style them to look like page links.
+    st.html(
+        """
+        <style>
+        .st-key-toc a {
+            display: block;
+            padding: 0.375rem 0.5rem;
+            border-radius: 0.5rem;
+            color: inherit;
+            text-decoration: none;
+        }
+        .st-key-toc a:hover {
+            background-color: color-mix(in srgb, currentColor 8%, transparent);
+            text-decoration: none;
+        }
+        .st-key-toc [data-testid="stMarkdownContainer"] p {
+            margin: 0;
+        }
+        </style>
+        """
+    )
+    with st.container(key="toc", gap="small"):
+        for toc_label, toc_anchor in TABLE_OF_CONTENTS:
+            st.markdown(f"[{toc_label}](#{toc_anchor})")
 
 st.title("Cost of Knowledge Calculator")
 st.markdown(

@@ -25,9 +25,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+import html
 import json
 import logging
 from contextlib import closing
+from hashlib import sha1
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
@@ -136,6 +138,41 @@ ACTIVITY_DEFAULT_HOURS: dict[tuple[str, str], float] = {
 COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
     (cost["phase"], cost["name"]): float(cost["default_cost"]) for cost in _COSTS_DATA["direct_costs"]
 }
+
+
+# -----------------------------------------------
+# Toggletips
+# -----------------------------------------------
+
+
+TOGGLETIP_BORDER = "color-mix(in srgb, currentColor 25%, transparent)"
+
+
+def theme_color(option: str, light_default: str, dark_default: str) -> str:
+    """Colour of a Streamlit theme option (e.g. "primaryColor") for the active light/dark theme.
+
+    Streamlit does not expose its theme as CSS variables outside of custom components, so read it from the theme
+    config instead: the [theme.light] / [theme.dark] section first, then [theme], then the given Streamlit default.
+    The theme type is only inferred by Streamlit, so it can be wrong for the first run or just after a theme change.
+    """
+    theme_type = "dark" if st.context.theme.type == "dark" else "light"
+    configured = st.get_option(f"theme.{theme_type}.{option}") or st.get_option(f"theme.{option}")
+    return str(configured or (dark_default if theme_type == "dark" else light_default))
+
+
+def toggletip(trigger: str, tip: str) -> str:
+    """Inline HTML for a toggletip: clicking `trigger` shows `tip`, clicking outside it (or pressing Esc) hides it.
+
+    Uses the native HTML Popover API, so no JavaScript is needed. Embed the result in any
+    st.markdown(..., unsafe_allow_html=True) string. `trigger` is trusted HTML, `tip` is escaped.
+    """
+    tip_id = f"tip-{sha1(tip.encode()).hexdigest()[:8]}"
+    # Each tip gets its own CSS anchor name so the popover is positioned next to its own trigger.
+    return (
+        f'<button type="button" class="toggletip-btn" popovertarget="{tip_id}" style="anchor-name: --{tip_id}">'
+        f"{trigger}</button>"
+        f'<span id="{tip_id}" popover class="toggletip" style="position-anchor: --{tip_id}">{html.escape(tip)}</span>'
+    )
 
 
 # -----------------------------------------------
@@ -1504,28 +1541,74 @@ with st.sidebar:
         for toc_label, toc_anchor in TABLE_OF_CONTENTS:
             st.markdown(f"[{toc_label}](#{toc_anchor})")
 
+
+st.html(
+    f"""
+    <style>
+    .toggletip-btn {{
+        all: unset;
+        cursor: pointer;
+        color: {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")};
+    }}
+    .toggletip {{
+        max-width: 22rem;
+        padding: 0.6rem 0.8rem;
+        border-radius: 0.5rem;
+        border: 1px solid {theme_color("borderColor", TOGGLETIP_BORDER, TOGGLETIP_BORDER)};
+        background: {theme_color("secondaryBackgroundColor", "#f0f2f6", "#262730")};
+        color: inherit;
+        font: inherit;
+        font-size: 0.875rem;
+    }}
+    /* Browsers without anchor positioning keep the default centred popover. */
+    @supports (anchor-name: --a) {{
+        .toggletip {{
+            inset: auto;
+            margin: 0.3rem 0 0;
+            top: anchor(bottom);
+            left: anchor(left);
+            position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+        }}
+    }}
+    </style>
+    """
+)
+
 st.title("Cost of Knowledge Calculator")
 st.markdown(
     """
-            <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
-            journal article from ideation to publication?**</span>
+        <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
+        journal article from ideation to publication?**</span>
 
-            "Debates about the economics of scholarly publishing typically focus on subscription prices, article
-            processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-            incurred in producing the research that makes scholarly publishing possible."<sup>1</sup> This tool aims to
-            make visible the substantial investment underpinning scholarly publishing.
+        "Debates about the economics of scholarly publishing typically focus on subscription prices, article
+        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
+        incurred in producing the research that makes scholarly publishing possible."{footnote_1} This tool aims to
+        make visible the substantial investment underpinning scholarly publishing.
 
-            Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
-            your refereed journal articles (including the cost of academic labor and institutional resources). Use your
-            **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
-            median time required for preparing a social science article from Alam et al. (2026), the publication
-            accompanying this tool.
+        Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
+        your refereed journal articles (including the cost of academic labor and institutional resources). Use your
+        **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
+        median time required for preparing a social science article from Alam et al. (2026), the publication
+        accompanying this tool.
 
-            The results of this tool should not be taken to reflect or quantify the value of research, only the costs
-            involved in preparing a refereed journal article. Prior literature has established that research provides
-            substantial economic and social returns<sup>2</sup>, and with this tool we instead seek to draw attention
-            to the resources required for scholarly publishing.
-            """,
+        The results of this tool should not be taken to reflect or quantify the value of research, only the costs
+        involved in preparing a refereed journal article. Prior literature has established that research provides
+        substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
+        to the resources required for scholarly publishing.
+        """.replace(
+        "{footnote_1}",
+        toggletip("<sup>1</sup>", "Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo."),
+    ).replace(
+        "{footnote_2}",
+        toggletip(
+            "<sup>2</sup>",
+            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
+            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
+            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
+            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
+            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
+        ),
+    ),
     unsafe_allow_html=True,
 )
 
@@ -1721,7 +1804,7 @@ if st.session_state["calculator_mode"] == "granular":
 
 st.subheader(RESEARCH_PHASES["incubation"])
 st.markdown("""
-            The ideation phase includes ideation and conception of the research questions, applications for ethics
+            The incubation phase includes ideation and conception of the research questions, applications for ethics
             approval from an Institutional Review Board, and applications for grants (both successful and unsucessful).
             """)
 phase_inputs("incubation")

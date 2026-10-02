@@ -195,6 +195,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         "Country": "United Kingdom",
         "International collaboration": True,
         "Field": "Commerce, management, tourism and services/Accounting, auditing and accountability",
+        "Researchers": 0,
         "Peer reviews": 2,
         "Journal submissions": 3,
         "Currency": "GBP",

@@ -156,7 +156,7 @@ st.markdown(
     """
          You can try the Cost of Knowledge Calculator yourself:
     """,
-    unsafe_allow_html=True,
+    text_alignment="center",
 )
 
 with st.container(horizontal=True, horizontal_alignment="center"):

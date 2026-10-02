@@ -990,16 +990,34 @@ def save_to_database() -> None:
     st.toast("Saved to the database.", icon=":material/check_circle:")
 
 
+def delete_from_database() -> None:
+    """Deletes the previously saved result from the database, if there is one, and forgets its public id so the share
+    buttons go back to linking to the tool.
+    """
+    public_id: str | None = st.session_state.get("database_public_id")
+    if public_id is None:
+        return
+    try:
+        with closing(database.connect()) as conn:
+            sql_store.delete_project(conn, public_id)
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not delete your saved result: {error}", icon=":material/error:")
+        return
+    st.session_state["database_public_id"] = None
+    st.session_state["database_saved_inputs"] = None
+    st.toast("Your saved result has been deleted.", icon=":material/delete:")
+
+
 def toggle_results() -> None:
     """Callback for the "Calculate the cost of your journal article" button. Shows the results and share sections
-    (they stay visible afterwards), saving the result to the database the first time they are shown if the user has
-    opted in.
+    (they stay visible afterwards). Each click syncs the database with the "save my result" toggle: if it is on, the
+    result is saved (or updated if it was saved before); if it is off, a previously saved result is deleted.
     """
-    if st.session_state["show_results"]:
-        return
     st.session_state["show_results"] = True
     if st.session_state.get("save_result_to_database", False):
         save_to_database()
+    else:
+        delete_from_database()
 
 
 def show_footer() -> None:
@@ -1007,8 +1025,8 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-            :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026) The Cost of Knowledge.
-            Preprint available on Zenodo.]
+            :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
+            Knowledge. Preprint available on Zenodo.]
 
             :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
             Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
@@ -1340,7 +1358,7 @@ st.markdown(
         "{footnote_1}",
         toggletip(
             "<sup>1</sup>",
-            """For more details about these estimates, see Alam et al. (2026) The Cost of Knowledge. Preprint
+            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
             available on Zenodo.""",
             key="footnote-1",
         ),
@@ -1558,7 +1576,7 @@ st.markdown(
         "{footnote_alam}",
         toggletip(
             "<sup>4</sup>",
-            """For more details about these estimates, see Alam et al. (2026) The Cost of Knowledge. Preprint
+            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
             available on Zenodo.""",
             key="footnote-4",
         ),
@@ -1704,8 +1722,8 @@ with st.container(border=True):
         help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
         across all journal submissions. It is estimated that the first round of review involves 4 hours of work by
         peer reviewers, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
-        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.
-        (2026) for details).""",
+        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.,
+        2026, pp. 11-3) for details).""",
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
@@ -1733,7 +1751,7 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         re-enter your data to view the results.
         """
     )
-    st.toggle(
+    st.container(border=True).toggle(
         """Save my result so I can share it. I consent to SPARC retaining the data I have entered into this tool
         and using it for future research.""",
         key="save_result_to_database",

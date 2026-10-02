@@ -938,11 +938,14 @@ def save_to_database() -> None:
 
 
 def toggle_results() -> None:
-    """Callback for the "Calculate the cost of your journal article" button. Shows or hides the results and share
-    sections, saving the result to the database when it is being shown and the user has opted in.
+    """Callback for the "Calculate the cost of your journal article" button. Shows the results and share sections
+    (they stay visible afterwards), saving the result to the database the first time they are shown if the user has
+    opted in.
     """
-    st.session_state["show_results"] = not st.session_state["show_results"]
-    if st.session_state["show_results"] and st.session_state.get("save_result_to_database", False):
+    if st.session_state["show_results"]:
+        return
+    st.session_state["show_results"] = True
+    if st.session_state.get("save_result_to_database", False):
         save_to_database()
 
 
@@ -1555,7 +1558,8 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         handled.
 
         If you continue without saving your result, please download the generated infographic to keep a record of the
-        total cost you have calculated.
+        total cost you have calculated. Reloading this page will reset all information entered and you will have to
+        re-enter your data to view the results.
         """
     )
     st.toggle(
@@ -1714,48 +1718,6 @@ st.plotly_chart(
 
 st.header(":material/share: Share your result", anchor=SHARE_ANCHOR)
 
-
-st.markdown("""
-            Share your result using the buttons below.
-            """)
-
-
-st.markdown("""
-            **You may choose to show the total number of hours on your results image. However, for one-person or small
-            teams, this may be used to approximate your salary.**
-            """)
-
-
-# Keyed so the choice persists across reruns; hours are hidden by default.
-if "share_show_hours" not in st.session_state:
-    st.session_state["share_show_hours"] = False
-st.toggle("Show estimated hours of labor on the image", key="share_show_hours")
-
-
-# Rendered fresh each run from the (persisted) project inputs and computed totals,
-# so it never needs its own st.session_state entry.
-social_media_svg: str = create_social_media_svg(
-    country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
-    international_collaborators=st.session_state["international_collaborators"],
-    # Only the group name, as the division name would make the title too long for the card. Projects saved before
-    # Field of Research codes were used hold a broad field name instead.
-    project_field=(
-        FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
-        if st.session_state["project_field"] in FIELDS_OF_RESEARCH
-        else st.session_state["project_field"]
-    ),
-    total_cost=total_cost,
-    total_hours=total_hours,
-    phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-    format_currency=format_currency,
-    show_hours=st.session_state["share_show_hours"],
-).as_svg()
-
-
-with st.container(horizontal=True, horizontal_alignment="center"):
-    st.image(social_media_svg, width=540)
-
-
 # Link to the saved result, which the share buttons use in place of the tool's link once the result is saved. Saving
 # happens above in the setup pane, so the buttons update in the same run as the save.
 saved_result_url: str | None = (
@@ -1764,53 +1726,94 @@ saved_result_url: str | None = (
     else None
 )
 
+share_left, share_right = st.columns(2)
 
-# TODO: Add names to our social media share message.
-# TODO: Move the save button here.
-# TODO: Add messaging above the share posts.
-
-
-with st.container(horizontal=True, horizontal_alignment="left"):
-    st.download_button(
-        "Download image",
-        data=social_media_svg_to_png(social_media_svg),
-        file_name="cost-of-knowledge-estimate.png",
-        mime="image/png",
-        icon=":material/image:",
-        type="primary",
-    )
-    st.link_button(
-        "Share on LinkedIn",
-        linkedin_share_url(total_cost, saved_result_url),
-        icon=":material/share:",
-        help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-    )
-    st.link_button(
-        "Share on X",
-        x_share_url(total_cost, saved_result_url),
-        icon=":material/share:",
-        help="Share this tool on X. Download the image first and attach it to your post.",
-    )
-    st.link_button(
-        "Share on Facebook",
-        facebook_share_url(saved_result_url),
-        icon=":material/share:",
-        help="Share this tool on Facebook. Download the image first and attach it to your post.",
-    )
-    st.link_button(
-        "Share via email",
-        email_share_url(total_cost, saved_result_url),
-        icon=":material/email:",
-        help="Share this tool via email. Download the image first and attach it to your email.",
-    )
-    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the save.
+with share_left:
+    share_intro: str = "Download your summary infographic and share it using the buttons below."
     if saved_result_url is not None:
-        copy_link_button(
-            "Copy link to saved result",
-            saved_result_url,
-            copied_label="Link copied",
-            help="Copy a link to your saved result to share it, or to return to it later.",
-            key="copy-saved-project-link",
+        share_intro += (
+            """In addition, because you have saved your result, please use the share buttons or the "copy link" button
+            to save a link to the result so you may return to it at a later time."""
         )
+    st.markdown(share_intro)
+
+    st.markdown("""
+                **You may choose to show the total number of hours on your results image. However, for one-person or
+                small teams, this may be used to approximate your salary.**
+                """)
+
+    # Keyed so the choice persists across reruns; hours are hidden by default.
+    if "share_show_hours" not in st.session_state:
+        st.session_state["share_show_hours"] = False
+    st.toggle("Show estimated hours of labor on the image", key="share_show_hours")
+
+    # Rendered fresh each run from the (persisted) project inputs and computed totals,
+    # so it never needs its own st.session_state entry.
+    social_media_svg: str = create_social_media_svg(
+        country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+        international_collaborators=st.session_state["international_collaborators"],
+        # Only the group name, as the division name would make the title too long for the card. Projects saved before
+        # Field of Research codes were used hold a broad field name instead.
+        project_field=(
+            FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
+            if st.session_state["project_field"] in FIELDS_OF_RESEARCH
+            else st.session_state["project_field"]
+        ),
+        total_cost=total_cost,
+        total_hours=total_hours,
+        phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+        format_currency=format_currency,
+        show_hours=st.session_state["share_show_hours"],
+    ).as_svg()
+
+    # TODO: Add names to our social media share message.
+    # TODO: Move the save button here.
+    # TODO: Add messaging above the share posts.
+
+    with st.container(horizontal=True, horizontal_alignment="left"):
+        st.download_button(
+            "Download image",
+            data=social_media_svg_to_png(social_media_svg),
+            file_name="cost-of-knowledge-estimate.png",
+            mime="image/png",
+            icon=":material/image:",
+            type="primary",
+        )
+        st.link_button(
+            "Share on LinkedIn",
+            linkedin_share_url(total_cost, saved_result_url),
+            icon=":material/share:",
+            help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
+        )
+        st.link_button(
+            "Share on X",
+            x_share_url(total_cost, saved_result_url),
+            icon=":material/share:",
+            help="Share this tool on X. Download the image first and attach it to your post.",
+        )
+        st.link_button(
+            "Share on Facebook",
+            facebook_share_url(saved_result_url),
+            icon=":material/share:",
+            help="Share this tool on Facebook. Download the image first and attach it to your post.",
+        )
+        st.link_button(
+            "Share via email",
+            email_share_url(total_cost, saved_result_url),
+            icon=":material/email:",
+            help="Share this tool via email. Download the image first and attach it to your email.",
+        )
+        # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the save.
+        if saved_result_url is not None:
+            copy_link_button(
+                "Copy link to saved result",
+                saved_result_url,
+                copied_label="Link copied",
+                help="Copy a link to your saved result to share it, or to return to it later.",
+                key="copy-saved-project-link",
+            )
+
+share_right.container(horizontal=True, horizontal_alignment="center").image(social_media_svg, width=540)
+
 
 show_footer()

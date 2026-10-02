@@ -1280,8 +1280,8 @@ st.markdown(
 
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
-        **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
-        median time required for preparing a social science article.{footnote_1}
+        **best estimate** of the time and costs involved - if you aren't sure, we have provided conservative estimates
+        of the time required to prepare a social science journal article for publication.{footnote_1}
 
         *The estimated time to complete this tool is 10-15 minutes.*
 

@@ -951,24 +951,24 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
+            :small[<sup>1, 2, 5</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.]
 
-            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
+            :small[<sup>3</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
             Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
             https://doi.org/10.7208/chicago/9780226805597.003.0002;
             Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
-            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
+            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
 
-            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
+            :small[<sup>4</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
             Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
-            5, 133–182. https://doi.org/10.1086/738903
+            5, 133–182. https://doi.org/10.1086/738903]
 
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
             International License](https://creativecommons.org/licenses/by/4.0/).]
 
-            [Privacy Policy](https://sparcopen.org/privacy-policy/)
+            :small[[Privacy Policy](https://sparcopen.org/privacy-policy/)]
             """,
         unsafe_allow_html=True,
     )
@@ -1227,13 +1227,13 @@ st.markdown(
         to the resources required for scholarly publishing.
         """.replace(
         "{footnote_1}",
-        toggletip("<sup>1</sup>", "Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo."),
+        toggletip("<sup>1</sup>", "Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo."),
     )
     .replace(
         "{footnote_2}",
         toggletip(
             "<sup>2</sup>",
-            "Estimates sourced from Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo.",
+            "Estimates sourced from Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
         ),
     )
     .replace(
@@ -1332,9 +1332,17 @@ st.markdown(
     journal subscriptions, database and software licenses, and open access agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
-    rate of 40% sourced from Azoulay et al. (2026)<sup>3</sup>, being an approximate middle ground within
+    rate of 40% sourced from Azoulay et al. (2026){footnote_4}, being an approximate middle ground within
     the range of effective indirect cost recovery rates they observe from a sample of US universities.
-    """,
+    """.replace(
+        "{footnote_4}",
+        toggletip(
+            "<sup>4</sup>",
+            """Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
+            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
+            5, 133–182. https://doi.org/10.1086/738903""",
+        ),
+    ),
     unsafe_allow_html=True,
 )
 with st.expander("Optional: Adjust indirect cost rate"):
@@ -1429,17 +1437,38 @@ st.session_state["calculator_mode"] = st.radio(
     help="You can switch between the two at any time. Only the one selected is included in your results.",
 )
 
-st.markdown("""
+st.markdown(
+    """
             The process has been divided between four distinct phases: **incubation**, **data collection and
             analysis**, **manuscript preparation**, and **peer review and journal editorial work**. Provide your
-            best estimate of the hours and direct costs involved in each phase of preparing your refereed journal
+            best estimate of the hours and {direct costs} involved in each phase of preparing your refereed journal
             article. If you would like a starting point, the default estimates are the conservative estimates for a
-            social sciences journal article from Alam et al. (2026), the publication accompanying this tool.
+            social sciences journal article{footnote_alam}.
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
             per person).
-            """)
+            """.replace(
+        "{footnote_alam}",
+        toggletip(
+            "<sup>5</sup>",
+            "Estimates sourced from Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
+        ),
+    ).replace(
+        "{direct costs}",
+        toggletip(
+            "direct costs",
+            """Direct costs are costs that are directly
+            associated with the preparation of the refereed journal article. This would include incentives provided to
+            participants, databases and software acquired for the data collection and analysis phase by the study team,
+            and the costs of hiring proofreaders/editors. You should not include indirect costs, such as administrative
+            costs, infrastructure costs such as laboratories and equipment that are used across multiple research
+            projects or teams, and library journal subscriptions.
+            """,
+        ),
+    ),
+    unsafe_allow_html=True,
+)
 if st.session_state["calculator_mode"] == "granular":
     st.button(
         "Load defaults from Alam et al. 2026",
@@ -1534,9 +1563,6 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         and using it for future research.""",
         key="save_result_to_database",
         value=False,
-        help="If enabled, the information you have input into this tool is saved to the database when you "
-        "calculate the cost, so you can share a link to your result. Calculating again after making changes "
-        "overwrites your saved result, so your share link stays the same and shows your latest changes.",
     )
 
 st.button(
@@ -1695,8 +1721,8 @@ st.markdown("""
 
 
 st.markdown("""
-            You may choose to show the total number of hours on your results image. However, for one-person or small
-            teams, this may be used to approximate your salary.
+            **You may choose to show the total number of hours on your results image. However, for one-person or small
+            teams, this may be used to approximate your salary.**
             """)
 
 

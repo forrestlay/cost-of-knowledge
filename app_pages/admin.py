@@ -83,6 +83,7 @@ def load_results() -> pd.DataFrame:
                 "Researchers": sum(person.quantity for person in state.people.values()),
                 "Peer reviews": state.peer_review.review_rounds,
                 "Journal submissions": state.peer_review.journal_submissions,
+                "Calculator mode": state.calculator_mode.capitalize(),
                 # NULL for simplified projects, which have no defaults to load.
                 "Loaded Alam et al. defaults": None
                 if project["loaded_alam_defaults"] is None
@@ -103,6 +104,7 @@ def load_results() -> pd.DataFrame:
             "Researchers",
             "Peer reviews",
             "Journal submissions",
+            "Calculator mode",
             "Loaded Alam et al. defaults",
             "Currency",
             *RESEARCH_PHASES.values(),

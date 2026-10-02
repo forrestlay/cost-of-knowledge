@@ -201,6 +201,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         "Researchers": 0,
         "Peer reviews": 2,
         "Journal submissions": 3,
+        "Calculator mode": "Simplified",
         "Currency": "GBP",
         **{label: round(summary["phase_costs"][label]) for label in RESEARCH_PHASES.values()},
         "Total": round(summary["total_cost"]),

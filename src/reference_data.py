@@ -128,3 +128,22 @@ RESEARCH_PHASES: dict[str, str] = {
     "writing": "Manuscript preparation",
     "editing": "Peer review and journal editorial work",
 }
+
+
+def currency_code(country: str) -> str:
+    """ISO 4217 code (e.g. "USD") of a country's currency, falling back to USD for an unknown country."""
+    return COUNTRY_CURRENCIES.get(country, COUNTRY_CURRENCIES["us"])[0]
+
+
+def currency_prefix(country: str) -> str:
+    """Prefix put before amounts in a country's currency.
+
+    The currency symbol (e.g. "$"), or the ISO code and a space (e.g. "AED ") for currencies without one.
+    """
+    code, symbol = COUNTRY_CURRENCIES.get(country, COUNTRY_CURRENCIES["us"])
+    return symbol if symbol != code else f"{code} "
+
+
+def format_currency(amount: float, country: str) -> str:
+    """Formats an amount as a string in a country's currency, e.g. "$1,234 (USD)"."""
+    return f"{currency_prefix(country)}{amount:,.0f} ({currency_code(country)})"

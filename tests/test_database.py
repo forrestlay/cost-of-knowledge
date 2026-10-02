@@ -146,40 +146,11 @@ def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> N
     assert copy_link["url"].endswith(f"?project_id={public_id}")
 
 
-def test_query_param_loads_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
-    state: CalculatorState = CalculatorState.default()
-    state.project_field = "4601"
-    with closing(database.connect()) as conn:
-        public_id: str = sql_store.save_project(conn, state)
-
-    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
-    at.query_params["project_id"] = public_id
-    run(at)
-    assert at.session_state["database_public_id"] == public_id
-    assert at.session_state["project_field"] == "4601"
-
-    # Edits must survive reruns rather than being replaced by the saved project again.
-    next(box for box in at.selectbox if box.label.startswith("Field of research")).set_value("5201")
-    run(at)
-    assert at.session_state["project_field"] == "5201"
-
-
-@pytest.mark.parametrize("project_id", ["1", "V1StGXR8_Z5jdHi6B-myT"])
-def test_query_param_with_unknown_project_keeps_defaults(monkeypatch: pytest.MonkeyPatch, project_id: str) -> None:
-    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
-    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
-    at.query_params["project_id"] = project_id
-    run(at)
-    assert "database_public_id" not in at.session_state
-    assert at.toast[0].value.startswith("Could not load the project")
-
-
 def run_results_page(at: AppTest) -> None:
     """Runs the app and switches to the results page, clearing its cached results from any earlier test."""
     st.cache_data.clear()
     run(at)
-    at.switch_page("app_pages/results.py")
+    at.switch_page("app_pages/admin.py")
     run(at)
 
 
@@ -208,7 +179,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     [row] = at.dataframe[0].value.to_dict("records")
     summary: dict[str, Any] = state.summary(RESEARCH_PHASES)
     assert row == {
-        "Link": f"./?project_id={public_id}",
+        "Link": f"./result?project_id={public_id}",
         "Saved": row["Saved"],
         "Country": "United Kingdom",
         "International collaboration": True,
@@ -312,3 +283,49 @@ def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> 
     after: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
     assert len(after) == len(share_labels)
     assert all(f"?project_id={public_id}" in unquote(url) for url in after)
+
+
+def run_result_page(at: AppTest, public_id: str | None) -> None:
+    """Runs the app and switches to the result page, with the public id in its query parameter if given."""
+    run(at)
+    at.switch_page("app_pages/result.py")
+    if public_id is not None:
+        at.query_params[database.PROJECT_ID_QUERY_PARAM] = public_id
+    run(at)
+
+
+def test_result_page_shows_saved_result_without_hours(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    state: CalculatorState = CalculatorState.default()
+    state.user_country = "gb"
+    with closing(database.connect()) as conn:
+        public_id: str = sql_store.save_project(conn, state)
+
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_result_page(at, public_id)
+    assert not at.exception
+    assert [metric.label for metric in at.metric] == ["Estimated total cost", "Estimated direct costs"]
+    assert at.metric[0].value.startswith("£")
+    # Hours must be absent from the charts' data, which is sent to the browser, and from the image.
+    charts: list[str] = [chart.proto.spec for chart in at.get("plotly_chart")]
+    assert charts
+    assert not [spec for spec in charts if "Hours" in spec or "hours" in spec]
+    assert not [image for image in at.get("imgs") if "hours" in str(image.proto).lower()]
+    # The buttons back to the calculator must not carry the result's id, so the calculator starts blank.
+    buttons = at.get("link_button")
+    assert buttons
+    assert not [button for button in buttons if "project_id" in button.proto.url]
+
+
+def test_result_page_with_unknown_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_result_page(at, "does-not-exist")
+    assert at.error[0].value.startswith("There is no result with id")
+    assert not at.metric
+
+
+def test_result_page_without_id() -> None:
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_result_page(at, None)
+    assert at.info[0].value == "No result was chosen."

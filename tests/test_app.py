@@ -233,7 +233,7 @@ def test_adding_researcher_with_role() -> None:
     run(at)
     role_select = at.selectbox(key="add-person-role")
     assert "Senior Lecturer (based on median salary for a US Assistant Professor)" in role_select.options
-    assert role_select.options[-1] == "Enter a salary manually"
+    assert role_select.options[-2:] == ["Enter a salary manually", "Enter an hourly rate manually"]
 
     person: Person = add_researcher(at, quantity=3)
     rate: float | None = convert_currency(ROLES["assistant_professor"].hourly_rate_usd * 1.4, "USD", "AUD")
@@ -255,6 +255,18 @@ def test_adding_researcher_with_salary() -> None:
     assert person.role is None
     assert person.hourly_rate == 70
     assert person.quantity == 2
+
+
+def test_adding_researcher_with_hourly_rate() -> None:
+    at: AppTest = run_app()
+    at.selectbox(key="add-person-role").set_value("manual_hourly_rate")
+    run(at)
+    at.number_input(key="add-person-hourly-rate").set_value(50.0)
+    submit_researcher_form(at)
+    person: Person = at.session_state["people"]["1"]
+    # US$50 an hour, plus the default 40% indirect cost rate.
+    assert person.role is None
+    assert person.hourly_rate == 70
 
 
 def test_editing_researcher() -> None:

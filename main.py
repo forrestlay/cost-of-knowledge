@@ -247,6 +247,8 @@ def convert_monetary_values():
 
 # Option of the researcher form's role selectbox for entering a salary instead of choosing a preset role.
 MANUAL_SALARY_OPTION: str = "manual_salary"
+# Option of the same selectbox for entering an hourly rate directly.
+MANUAL_HOURLY_RATE_OPTION: str = "manual_hourly_rate"
 # Keys of the widgets of the form to add a researcher. The dialog to edit a researcher uses its own keys.
 ADD_PERSON_FORM_KEY: str = "add-person"
 
@@ -366,6 +368,7 @@ def calculate_hourly_rate(key: str, person: Person | None = None) -> None:
         value=12,
         min_value=1,
         key=f"{key}-months",
+        help="If the salary is an annual salary, use 12 months.",
     )
     st.number_input(
         "How many hours are they required to work per week?",
@@ -382,6 +385,36 @@ def calculate_hourly_rate(key: str, person: Person | None = None) -> None:
         st.caption(
             f"Their current hourly rate is {format_hourly_rate(person.hourly_rate)}. Leave the salary at 0 to keep it."
         )
+
+
+def calculate_manual_hourly_rate(key: str, person: Person | None = None) -> None:
+    """Shows the input for an hourly rate entered directly, inside a researcher form.
+
+    Args:
+        key: Prefix of the keys of the inputs.
+        person: The researcher being edited, if any, whose current rate is kept if no rate is entered.
+    """
+    st.number_input(
+        f"What is the researcher's hourly rate in {currency_code()}?",
+        step=0.5,
+        min_value=0.0,
+        format="%.2f",
+        key=f"{key}-hourly-rate",
+    )
+    st.caption(
+        f"The project-wide indirect cost rate of {st.session_state['indirect_cost_percentage']}% will be applied. "
+        "You can change it in the Indirect Costs section."
+    )
+    if person is not None and person.role is None:
+        st.caption(
+            f"Their current hourly rate is {format_hourly_rate(person.hourly_rate)}. Leave the rate at 0 to keep it."
+        )
+
+
+def manual_hourly_rate(key: str) -> float:
+    """Returns the hourly rate entered in calculate_manual_hourly_rate, including indirect costs."""
+    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
+    return round(st.session_state[f"{key}-hourly-rate"] * indirect_cost_multiplier, 2)
 
 
 def salary_hourly_rate(key: str) -> float:
@@ -412,7 +445,7 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
 
     role: str | None = None
     if choice is None:
-        st.toast("Choose a role or enter a salary first.", icon=":material/error:")
+        st.toast("Choose a role or enter a salary or hourly rate first.", icon=":material/error:")
         return
     if choice == MANUAL_SALARY_OPTION:
         if st.session_state[f"{key}-salary"] > 0:
@@ -421,6 +454,14 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
             hourly_rate = person.hourly_rate
         else:
             st.toast("Enter the researcher's salary first.", icon=":material/error:")
+            return
+    elif choice == MANUAL_HOURLY_RATE_OPTION:
+        if st.session_state[f"{key}-hourly-rate"] > 0:
+            hourly_rate = manual_hourly_rate(key)
+        elif person is not None and person.role is None:
+            hourly_rate = person.hourly_rate
+        else:
+            st.toast("Enter the researcher's hourly rate first.", icon=":material/error:")
             return
     else:
         role = choice
@@ -445,8 +486,8 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
 def researcher_form(key: str, person: Person | None = None) -> None:
     """Shows the form to add a researcher, or to edit the given one.
 
-    The role selectbox sits above the form so that choosing to enter a salary shows its inputs straight away, as inputs
-    inside a form only update when it is submitted.
+    The role selectbox sits above the form so that choosing to enter a salary or hourly rate shows its inputs straight
+    away, as inputs inside a form only update when it is submitted.
 
     Args:
         key: Prefix of the keys of the form's widgets.
@@ -466,15 +507,19 @@ def researcher_form(key: str, person: Person | None = None) -> None:
     def role_display(option: str, country: str) -> str:
         """Roles are shown by their local name in the chosen country if it differs, followed by the US role their salary
         is based on."""
-        return "Enter a salary manually" if option == MANUAL_SALARY_OPTION else ROLES[option].display_name(country)
+        if option == MANUAL_SALARY_OPTION:
+            return "Enter a salary manually"
+        if option == MANUAL_HOURLY_RATE_OPTION:
+            return "Enter an hourly rate manually"
+        return ROLES[option].display_name(country)
 
     choice: str | None = st.selectbox(
         "Title or role",
-        options=[*ROLES, MANUAL_SALARY_OPTION],
+        options=[*ROLES, MANUAL_SALARY_OPTION, MANUAL_HOURLY_RATE_OPTION],
         # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
         format_func=lambda option, country=st.session_state["user_country"]: role_display(option, country),
         placeholder="Choose a title or role to calculate costs based on the median US salary, or enter a salary "
-        "manually",
+        "or hourly rate manually",
         key=role_key,
         help="""To calculate the cost of labor, we calculate an hourly rate based on the salary of each researcher
         involved in preparing the refereed journal article. If you select a faculty title, the hourly rate is
@@ -488,6 +533,8 @@ def researcher_form(key: str, person: Person | None = None) -> None:
     with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
         if choice == MANUAL_SALARY_OPTION:
             calculate_hourly_rate(key, person)
+        elif choice == MANUAL_HOURLY_RATE_OPTION:
+            calculate_manual_hourly_rate(key, person)
         elif choice is not None:
             st.caption(
                 f"Hourly rate including the {st.session_state['indirect_cost_percentage']}% indirect cost rate: "
@@ -499,7 +546,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
             step=1,
             key=quantity_key,
             help="""Select the number of researchers that have the same title or role, if you selected a preset role,
-            or have the same salary if you added a salary manually.""",
+            or have the same salary or hourly rate if you added one manually.""",
         )
         with st.container(horizontal=True, vertical_alignment="center"):
             submitted: bool = st.form_submit_button(

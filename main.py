@@ -75,7 +75,7 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import theme_color, toggletip, toggletip_styles
+from src.ui import colored_container_key, row_styles, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
     from src.models import Cost
@@ -828,7 +828,7 @@ def edit_item(kind: str, item_id: int) -> None:
 
 
 def item_row(
-    key: str, kind: str, item_id: int, name: str | None, detail: str, hours: float | None, cost: float
+    key: str, kind: str, item_id: int, name: str | None, detail: str, hours: float | None, cost: float, phase: str
 ) -> None:
     """Shows an activity or direct cost as a row with its details and buttons to edit and delete it.
 
@@ -840,8 +840,9 @@ def item_row(
         detail: Description shown beneath the name.
         hours: Total hours of the activity, or None for a direct cost.
         cost: Total cost of the item.
+        phase: Key of the item's phase in RESEARCH_PHASES, which sets the row's colours.
     """
-    with st.container(border=True):
+    with st.container(border=True, key=colored_container_key(phase, key)):
         label_column, hours_column, cost_column, button_column = st.columns([3, 1, 1, 1], vertical_alignment="center")
         label_column.markdown(f"**{name or 'Unnamed'}**  \n{detail}")
         hours_column.markdown(f"**Hours**  \n{'—' if hours is None else f'{hours:,.1f} h'}")
@@ -888,6 +889,7 @@ def granular_phase_items(phase: str) -> None:
             ", ".join(f"{activity.person.label}: {activity.hours:,.1f} h" for activity in group_activities),
             compute_hours(group_activities),
             compute_costs(group_activities),
+            phase,
         )
     for direct_cost in phase_direct_costs:
         item_row(
@@ -898,6 +900,7 @@ def granular_phase_items(phase: str) -> None:
             "Direct cost",
             None,
             direct_cost.cost,
+            phase,
         )
 
 
@@ -1426,8 +1429,9 @@ with st.container(border=True):
 
 if not st.session_state["people"]:
     st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
+row_styles(list(RESEARCH_PHASES))
 for person in st.session_state["people"].values():
-    with st.container(border=True):
+    with st.container(border=True, key=colored_container_key("researcher", person.unique_key)):
         label_column, rate_column, quantity_column, button_column = st.columns(
             [3, 1, 1, 1], vertical_alignment="center"
         )

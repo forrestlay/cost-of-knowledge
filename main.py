@@ -592,6 +592,7 @@ def simplified_phase_inputs(phase: str) -> None:
 
 # Keys of the widgets of the form to add an activity or direct cost. The dialog to edit one uses its own keys.
 ADD_ITEM_FORM_KEY: str = "add-item"
+ADD_ITEM_STICKY_KEY: str = "add-item-sticky"
 # The kinds of item the form adds, and how they are described.
 ITEM_KINDS: dict[str, str] = {"activity": "Activity", "direct_cost": "Direct cost"}
 
@@ -875,7 +876,7 @@ def granular_phase_items(phase: str) -> None:
     phase_direct_costs: list[DirectCost] = [cost for cost in st.session_state["cost_list"] if cost.phase == phase]
 
     if not activity_groups and not phase_direct_costs:
-        st.info("No activities or direct costs added to this phase yet. Use the form above to add some.")
+        st.info("No activities or direct costs added to this phase yet. Use the add form to add some.")
     for group_key, group_activities in activity_groups.items():
         item_row(
             f"item-activity-{group_key}",
@@ -1482,26 +1483,57 @@ if st.session_state["calculator_mode"] == "granular":
         disabled=not st.session_state["people"],
         help=None if st.session_state["people"] else "Add a researcher to assign the activities to first.",
     )
-    with st.container(border=True):
+    # Keeps the add form in view while the list of phases scrolls. Sticky positioning only works if the form's column
+    # stretches to the height of the list, and is only applied when the columns sit side by side (wide screens).
+    st.html(
+        f"""
+        <style>
+            @media (min-width: 992px) {{
+                [data-testid="stColumn"]:has([data-testid="stLayoutWrapper"] > .st-key-{ADD_ITEM_STICKY_KEY}) {{
+                    align-self: stretch;
+                }}
+                [data-testid="stColumn"]:has([data-testid="stLayoutWrapper"] > .st-key-{ADD_ITEM_STICKY_KEY})
+                    > [data-testid="stVerticalBlock"] {{
+                    flex: 1 1 auto;
+                    height: 100%;
+                }}
+                [data-testid="stLayoutWrapper"]:has(> .st-key-{ADD_ITEM_STICKY_KEY}) {{
+                    position: sticky;
+                    top: 4rem;
+                    max-height: calc(100vh - 5rem);
+                    overflow-y: auto;
+                }}
+            }}
+        </style>
+        """
+    )
+
+# Granular calculator: the add form sits beside the phases, otherwise the phases take the full width.
+if st.session_state["calculator_mode"] == "granular":
+    form_column, phases_column = st.columns([1, 2], gap="large")
+    with form_column, st.container(border=True, key=ADD_ITEM_STICKY_KEY):
         st.markdown("**Add an activity or direct cost**")
         item_form(ADD_ITEM_FORM_KEY)
+else:
+    phases_column = st.container()
 
 # TODO: Include buttons to load information about the activities/phases.
 
-st.subheader(RESEARCH_PHASES["incubation"])
-st.markdown(PHASE_DESCRIPTIONS["incubation"])
-phase_inputs("incubation")
+phases_column.subheader(RESEARCH_PHASES["incubation"])
+phases_column.markdown(PHASE_DESCRIPTIONS["incubation"])
+with phases_column:
+    phase_inputs("incubation")
 
-st.subheader(RESEARCH_PHASES["data"])
-st.markdown(PHASE_DESCRIPTIONS["data"])
-phase_inputs("data")
+    st.subheader(RESEARCH_PHASES["data"])
+    st.markdown(PHASE_DESCRIPTIONS["data"])
+    phase_inputs("data")
 
-st.subheader(RESEARCH_PHASES["writing"])
-st.markdown(PHASE_DESCRIPTIONS["writing"])
-phase_inputs("writing")
+    st.subheader(RESEARCH_PHASES["writing"])
+    st.markdown(PHASE_DESCRIPTIONS["writing"])
+    phase_inputs("writing")
 
-st.subheader(RESEARCH_PHASES["editing"])
-st.markdown(PHASE_DESCRIPTIONS["editing"])
+    st.subheader(RESEARCH_PHASES["editing"])
+    st.markdown(PHASE_DESCRIPTIONS["editing"])
 
 # Loading a state writes the sliders' values into their widget state, so seed it here rather than
 # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
@@ -1509,7 +1541,7 @@ if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
     st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
-with st.container(border=True):
+with phases_column.container(border=True):
     st.session_state["journal_submissions"] = st.slider(
         "Number of journals submitted to",
         min_value=1,

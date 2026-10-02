@@ -17,6 +17,9 @@ from src import database, sql_store
 from src.calculator_state import CalculatorState
 from src.reference_data import RESEARCH_PHASES
 
+# Stands in for main.FORM_VERSION, which cannot be imported as main.py is a script.
+FORM_VERSION: int = 1
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
@@ -75,17 +78,31 @@ def test_init_database_none_creates_nothing(isolated_database: Path) -> None:
     assert not isolated_database.exists()
 
 
-def test_save_button_hidden_without_database() -> None:
+CALCULATE_LABEL: str = "Calculate the cost of your journal article"
+SAVE_TOGGLE_KEY: str = "save_result_to_database"
+
+
+def test_save_toggle_hidden_without_database() -> None:
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30).run()
-    assert not [button for button in at.button if button.label == "Save your result to share"]
+    assert not [toggle for toggle in at.toggle if toggle.key == SAVE_TOGGLE_KEY]
+    assert [button for button in at.button if button.label == CALCULATE_LABEL]
 
 
-def click_save(at: AppTest) -> None:
-    next(button for button in at.button if button.label == "Save your result to share").click()
+def click_calculate(at: AppTest) -> None:
+    next(button for button in at.button if button.label == CALCULATE_LABEL).click()
     run(at)
 
 
-def test_save_button_saves_changes_as_child_project(monkeypatch: pytest.MonkeyPatch) -> None:
+def click_save(at: AppTest) -> None:
+    """Enables saving and calculates the cost, hiding the results first if they are already shown."""
+    next(toggle for toggle in at.toggle if toggle.key == SAVE_TOGGLE_KEY).set_value(True)
+    run(at)
+    if at.session_state["show_results"]:
+        click_calculate(at)
+    click_calculate(at)
+
+
+def test_save_overwrites_previous_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
@@ -95,18 +112,11 @@ def test_save_button_saves_changes_as_child_project(monkeypatch: pytest.MonkeyPa
     next(box for box in at.selectbox if box.label.startswith("Field of research")).set_value("4601")
     run(at)
     click_save(at)
-    child_public_id: str = at.session_state["database_public_id"]
 
-    assert child_public_id != public_id
+    assert at.session_state["database_public_id"] == public_id
     with closing(database.connect()) as conn:
-        projects = {project["public_id"]: project for project in sql_store.list_projects(conn)}
-        original: CalculatorState = sql_store.load_project(conn, public_id)
-        child: CalculatorState = sql_store.load_project(conn, child_public_id)
-    assert projects.keys() == {public_id, child_public_id}
-    assert original.project_field != "4601"
-    assert child.project_field == "4601"
-    assert projects[child_public_id]["parent_id"] == projects[public_id]["id"]
-    assert projects[public_id]["parent_id"] is None
+        assert [project["public_id"] for project in sql_store.list_projects(conn)] == [public_id]
+        assert sql_store.load_project(conn, public_id).project_field == "4601"
 
 
 def test_save_button_without_changes_keeps_project(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,8 +148,7 @@ def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> N
     run(at)
     assert not copy_link_buttons(at)
 
-    next(button for button in at.button if button.label == "Save your result to share").click()
-    run(at)
+    click_save(at)
     public_id: str = at.session_state["database_public_id"]
     [copy_link] = copy_link_buttons(at)
     assert copy_link["label"] == "Copy link to saved result"
@@ -170,7 +179,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     state.peer_review.review_rounds = 2
     state.peer_review.journal_submissions = 3
     with closing(database.connect()) as conn:
-        public_id: str = sql_store.save_project(conn, state)
+        public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
 
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run_results_page(at)
@@ -277,8 +286,8 @@ def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(before) == len(share_labels)
     assert not [url for url in before if "project_id" in unquote(url)]
 
-    next(button for button in at.button if button.label == "Save your result to share").click()
-    run(at)
+
+    click_save(at)
     public_id: str = at.session_state["database_public_id"]
     after: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
     assert len(after) == len(share_labels)
@@ -299,7 +308,7 @@ def test_result_page_shows_saved_result_without_hours(monkeypatch: pytest.Monkey
     state: CalculatorState = CalculatorState.default()
     state.user_country = "gb"
     with closing(database.connect()) as conn:
-        public_id: str = sql_store.save_project(conn, state)
+        public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
 
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run_result_page(at, public_id)
@@ -329,3 +338,13 @@ def test_result_page_without_id() -> None:
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run_result_page(at, None)
     assert at.info[0].value == "No result was chosen."
+
+
+def test_saved_project_records_form_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+    click_save(at)
+    with closing(database.connect()) as conn:
+        [project] = sql_store.list_projects(conn)
+    assert project["version"] == FORM_VERSION

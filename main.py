@@ -108,8 +108,13 @@ COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 ARTICLE_ANCHOR: str = "your-article"
 PEOPLE_ANCHOR: str = "people-involved"
 CALCULATOR_ANCHOR: str = "calculator"
+# Track the version of the tool that was used to save a result. Whenever this tool is changed substantially such that
+# users may approach answering the questions differently, increment this by 1.
+FORM_VERSION: int = 1
 RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
 SHARE_ANCHOR: str = "share-your-result"
+# Contents links to sections that are only shown once the cost has been calculated.
+RESULTS_ANCHORS: tuple[str, ...] = (RESULTS_HEADER_ANCHOR, SHARE_ANCHOR)
 TABLE_OF_CONTENTS: list[tuple[str, str]] = [
     (":material/article: Your article", ARTICLE_ANCHOR),
     (":material/groups: People involved", PEOPLE_ANCHOR),
@@ -492,7 +497,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
             step=1,
             key=quantity_key,
             help="""Select the number of researchers that have the same title or role, if you selected a preset role,
-            or have the same salary if you added a salary manually."""
+            or have the same salary if you added a salary manually.""",
         )
         with st.container(horizontal=True, vertical_alignment="center"):
             submitted: bool = st.form_submit_button(
@@ -808,9 +813,7 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
             )
             # Only the name sits outside the form, so a form's other inputs cannot be checked before it is submitted.
             if not editing and st.session_state[name_key]:
-                st.warning(
-                    f"You haven't added this {ITEM_KINDS[kind].lower()} yet.", icon=":material/warning:"
-                )
+                st.warning(f"You haven't added this {ITEM_KINDS[kind].lower()} yet.", icon=":material/warning:")
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and editing:
         st.rerun()
@@ -904,29 +907,71 @@ def phase_inputs(phase: str) -> None:
 
 
 def save_to_database() -> None:
-    """Saves the calculator's current inputs to the configured database as a new project.
+    """Saves the calculator's current inputs to the configured database.
 
-    Saved projects are never overwritten, as their links may have been shared. Saving again after changing the
-    inputs creates a new project whose parent is the previously saved or loaded project, and saving again without
-    changes keeps the existing project. The public id of the latest project and its inputs are kept in
+    The first save creates a new project. Saving again after changing the inputs overwrites that project, so its
+    public id and any shared links stay the same, and saving again without changes does nothing. If the project was
+    deleted in the meantime, a new project is saved. The public id of the project and its inputs are kept in
     st.session_state["database_public_id"] and st.session_state["database_saved_inputs"], so they persist across
     script reruns.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     inputs: dict[str, Any] = saved_inputs(state)
-    parent_public_id: str | None = st.session_state.get("database_public_id")
-    if parent_public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
+    public_id: str | None = st.session_state.get("database_public_id")
+    if public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
         st.toast("No changes since your result was last saved.", icon=":material/check_circle:")
         return
     try:
         with closing(database.connect()) as conn:
-            public_id: str = sql_store.save_project(conn, state, parent_public_id)
+            try:
+                if public_id is None:
+                    raise KeyError(public_id)
+                sql_store.update_project(conn, public_id, state, FORM_VERSION)
+            except KeyError:
+                public_id = sql_store.save_project(conn, state, FORM_VERSION)
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not save to the database: {error}", icon=":material/error:")
         return
     st.session_state["database_public_id"] = public_id
     st.session_state["database_saved_inputs"] = inputs
     st.toast("Saved to the database.", icon=":material/check_circle:")
+
+
+def toggle_results() -> None:
+    """Callback for the "Calculate the cost of your journal article" button. Shows or hides the results and share
+    sections, saving the result to the database when it is being shown and the user has opted in.
+    """
+    st.session_state["show_results"] = not st.session_state["show_results"]
+    if st.session_state["show_results"] and st.session_state.get("save_result_to_database", False):
+        save_to_database()
+
+
+def show_footer() -> None:
+    """Shows the footnotes and copyright notice at the bottom of the page."""
+    st.divider()
+    st.markdown(
+        """
+            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
+
+            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
+            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+            https://doi.org/10.7208/chicago/9780226805597.003.0002;
+            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
+            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
+
+            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
+            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
+            5, 133–182. https://doi.org/10.1086/738903
+
+            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+            Lay, Loh, and Tanima.
+            :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+            International License](https://creativecommons.org/licenses/by/4.0/).]
+
+            [Privacy Policy](https://sparcopen.org/privacy-policy/)
+            """,
+        unsafe_allow_html=True,
+    )
 
 
 def load_alam_defaults() -> None:
@@ -1151,6 +1196,8 @@ with st.sidebar:
     )
     with st.container(key="toc", gap="small"):
         for toc_label, toc_anchor in TABLE_OF_CONTENTS:
+            if toc_anchor in RESULTS_ANCHORS and not st.session_state.get("show_results", False):
+                continue
             st.markdown(f"[{toc_label}](#{toc_anchor})")
 
 
@@ -1271,7 +1318,7 @@ with st.container(border=True):
             index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
             placeholder="Type in the box to search for a field of research.",
             format_func=field_of_research_display_name,
-            help="Type in the box to search for a field of research."
+            help="Type in the box to search for a field of research.",
         )
         or ""
     )
@@ -1459,28 +1506,51 @@ with st.container(border=True):
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
-# Special phase for saving to the database, shown only when a database is configured.
+st.subheader("Calculate the cost and share your results")
+
+# Final step: calculating the cost shows the results and share sections, and optionally saves the result.
+if "show_results" not in st.session_state:
+    st.session_state["show_results"] = False
+
+# The toggle is shown only when a database is configured, and is off by default.
 if DATABASE_TYPE in ("sqlite", "mysql"):
-    st.subheader("Save and share your result?")
-    st.markdown("""
-                If you would like to share your result with others, we will require your permission to save
-                the information you have input into this tool. If you are happy to do so, please click on the
-                button below. You can then share your result with the buttons below.
-                """)
-    with st.container(horizontal=True, horizontal_alignment="left"):
-        if st.button(
-            "Save your result to share",
-            icon=":material/save:",
-            type="primary",
-            help="Save your inputs to the database. Saving again after making changes saves them as a new "
-            "result, generating a new share link. Old links will not show your changes.",
-        ):
-            save_to_database()
-        st.button(
-            "Continue without saving",
-            key="close-without-saving",
-            icon=":material/close:",
-        )
+    st.markdown(
+        """
+        You may save your result so that you may share an abbreviated version of the results with other people. The
+        abbreviated version will not display details of the hours of labor performed by each researcher, as this may
+        potentially be used to calculate an approximation of a researcher's salary.
+
+        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining this
+        data, and to potential use of this data by SPARC for future research. Please refer to
+        [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for details about how your data will be
+        handled.
+
+        If you continue without saving your result, please download the generated infographic to keep a record of the
+        total cost you have calculated.
+        """
+    )
+    st.toggle(
+        """Save my result so I can share it. I consent to SPARC retaining the data I have entered into this tool
+        and using it for future research.""",
+        key="save_result_to_database",
+        value=False,
+        help="If enabled, the information you have input into this tool is saved to the database when you "
+        "calculate the cost, so you can share a link to your result. Calculating again after making changes "
+        "overwrites your saved result, so your share link stays the same and shows your latest changes.",
+    )
+
+st.button(
+    "Calculate the cost of your journal article",
+    key="calculate-cost",
+    icon=":material/calculate:",
+    type="primary",
+    on_click=toggle_results,
+)
+
+# Nothing below the button, apart from the footer, is shown until the cost has been calculated.
+if not st.session_state["show_results"]:
+    show_footer()
+    st.stop()
 
 
 # Visualisation pane
@@ -1717,25 +1787,4 @@ with st.container(horizontal=True, horizontal_alignment="left"):
             key="copy-saved-project-link",
         )
 
-
-st.markdown(
-    """
-            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
-
-            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
-            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
-            https://doi.org/10.7208/chicago/9780226805597.003.0002;
-            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
-            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
-
-            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
-            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
-            5, 133–182. https://doi.org/10.1086/738903
-
-            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
-            Lay, Loh, and Tanima.
-            :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
-            International License](https://creativecommons.org/licenses/by/4.0/).]
-            """,
-    unsafe_allow_html=True,
-)
+show_footer()

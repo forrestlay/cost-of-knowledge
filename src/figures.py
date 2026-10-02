@@ -74,10 +74,48 @@ def labour_dataframe(activities: Sequence[BaseActivity], include_hours: bool = T
     return pd.DataFrame(data)
 
 
+_LEGEND_ROW_HEIGHT: int = 24
+
+
+def _legend_below(figure: go.Figure, entries: int, plot_height: int, bottom_margin: int = 0) -> None:
+    """Moves the legend of a figure to a single vertical column beneath the plot, for narrow screens.
+
+    The figure is made tall enough for the plot plus one legend row per entry, and the legend is pinned to the bottom
+    of the figure.
+
+    Args:
+        figure: The figure to modify in place.
+        entries: Number of legend entries.
+        plot_height: Height in pixels of the plot area above the legend.
+        bottom_margin: Extra space in pixels beneath the plot for content such as axis labels.
+    """
+    legend_height: int = entries * _LEGEND_ROW_HEIGHT + 20
+    figure.update_layout(
+        height=plot_height + bottom_margin + legend_height,
+        showlegend=True,
+        legend={
+            "orientation": "v",
+            "x": 0,
+            "xanchor": "left",
+            "y": 0,
+            "yanchor": "bottom",
+            "yref": "container",
+        },
+        margin={"b": bottom_margin + legend_height},
+    )
+
+
 def costs_pie_chart(
-    costs_df: pd.DataFrame, names: str, phase_color_map: dict[str, str], item_color_map: dict[str, str]
+    costs_df: pd.DataFrame,
+    names: str,
+    phase_color_map: dict[str, str],
+    item_color_map: dict[str, str],
+    legend_below: bool = False,
 ) -> go.Figure:
-    """Pie chart of the total cost, split by phase (names="Phase") or by activity and direct cost (names="Item")."""
+    """Pie chart of the total cost, split by phase (names="Phase") or by activity and direct cost (names="Item").
+
+    Pass legend_below=True for narrow screens, to list the legend vertically beneath the pie.
+    """
     pie: go.Figure = px.pie(
         costs_df,
         values="Cost",
@@ -86,14 +124,24 @@ def costs_pie_chart(
         color_discrete_map={**phase_color_map, **item_color_map},
         title="Total Cost Breakdown",
     )
-    pie.update_layout(height=720)
+    if legend_below:
+        _legend_below(pie, costs_df[names].nunique(), plot_height=380)
+    else:
+        pie.update_layout(height=720)
     return pie
 
 
 def labour_sunburst_chart(
-    labour_df: pd.DataFrame, phase_color_map: dict[str, str], total_cost: float, currency_code: str
+    labour_df: pd.DataFrame,
+    phase_color_map: dict[str, str],
+    total_cost: float,
+    currency_code: str,
+    legend_below: bool = False,
 ) -> go.Figure:
-    """Sunburst of the cost of labour by phase, person and activity, labelled as a percentage of total_cost."""
+    """Sunburst of the cost of labour by phase, person and activity, labelled as a percentage of total_cost.
+
+    Pass legend_below=True for narrow screens, to list the legend vertically beneath the sunburst.
+    """
     sunburst: go.Figure = px.sunburst(
         labour_df,
         path=["Phase", "Person", "Activity"],
@@ -125,6 +173,8 @@ def labour_sunburst_chart(
     sunburst.update_xaxes(visible=False)
     sunburst.update_yaxes(visible=False)
     sunburst.update_layout(height=720, showlegend=True, legend={"itemclick": False, "itemdoubleclick": False})
+    if legend_below:
+        _legend_below(sunburst, labour_df["Phase"].nunique(), plot_height=380)
     return sunburst
 
 
@@ -135,10 +185,12 @@ def labour_bar_chart(
     phase_color_map: dict[str, str],
     currency_code: str,
     currency_prefix: str,
+    legend_below: bool = False,
 ) -> go.Figure:
     """Bar chart of each labour activity's cost (measure="Cost") or hours (measure="Hours"), coloured by phase.
 
     The cost and hours of every researcher in an activity are added together, so each activity is a single bar.
+    Pass legend_below=True for narrow screens, to list the legend vertically beneath the chart.
     """
     totals_df: pd.DataFrame = labour_df.groupby(["Activity", "Phase"], as_index=False, sort=False)[[measure]].sum()
     chart: go.Figure = px.bar(
@@ -156,6 +208,9 @@ def labour_bar_chart(
         chart.update_yaxes(tickprefix=currency_prefix)
     else:
         chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
+    if legend_below:
+        # The bottom margin leaves room for the rotated activity names between the plot and the legend.
+        _legend_below(chart, totals_df["Phase"].nunique(), plot_height=380, bottom_margin=140)
     return chart
 
 

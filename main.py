@@ -1714,6 +1714,22 @@ k3.metric(
 )
 
 
+# Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the plot, or
+# the narrow version (for phones) with its legend listed beneath the plot.
+st.html(
+    """
+    <style>
+        @media (max-width: 640px) {
+            [class*="st-key-wide-chart-"] { display: none; }
+        }
+        @media (min-width: 641px) {
+            [class*="st-key-narrow-chart-"] { display: none; }
+        }
+    </style>
+    """
+)
+
+
 # Costs pie chart
 st.subheader("Total cost breakdown")
 
@@ -1729,7 +1745,13 @@ costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == 
 costs_df = costs_dataframe(combined_costs_list)
 
 
-st.plotly_chart(costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map), width="stretch")
+with st.container(key="wide-chart-costs-pie"):
+    st.plotly_chart(costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map), width="stretch")
+with st.container(key="narrow-chart-costs-pie"):
+    st.plotly_chart(
+        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, legend_below=True),
+        width="stretch",
+    )
 
 
 # Labour cost bar chart
@@ -1745,7 +1767,13 @@ if st.session_state["calculator_mode"] == "granular":
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.
                 """)
-    st.plotly_chart(labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code()), width="stretch")
+    with st.container(key="wide-chart-sunburst"):
+        st.plotly_chart(labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code()), width="stretch")
+    with st.container(key="narrow-chart-sunburst"):
+        st.plotly_chart(
+            labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(), legend_below=True),
+            width="stretch",
+        )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
         "paper, including direct costs that are not shown in this chart."
@@ -1778,17 +1806,20 @@ labour_chart_selection = st.pills(
 )
 
 
-st.plotly_chart(
-    labour_bar_chart(
-        labour_df,
-        labour_chart_selection or "Cost",
-        "Cost of and Time Spent on Labor Activities",
-        phase_color_map,
-        currency_code(),
-        currency_prefix(),
-    ),
-    width="stretch",
-)
+for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart-labour-bar", True)):
+    with st.container(key=chart_key):
+        st.plotly_chart(
+            labour_bar_chart(
+                labour_df,
+                labour_chart_selection or "Cost",
+                "Cost of and Time Spent on Labor Activities",
+                phase_color_map,
+                currency_code(),
+                currency_prefix(),
+                legend_below=legend_below,
+            ),
+            width="stretch",
+        )
 
 
 # -----------------------------------------------

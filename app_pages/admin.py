@@ -83,6 +83,10 @@ def load_results() -> pd.DataFrame:
                 "Researchers": sum(person.quantity for person in state.people.values()),
                 "Peer reviews": state.peer_review.review_rounds,
                 "Journal submissions": state.peer_review.journal_submissions,
+                # NULL for simplified projects, which have no defaults to load.
+                "Loaded Alam et al. defaults": None
+                if project["loaded_alam_defaults"] is None
+                else bool(project["loaded_alam_defaults"]),
                 "Currency": COUNTRY_CURRENCIES.get(state.user_country, ("", ""))[0],
                 **{label: round(compute_costs(combined, phase=key)) for key, label in RESEARCH_PHASES.items()},
                 "Total": round(state.total_cost()),
@@ -99,11 +103,12 @@ def load_results() -> pd.DataFrame:
             "Researchers",
             "Peer reviews",
             "Journal submissions",
+            "Loaded Alam et al. defaults",
             "Currency",
             *RESEARCH_PHASES.values(),
             "Total",
         ],
-    )
+    ).astype({"Loaded Alam et al. defaults": "boolean"})
 
 
 st.set_page_config(page_title="Saved results", layout="wide")
@@ -161,6 +166,10 @@ table_event = st.dataframe(
         ),
         "Saved": st.column_config.DatetimeColumn("Saved", format="YYYY-MM-DD HH:mm"),
         "International collaboration": st.column_config.CheckboxColumn("International collaboration"),
+        "Loaded Alam et al. defaults": st.column_config.CheckboxColumn(
+            "Loaded Alam et al. defaults",
+            help="Whether the defaults from Alam et al. (2026) were loaded. Blank for simplified results.",
+        ),
         **{
             label: st.column_config.NumberColumn(label, format="localized")
             for label in [*RESEARCH_PHASES.values(), "Total"]

@@ -7,6 +7,7 @@ from contextlib import closing
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
 
+import pandas as pd
 import pymysql
 import pytest
 import streamlit as st
@@ -189,6 +190,8 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     assert not at.metric
     [row] = at.dataframe[0].value.to_dict("records")
     summary: dict[str, Any] = state.summary(RESEARCH_PHASES)
+    # Blank, as the default state is simplified.
+    assert pd.isna(row.pop("Loaded Alam et al. defaults"))
     assert row == {
         "Link": f"./result?project_id={public_id}",
         "Saved": row["Saved"],

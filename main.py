@@ -185,10 +185,12 @@ def format_currency(x: float) -> str:
 def saved_inputs(state: CalculatorState) -> dict[str, Any]:
     """Returns the inputs of a state that saving compares to decide whether it has changed since it was last saved.
 
-    Leaves out the summary, which is derived.
+    Leaves out the summary, which is derived. Includes whether the Alam et al. defaults were loaded, so that a change in
+    that alone is saved.
     """
     data: dict[str, Any] = state.to_dict()
     del data["summary"]
+    data["loaded_alam_defaults"] = st.session_state.get("loaded_alam_defaults", False)
     return data
 
 
@@ -967,10 +969,12 @@ def save_to_database() -> None:
     public id and any shared links stay the same, and saving again without changes does nothing. If the project was
     deleted in the meantime, a new project is saved. The public id of the project and its inputs are kept in
     st.session_state["database_public_id"] and st.session_state["database_saved_inputs"], so they persist across
-    script reruns.
+    script reruns. Whether the user loaded the Alam et al. defaults (st.session_state["loaded_alam_defaults"]) is saved
+    with it, for granular projects.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     inputs: dict[str, Any] = saved_inputs(state)
+    loaded_alam_defaults: bool = st.session_state.get("loaded_alam_defaults", False)
     public_id: str | None = st.session_state.get("database_public_id")
     if public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
         st.toast("No changes since your result was last saved.", icon=":material/check_circle:")
@@ -980,9 +984,9 @@ def save_to_database() -> None:
             try:
                 if public_id is None:
                     raise KeyError(public_id)
-                sql_store.update_project(conn, public_id, state, FORM_VERSION)
+                sql_store.update_project(conn, public_id, state, FORM_VERSION, loaded_alam_defaults)
             except KeyError:
-                public_id = sql_store.save_project(conn, state, FORM_VERSION)
+                public_id = sql_store.save_project(conn, state, FORM_VERSION, loaded_alam_defaults)
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not save to the database: {error}", icon=":material/error:")
         return
@@ -1055,12 +1059,14 @@ def load_alam_defaults() -> None:
     the estimates from Alam et al. (2026), keeping the project and people.
 
     The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    Records in st.session_state["loaded_alam_defaults"] that the defaults were loaded, so that saving stores it.
     """
     usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     state.with_default_costs(1.0 if usd_to_currency is None else usd_to_currency).apply_to_session_state(
         st.session_state
     )
+    st.session_state["loaded_alam_defaults"] = True
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
@@ -1098,11 +1104,14 @@ def clear_simplified_estimates() -> None:
 def reset_activities_and_costs() -> None:
     """Removes every activity and direct cost added in the granular calculator, keeping the project and people. The
     activities of peer review and journal editorial work are left alone, as they are set by their sliders.
+
+    Also sets st.session_state["loaded_alam_defaults"] back to False, as the loaded defaults have been removed.
     """
     st.session_state["activity_list"] = [
         activity for activity in st.session_state["activity_list"] if not isinstance(activity, Activity)
     ]
     st.session_state["cost_list"] = []
+    st.session_state["loaded_alam_defaults"] = False
 
 
 @st.dialog("Reset activities and direct costs")
@@ -1271,6 +1280,11 @@ def copy_link_button(label: str, url: str, copied_label: str, help: str, key: st
 # calculator is imported, so the defaults and the serialised fields are defined in one place (calculator_state.py).
 if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
+
+# Whether the user has loaded the defaults from Alam et al. (2026) in the granular calculator. Set by
+# load_alam_defaults and saved with the result.
+if "loaded_alam_defaults" not in st.session_state:
+    st.session_state["loaded_alam_defaults"] = False
 
 
 # Streamlit drops a widget's session state when the widget is not rendered in a run (e.g. on another page), so reseed

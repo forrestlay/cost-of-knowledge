@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS projects (
     -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables count
     -- towards the totals.
     calculator_mode TEXT NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
+    -- 1 if the user loaded the default estimates from Alam et al. (2026) in the granular calculator, otherwise 0. NULL
+    -- for simplified projects, as the button is only offered in the granular calculator.
+    loaded_alam_defaults INTEGER CHECK (loaded_alam_defaults IN (0, 1)),
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
@@ -149,6 +152,9 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables
         -- count towards the totals.
         calculator_mode VARCHAR(16) NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
+        -- 1 if the user loaded the default estimates from Alam et al. (2026) in the granular calculator, otherwise 0.
+        -- NULL for simplified projects, as the button is only offered in the granular calculator.
+        loaded_alam_defaults BOOLEAN,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
@@ -320,13 +326,17 @@ def _transaction(conn: Connection) -> Iterator[Cursor]:
         raise
 
 
-def _project_values(state: CalculatorState) -> dict[str, Any]:
-    """Values of a projects row for the given state, excluding id and timestamps."""
+def _project_values(state: CalculatorState, loaded_alam_defaults: bool) -> dict[str, Any]:
+    """Values of a projects row for the given state, excluding id and timestamps.
+
+    loaded_alam_defaults is recorded only for granular projects, and is NULL otherwise.
+    """
     data: dict[str, Any] = state.to_dict()
     return {
         "schema_version": data["schema_version"],
         **data["project"],
         "international_collaborators": int(data["project"]["international_collaborators"]),
+        "loaded_alam_defaults": int(loaded_alam_defaults) if state.calculator_mode == "granular" else None,
         "total_cost": data["summary"]["total_cost"],
         "total_hours": data["summary"]["total_hours"],
     }
@@ -400,15 +410,17 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     )
 
 
-def save_project(conn: Connection, state: CalculatorState, version: int) -> str:
+def save_project(conn: Connection, state: CalculatorState, version: int, loaded_alam_defaults: bool = False) -> str:
     """Saves a calculator state as a new project and returns its public id.
 
     Args:
         conn: Connection to the database.
         state: Calculator state to save.
         version: Version of the form that the project is saved under.
+        loaded_alam_defaults: Whether the user loaded the default estimates from Alam et al. (2026). Only stored for
+            projects in granular mode.
     """
-    values: dict[str, Any] = {**_project_values(state), "version": version}
+    values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     public_id: str = generate_public_id()
     timestamp: str = _now()
     with _transaction(conn) as cursor:
@@ -425,13 +437,15 @@ def save_project(conn: Connection, state: CalculatorState, version: int) -> str:
     return public_id
 
 
-def update_project(conn: Connection, public_id: str, state: CalculatorState, version: int) -> None:
-    """Replaces a saved project's data, and its form version, with the given calculator state and version.
+def update_project(
+    conn: Connection, public_id: str, state: CalculatorState, version: int, loaded_alam_defaults: bool = False
+) -> None:
+    """Replaces a saved project's data, form version and loaded_alam_defaults flag with the given values.
 
     Raises:
         KeyError: If no project with that public id exists.
     """
-    values: dict[str, Any] = {**_project_values(state), "version": version}
+    values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     with _transaction(conn) as cursor:
         # Checked with a SELECT, as MySQL's rowcount for an UPDATE counts only the rows whose values changed.
         cursor.execute(_sql(conn, "SELECT id FROM projects WHERE public_id = ?"), (public_id,))

@@ -149,6 +149,22 @@ def test_save_and_load_simplified_estimates(conn: Connection) -> None:
     assert restored.total_hours() == 23
 
 
+def test_loaded_alam_defaults_saved_for_granular_projects_only(conn: Connection) -> None:
+    def stored_flag() -> int | None:
+        return sql_store.load_projects(conn)[0][0]["loaded_alam_defaults"]
+
+    state: CalculatorState = modified_state()
+    state.calculator_mode = "granular"
+    public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
+    assert stored_flag() == 0
+    sql_store.update_project(conn, public_id, state, FORM_VERSION, loaded_alam_defaults=True)
+    assert stored_flag() == 1
+
+    state.calculator_mode = "simplified"
+    sql_store.update_project(conn, public_id, state, FORM_VERSION, loaded_alam_defaults=True)
+    assert stored_flag() is None
+
+
 def test_update_missing_project_raises(conn: Connection) -> None:
     with pytest.raises(KeyError):
         sql_store.update_project(conn, "missing", CalculatorState.default(), FORM_VERSION)

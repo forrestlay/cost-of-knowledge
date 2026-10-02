@@ -39,6 +39,8 @@ extend-select = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "ruff>=0.16.9",
+    "ty>=0.0.84",
 ]
 
 [tool.pytest.ini_options]

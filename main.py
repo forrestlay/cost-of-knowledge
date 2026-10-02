@@ -30,16 +30,12 @@ import logging
 from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
-import drawsvg as draw
-import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import resvg_py
 import streamlit as st
 
-from src import database, sql_store
+from src import database, reference_data, sql_store
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
@@ -52,6 +48,16 @@ from src.calculator_state import (
 )
 from src.currency_rates import convert_currency
 from src.database import DatabaseType, get_database_type, init_database
+from src.figures import (
+    build_color_map,
+    costs_dataframe,
+    costs_pie_chart,
+    create_social_media_svg,
+    labour_bar_chart,
+    labour_dataframe,
+    labour_sunburst_chart,
+    social_media_svg_to_png,
+)
 from src.models import (
     Activity,
     BaseActivity,
@@ -68,29 +74,31 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
+from src.ui import theme_color, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from src.models import Cost
 
 
-st.set_page_config(page_title="Cost of Knowledge Calculator", layout="wide")
+st.set_page_config(page_title="The Cost of Knowledge Calculator", layout="wide")
 
 
 def calculator_page() -> None:
     """The calculator, which is the rest of this script. The script carries on past navigation to run it."""
 
 
-# The saved results page is reached only by its URL (e.g. BASE-URL/results), so navigation is hidden and the calculator
-# does not link to it.
-RESULTS_PAGE: st.Page = st.Page("app_pages/results.py", title="Saved results", url_path="results")
-current_page: st.Page = st.navigation(
-    [st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True), RESULTS_PAGE], position="hidden"
+# The other pages are reached only by their URLs (e.g. BASE-URL/admin), so navigation is hidden. The result page is the
+# link that users share, and the admin page lists every saved result.
+RESULT_PAGE: st.Page = st.Page("app_pages/result.py", title="Cost of Knowledge result", url_path="result")
+ADMIN_PAGE: st.Page = st.Page("app_pages/admin.py", title="Saved results", url_path="admin")
+current_page: st.Page = st.navigation(  # ty: ignore[call-non-callable]
+    [st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True), RESULT_PAGE, ADMIN_PAGE],
+    position="hidden",
 )
-if current_page.url_path == RESULTS_PAGE.url_path:
-    RESULTS_PAGE.run()
-    st.stop()
+for other_page in (RESULT_PAGE, ADMIN_PAGE):
+    if current_page.url_path == other_page.url_path:
+        other_page.run()
+        st.stop()
 
 
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
@@ -100,8 +108,13 @@ COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 ARTICLE_ANCHOR: str = "your-article"
 PEOPLE_ANCHOR: str = "people-involved"
 CALCULATOR_ANCHOR: str = "calculator"
+# Track the version of the tool that was used to save a result. Whenever this tool is changed substantially such that
+# users may approach answering the questions differently, increment this by 1.
+FORM_VERSION: int = 1
 RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
 SHARE_ANCHOR: str = "share-your-result"
+# Contents links to sections that are only shown once the cost has been calculated.
+RESULTS_ANCHORS: tuple[str, ...] = (RESULTS_HEADER_ANCHOR, SHARE_ANCHOR)
 TABLE_OF_CONTENTS: list[tuple[str, str]] = [
     (":material/article: Your article", ARTICLE_ANCHOR),
     (":material/groups: People involved", PEOPLE_ANCHOR),
@@ -109,13 +122,6 @@ TABLE_OF_CONTENTS: list[tuple[str, str]] = [
     (":material/bar_chart: Your results", RESULTS_HEADER_ANCHOR),
     (":material/share: Share your result", SHARE_ANCHOR),
 ]
-
-
-# Placeholder hex values that Streamlit's frontend swaps for its theme's categorical
-# colour palette (see streamlit/elements/lib/streamlit_plotly_theme.py). Assigning one
-# of these to a category keeps that phase or activity on the same Streamlit colour in
-# every chart. Charts with more than 10 categories fall back to px.colors.qualitative.Light24.
-STREAMLIT_CATEGORICAL_COLORS: list[str] = [f"#{n:06d}" for n in range(1, 11)]
 
 
 # Preset activities and direct costs offered in the calculator's selectboxes, loaded from data/costs.json.
@@ -127,6 +133,14 @@ ACTIVITY_OPTIONS: dict[str, list[str]] = {
 }
 COST_OPTIONS: dict[str, list[str]] = {
     phase: [cost["name"] for cost in _COSTS_DATA["direct_costs"] if cost["phase"] == phase] for phase in RESEARCH_PHASES
+}
+# Description of each phase, keyed by phase key, and of each preset activity and direct cost, keyed by (phase, name).
+PHASE_DESCRIPTIONS: dict[str, str] = {phase: info["description"] for phase, info in _COSTS_DATA["phases"].items()}
+ACTIVITY_DESCRIPTIONS: dict[tuple[str, str], str] = {
+    (activity["phase"], activity["name"]): activity["description"] for activity in _COSTS_DATA["activities"]
+}
+COST_DESCRIPTIONS: dict[tuple[str, str], str] = {
+    (cost["phase"], cost["name"]): cost["description"] for cost in _COSTS_DATA["direct_costs"]
 }
 # Default hours of each preset activity and default cost in USD of each preset direct cost, keyed by (phase, name), as
 # some names (e.g. "Other") appear in more than one phase.
@@ -145,7 +159,7 @@ COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
 
 def currency_code() -> str:
     """ISO 4217 code (e.g. "USD") of the currency of the country chosen by the user."""
-    return COUNTRY_CURRENCIES.get(st.session_state["user_country"], COUNTRY_CURRENCIES["us"])[0]
+    return reference_data.currency_code(st.session_state["user_country"])
 
 
 def currency_prefix() -> str:
@@ -153,13 +167,12 @@ def currency_prefix() -> str:
 
     The currency symbol (e.g. "$"), or the ISO code and a space (e.g. "AED ") for currencies without one.
     """
-    code, symbol = COUNTRY_CURRENCIES.get(st.session_state["user_country"], COUNTRY_CURRENCIES["us"])
-    return symbol if symbol != code else f"{code} "
+    return reference_data.currency_prefix(st.session_state["user_country"])
 
 
-def format_currency(x: int | float) -> str:
+def format_currency(x: float) -> str:
     """Formats an int or float to a string in the currency of the country chosen by the user."""
-    return f"{currency_prefix()}{x:,.0f} ({currency_code()})"
+    return reference_data.format_currency(x, st.session_state["user_country"])
 
 
 # -----------------------------------------------
@@ -177,30 +190,6 @@ def saved_inputs(state: CalculatorState) -> dict[str, Any]:
     return data
 
 
-def load_from_database(public_id: str) -> None:
-    """Replaces the calculator's inputs with the project saved in the database under the given public id.
-
-    Must run before any widget is rendered, as it replaces widget state. Saving changes later in the session creates a
-    new project, amended from the loaded one.
-    """
-    if DATABASE_TYPE == "none":
-        st.toast("Could not load the project: no database is configured.", icon=":material/error:")
-        return
-    try:
-        with closing(database.connect()) as conn:
-            state: CalculatorState = sql_store.load_project(conn, public_id)
-    except KeyError:
-        st.toast(f"Could not load the project: no project with id {public_id!r}.", icon=":material/error:")
-        return
-    except database.DATABASE_ERRORS as error:
-        st.toast(f"Could not load the project from the database: {error}", icon=":material/error:")
-        return
-    state.apply_to_session_state(st.session_state)
-    st.session_state["database_public_id"] = public_id
-    st.session_state["database_saved_inputs"] = saved_inputs(state)
-    st.toast("Loaded the project from the database.", icon=":material/check_circle:")
-
-
 # -----------------------------------------------
 # User and Project
 # -----------------------------------------------
@@ -216,7 +205,7 @@ def convert_monetary_values():
     if from_code == to_code:
         return
 
-    def convert(amount: int | float) -> float:
+    def convert(amount: float) -> float:
         converted: float | None = convert_currency(amount, from_code, to_code)
         return 0.0 if converted is None else round(converted, 2)
 
@@ -344,7 +333,7 @@ def apply_indirect_cost_rate() -> None:
             person.hourly_rate = role_hourly_rate(person.role)
 
 
-def format_hourly_rate(hourly_rate: int | float) -> str:
+def format_hourly_rate(hourly_rate: float) -> str:
     """Formats an hourly rate in the user's currency, e.g. "$85.00 / hour"."""
     return f"{currency_prefix()}{hourly_rate:,.2f} / hour"
 
@@ -478,12 +467,21 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         return "Enter a salary manually" if option == MANUAL_SALARY_OPTION else ROLES[option].display_name(country)
 
     choice: str | None = st.selectbox(
-        "Role",
+        "Title or role",
         options=[*ROLES, MANUAL_SALARY_OPTION],
         # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
         format_func=lambda option, country=st.session_state["user_country"]: role_display(option, country),
-        placeholder="Choose a role to fill in its median hourly rate based on US data, or enter a salary",
+        placeholder="Choose a title or role to calculate costs based on the median US salary, or enter a salary "
+        "manually",
         key=role_key,
+        help="""To calculate the cost of labor, we calculate an hourly rate based on the salary of each researcher
+        involved in preparing the refereed journal article. If you select a faculty title, the hourly rate is
+        calculated using median 9-month salaries from the AAUP Annual Report on the Economic Status of the
+        Profession, 2025-26. The hourly rate for a postdoctoral researcher is based on the median wage for confirmed
+        postdoctoral commitments of research doctorate recipients in the National Center for
+        Science and Engineering Statistics Survey of Doctorate Recipients 2024. The hourly rate for a research
+        assistant is based on the median hourly wage for a social science research assistant in the US Bureau of
+        Labor Statistics National Wage Data May 2026.""",
     )
     with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
         if choice == MANUAL_SALARY_OPTION:
@@ -494,17 +492,24 @@ def researcher_form(key: str, person: Person | None = None) -> None:
                 f"{format_hourly_rate(role_hourly_rate(choice))}"
             )
         st.number_input(
-            "Number of researchers with this hourly rate",
+            "Number of researchers that share this title or salary",
             min_value=1,
             step=1,
             key=quantity_key,
+            help="""Select the number of researchers that have the same title or role, if you selected a preset role,
+            or have the same salary if you added a salary manually.""",
         )
-        submitted: bool = st.form_submit_button(
-            "Add researcher" if person is None else "Save changes",
-            icon=":material/person_add:" if person is None else ":material/save:",
-            on_click=save_researcher,
-            args=[key, None if person is None else person.unique_key],
-        )
+        with st.container(horizontal=True, vertical_alignment="center"):
+            submitted: bool = st.form_submit_button(
+                "Add researcher" if person is None else "Save changes",
+                icon=":material/person_add:" if person is None else ":material/save:",
+                type="primary",
+                on_click=save_researcher,
+                args=[key, None if person is None else person.unique_key],
+            )
+            # Only the role sits outside the form, so a form's other inputs cannot be checked before it is submitted.
+            if person is None and choice is not None:
+                st.warning("You haven't added this researcher yet.", icon=":material/warning:")
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and person is not None:
         st.rerun()
@@ -555,33 +560,34 @@ def simplified_phase_inputs(phase: str) -> None:
     Args:
         phase: Key of the phase in RESEARCH_PHASES.
     """
-    if not st.session_state["people"]:
-        st.info("Add a researcher to estimate their hours.")
-    for person in st.session_state["people"].values():
-        # Seed the widget's state rather than passing value=, as reused keys keep the value the browser holds.
-        hours_key: str = f"simplified-hours-{phase}-{person.unique_key}"
-        if hours_key not in st.session_state:
-            st.session_state[hours_key] = float(
-                st.session_state["simplified_hours"].get(phase, {}).get(person.unique_key, 0.0)
+    with st.container(border=True):
+        if not st.session_state["people"]:
+            st.info("Add a researcher to estimate their hours.")
+        for person in st.session_state["people"].values():
+            # Seed the widget's state rather than passing value=, as reused keys keep the value the browser holds.
+            hours_key: str = f"simplified-hours-{phase}-{person.unique_key}"
+            if hours_key not in st.session_state:
+                st.session_state[hours_key] = float(
+                    st.session_state["simplified_hours"].get(phase, {}).get(person.unique_key, 0.0)
+                )
+            st.session_state["simplified_hours"].setdefault(phase, {})[person.unique_key] = st.slider(
+                hours_slider_label(person),
+                min_value=0.0,
+                max_value=float(MAX_RESEARCHER_HOURS),
+                step=0.5,
+                key=hours_key,
             )
-        st.session_state["simplified_hours"].setdefault(phase, {})[person.unique_key] = st.slider(
-            hours_slider_label(person),
+        simplified_cost_key: str = f"simplified-cost-{phase}"
+        if simplified_cost_key not in st.session_state:
+            st.session_state[simplified_cost_key] = float(st.session_state["simplified_direct_costs"].get(phase, 0.0))
+        st.session_state["simplified_direct_costs"][phase] = st.number_input(
+            f"Total direct costs ({currency_code()})",
             min_value=0.0,
-            max_value=float(MAX_RESEARCHER_HOURS),
-            step=0.5,
-            key=hours_key,
+            step=100.0,
+            key=simplified_cost_key,
+            help=f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
+            "equipment and travel.",
         )
-    simplified_cost_key: str = f"simplified-cost-{phase}"
-    if simplified_cost_key not in st.session_state:
-        st.session_state[simplified_cost_key] = float(st.session_state["simplified_direct_costs"].get(phase, 0.0))
-    st.session_state["simplified_direct_costs"][phase] = st.number_input(
-        f"Total direct costs ({currency_code()})",
-        min_value=0.0,
-        step=0.50,
-        key=simplified_cost_key,
-        help=f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
-        "equipment and travel.",
-    )
 
 
 # Keys of the widgets of the form to add an activity or direct cost. The dialog to edit one uses its own keys.
@@ -760,6 +766,9 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
         on_change=None if editing else reset_item_name,
         args=None if editing else [key],
     )
+    phase_description: str | None = PHASE_DESCRIPTIONS.get(st.session_state[phase_key])
+    if phase_description:
+        st.info(phase_description)
     # Offer the phase's presets, keeping any current custom name selectable.
     presets: list[str] = (ACTIVITY_OPTIONS if kind == "activity" else COST_OPTIONS).get(st.session_state[phase_key], [])
     current_name: str | None = st.session_state[name_key]
@@ -773,6 +782,11 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
         on_change=apply_item_default,
         args=[key, kind],
     )
+    item_description: str | None = (ACTIVITY_DESCRIPTIONS if kind == "activity" else COST_DESCRIPTIONS).get(
+        (st.session_state[phase_key], st.session_state[name_key] or "")
+    )
+    if item_description:
+        st.info(item_description)
 
     with st.form(f"{key}-form", clear_on_submit=False, border=False):
         if kind == "activity":
@@ -787,14 +801,19 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
                     key=f"{key}-hours-{person.unique_key}",
                 )
         else:
-            st.number_input(f"Cost ({currency_code()})", min_value=0.0, step=0.50, key=cost_key)
-        submitted: bool = st.form_submit_button(
-            f"Add {ITEM_KINDS[kind].lower()}" if not editing else "Save changes",
-            icon=":material/add:" if not editing else ":material/save:",
-            disabled=kind == "activity" and not people,
-            on_click=save_item,
-            args=[key, item_kind, item_id],
-        )
+            st.number_input(f"Cost ({currency_code()})", min_value=0.0, step=100.0, key=cost_key)
+        with st.container(horizontal=True, vertical_alignment="center"):
+            submitted: bool = st.form_submit_button(
+                f"Add {ITEM_KINDS[kind].lower()}" if not editing else "Save changes",
+                icon=":material/add:" if not editing else ":material/save:",
+                disabled=kind == "activity" and not people,
+                type="primary",
+                on_click=save_item,
+                args=[key, item_kind, item_id],
+            )
+            # Only the name sits outside the form, so a form's other inputs cannot be checked before it is submitted.
+            if not editing and st.session_state[name_key]:
+                st.warning(f"You haven't added this {ITEM_KINDS[kind].lower()} yet.", icon=":material/warning:")
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and editing:
         st.rerun()
@@ -888,29 +907,71 @@ def phase_inputs(phase: str) -> None:
 
 
 def save_to_database() -> None:
-    """Saves the calculator's current inputs to the configured database as a new project.
+    """Saves the calculator's current inputs to the configured database.
 
-    Saved projects are never overwritten, as their links may have been shared. Saving again after changing the
-    inputs creates a new project whose parent is the previously saved or loaded project, and saving again without
-    changes keeps the existing project. The public id of the latest project and its inputs are kept in
+    The first save creates a new project. Saving again after changing the inputs overwrites that project, so its
+    public id and any shared links stay the same, and saving again without changes does nothing. If the project was
+    deleted in the meantime, a new project is saved. The public id of the project and its inputs are kept in
     st.session_state["database_public_id"] and st.session_state["database_saved_inputs"], so they persist across
     script reruns.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     inputs: dict[str, Any] = saved_inputs(state)
-    parent_public_id: str | None = st.session_state.get("database_public_id")
-    if parent_public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
+    public_id: str | None = st.session_state.get("database_public_id")
+    if public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
         st.toast("No changes since your result was last saved.", icon=":material/check_circle:")
         return
     try:
         with closing(database.connect()) as conn:
-            public_id: str = sql_store.save_project(conn, state, parent_public_id)
+            try:
+                if public_id is None:
+                    raise KeyError(public_id)
+                sql_store.update_project(conn, public_id, state, FORM_VERSION)
+            except KeyError:
+                public_id = sql_store.save_project(conn, state, FORM_VERSION)
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not save to the database: {error}", icon=":material/error:")
         return
     st.session_state["database_public_id"] = public_id
     st.session_state["database_saved_inputs"] = inputs
     st.toast("Saved to the database.", icon=":material/check_circle:")
+
+
+def toggle_results() -> None:
+    """Callback for the "Calculate the cost of your journal article" button. Shows or hides the results and share
+    sections, saving the result to the database when it is being shown and the user has opted in.
+    """
+    st.session_state["show_results"] = not st.session_state["show_results"]
+    if st.session_state["show_results"] and st.session_state.get("save_result_to_database", False):
+        save_to_database()
+
+
+def show_footer() -> None:
+    """Shows the footnotes and copyright notice at the bottom of the page."""
+    st.divider()
+    st.markdown(
+        """
+            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
+
+            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
+            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+            https://doi.org/10.7208/chicago/9780226805597.003.0002;
+            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
+            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
+
+            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
+            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
+            5, 133–182. https://doi.org/10.1086/738903
+
+            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+            Lay, Loh, and Tanima.
+            :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+            International License](https://creativecommons.org/licenses/by/4.0/).]
+
+            [Privacy Policy](https://sparcopen.org/privacy-policy/)
+            """,
+        unsafe_allow_html=True,
+    )
 
 
 def load_alam_defaults() -> None:
@@ -930,368 +991,6 @@ def load_alam_defaults() -> None:
 # -----------------------------------------------
 # Visualisation pane
 # -----------------------------------------------
-
-
-def build_color_map(names: Sequence[str], palette: Sequence[str] | None = None) -> dict[str, str]:
-    """Assigns each distinct name a stable colour so a phase or activity keeps the
-    same colour across every chart.
-
-    Args:
-        names: Category names, in the order they should claim colours.
-        palette: Colours to draw from. Defaults to Streamlit's categorical palette
-            when it has enough colours, otherwise px.colors.qualitative.Light24.
-    """
-    distinct: list[str] = list(dict.fromkeys(names))
-    if palette is None:
-        palette = (
-            STREAMLIT_CATEGORICAL_COLORS
-            if len(distinct) <= len(STREAMLIT_CATEGORICAL_COLORS)
-            else px.colors.qualitative.Light24
-        )
-    return {name: palette[i % len(palette)] for i, name in enumerate(distinct)}
-
-
-# -----------------------------------------------
-# Social media sharing
-# -----------------------------------------------
-
-
-# Arial is the intended face; the generic fallback lets the PNG renderer substitute a metric-compatible font
-# (Liberation Sans, installed in the Docker image) on hosts without Arial.
-SOCIAL_MEDIA_FONT: str = "Arial, sans-serif"
-
-
-def _wrap_text(text: str, max_chars: int) -> list[str]:
-    """Greedily wraps text into lines of at most ``max_chars`` characters.
-
-    drawsvg does no line wrapping of its own, so long project titles are split
-    here before being handed to a multi-line ``draw.Text``.
-    """
-    words: list[str] = text.split()
-    lines: list[str] = []
-    current: str = ""
-    for word in words:
-        candidate: str = f"{current} {word}".strip()
-        if not current or len(candidate) <= max_chars:
-            current = candidate
-        else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    return lines or [""]
-
-
-# Words left lowercase when title-casing field names, including te reo Māori particles (e.g. "o te Māori").
-_TITLE_CASE_MINOR_WORDS: set[str] = {"and", "of", "me", "o", "te"}
-
-
-def _title_case(text: str) -> str:
-    """Capitalises each word of a field name except minor words, e.g. "Agricultural Biotechnology"."""
-    words: list[str] = text.split()
-    return " ".join(
-        word if index > 0 and word in _TITLE_CASE_MINOR_WORDS else word[:1].upper() + word[1:]
-        for index, word in enumerate(words)
-    )
-
-
-def create_social_media_svg(
-    country: str,
-    international_collaborators: bool,
-    project_field: str,
-    total_cost: float,
-    total_hours: float,
-    phase_costs: dict[str, float],
-    show_hours: bool = False,
-) -> draw.Drawing:
-    """Builds a portrait social-media card summarising a cost estimate.
-
-    The cost breakdown is drawn as a plain SVG stacked bar (no Plotly/Kaleido),
-    so the card renders identically wherever the SVG is displayed.
-
-    Args:
-        country: Display name of the researcher's country.
-        international_collaborators: Whether the project has collaborators from
-            other countries; appends "+ others" after the country name.
-        project_field: Name of the Field of Research group the project sits in, shown in the title.
-        total_cost: Estimated total cost in the chosen country's currency.
-        total_hours: Estimated total hours of labour.
-        phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
-        show_hours: Whether to show the estimated hours of labor below the total cost.
-    """
-    width: int = 1080
-    height: int = 1360
-    margin: int = 72
-    ink: str = "#16263a"
-    muted: str = "#3f5064"
-    accent: str = "#d6336c"
-
-    image: draw.Drawing = draw.Drawing(width, height, id_prefix="socmed")
-
-    # Background
-    gradient = draw.LinearGradient(200, 0, 800, height)
-    gradient.add_stop(0, "lightskyblue")
-    gradient.add_stop(1, "lightsteelblue")
-    image.append(draw.Rectangle(0, 0, width, height, fill=gradient))
-
-    # Eyebrow
-    image.append(
-        draw.Text(
-            "THE COST OF KNOWLEDGE",
-            30,
-            margin,
-            110,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
-            letter_spacing=4,
-        )
-    )
-
-    # Blurb, introducing the title and figures below.
-    image.append(
-        draw.Text(
-            "Using the Cost of Knowledge calculator, I calculated that",
-            28,
-            margin,
-            162,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
-
-    # Title (wrapped, capped at three lines). Some Field of Research names are long, so the font shrinks until the
-    # title fits, with the characters per line scaled to match.
-    title: str = " ".join(f"My {_title_case(project_field)} paper cost".split())
-    title_line_height: float = 1.15
-    for title_size in (62, 54, 46, 40):
-        wrapped_title: list[str] = _wrap_text(title, int(26 * 62 / title_size))
-        if len(wrapped_title) <= 3:
-            break
-    title_lines: list[str] = wrapped_title[:3]
-    if len(wrapped_title) > 3:
-        title_lines[-1] = title_lines[-1].rstrip(".") + "…"
-    title_top: float = 238
-    image.append(
-        draw.Text(
-            title_lines,
-            title_size,
-            margin,
-            title_top,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
-            line_height=title_line_height,
-        )
-    )
-
-    title_bottom: float = title_top + title_size * title_line_height * (len(title_lines) - 1)
-
-    # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
-    # library is needed. The block is anchored to the bottom of the card so the
-    # layout stays balanced whatever the title length. Streamlit's placeholder
-    # palette renders near-black outside the app, so choose real colours here,
-    # one stable colour per phase.
-    phase_names: list[str] = list(phase_costs.keys())
-    palette: dict[str, str] = build_color_map(phase_names, palette=px.colors.qualitative.Bold)
-    breakdown_total: float = sum(phase_costs.values())
-    visible_phases: list[str] = [name for name in phase_names if phase_costs[name] > 0] or phase_names
-
-    legend_row_h: int = 48
-    legend_font: int = 28
-    # Bottom of the legend sits above the three footer lines, with generous padding
-    # around the larger, centred call-to-action line that follows it.
-    legend_last_y: float = height - 194
-    legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h
-    bar_x: int = margin
-    bar_w: int = width - 2 * margin
-    bar_h: int = 88
-    bar_y: float = legend_first_y - 26 - 46 - bar_h
-    bar_label_y: float = bar_y - 24
-
-    # Country and divider, sitting just above the breakdown. The country wraps upwards from the divider.
-    divider_y: float = bar_label_y - 58
-    subtitle: str = country.strip()
-    if subtitle and international_collaborators:
-        subtitle = f"{subtitle} + international collaborators"
-    subtitle_line_height: float = 1.2
-    subtitle_lines: list[str] = _wrap_text(subtitle, 48)
-    subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
-    image.append(
-        draw.Text(
-            subtitle_lines,
-            34,
-            margin,
-            subtitle_y,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=subtitle_line_height,
-        )
-    )
-    image.append(
-        draw.Line(
-            margin,
-            divider_y,
-            width - margin,
-            divider_y,
-            stroke="#ffffff",
-            stroke_width=2,
-            stroke_opacity=0.6,
-        )
-    )
-
-    # Headline figures, each label below its figure, vertically centred between the title and the country. Offsets
-    # are from the top of the block. The hours figure uses a smaller font than the cost to leave room for the
-    # breakdown below.
-    hours_size: int = 64
-    figures_block_h: int = 240 if show_hours else 116
-    zone_top: float = title_bottom + 50
-    zone_bottom: float = subtitle_y - 26 - 40
-    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
-    image.append(
-        draw.Text(
-            format_currency(total_cost),
-            88,
-            margin,
-            figures_y + 64,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
-        )
-    )
-    image.append(
-        draw.Text(
-            "Estimated total cost",
-            30,
-            margin,
-            figures_y + 108,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
-    if show_hours:
-        image.append(
-            draw.Text(
-                f"{total_hours:,.0f} hours",
-                hours_size,
-                margin,
-                figures_y + 190,
-                fill=ink,
-                font_family=SOCIAL_MEDIA_FONT,
-                font_weight="bold",
-            )
-        )
-        image.append(
-            draw.Text(
-                "Estimated hours of labor",
-                30,
-                margin,
-                figures_y + 232,
-                fill=muted,
-                font_family=SOCIAL_MEDIA_FONT,
-            )
-        )
-
-    image.append(
-        draw.Text(
-            "Where the cost goes",
-            30,
-            margin,
-            bar_label_y,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
-    if breakdown_total > 0:
-        cursor: float = bar_x
-        for name in phase_names:
-            segment: float = bar_w * (phase_costs[name] / breakdown_total)
-            if segment <= 0:
-                continue
-            image.append(draw.Rectangle(cursor, bar_y, segment, bar_h, fill=palette[name]))
-            cursor += segment
-    else:
-        image.append(draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4))
-    image.append(
-        draw.Rectangle(
-            bar_x,
-            bar_y,
-            bar_w,
-            bar_h,
-            rx=10,
-            fill="none",
-            stroke="#ffffff",
-            stroke_width=3,
-        )
-    )
-
-    # Legend: one row per phase that has a cost.
-    row_index: int = 0
-    for name in phase_names:
-        amount: float = phase_costs[name]
-        if amount <= 0:
-            continue
-        row_y: float = legend_first_y + row_index * legend_row_h
-        share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
-        image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=palette[name]))
-        image.append(
-            draw.Text(
-                name,
-                legend_font,
-                margin + 48,
-                row_y,
-                fill=ink,
-                font_family=SOCIAL_MEDIA_FONT,
-            )
-        )
-        image.append(
-            draw.Text(
-                f"{format_currency(amount)}  ({share:.0f}%)",
-                legend_font,
-                width - margin,
-                row_y,
-                fill=muted,
-                text_anchor="end",
-                font_family=SOCIAL_MEDIA_FONT,
-            )
-        )
-        row_index += 1
-
-    image.append(
-        draw.Text(
-            "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
-            28,
-            width / 2,
-            height - 108,
-            text_anchor="middle",
-            fill=accent,
-            font_weight="bold",
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
-    # Credit, with the authors on their own line below.
-    image.append(
-        draw.Text(
-            ["The University of Sydney and SPARC.", "Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026."],
-            24,
-            width - margin,
-            height - 64,
-            text_anchor="end",
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=28 / 24,
-        )
-    )
-    return image
-
-
-@st.cache_data(show_spinner=False)
-def social_media_svg_to_png(svg: str) -> bytes:
-    """Rasterises the social-media card for platforms that do not accept SVG uploads (e.g. LinkedIn, X, Facebook).
-
-    Cached on the SVG markup, so the card is only re-rendered when its content changes.
-    """
-    return resvg_py.svg_to_bytes(svg_string=svg, sans_serif_family="Liberation Sans")
 
 
 def share_summary(total_cost: float) -> str:
@@ -1415,8 +1114,12 @@ export default function (component) {
 
 
 def saved_project_url(public_id: str) -> str:
-    """Builds the full link that loads the saved project with the given public id."""
-    return f"{st.context.url or ''}?{database.PROJECT_ID_QUERY_PARAM}={public_id}"
+    """Builds the full link to the result page of the saved project with the given public id, which is the link shared.
+
+    The result page does not show the hours of labor, unlike the calculator.
+    """
+    calculator_url: str = urlsplit(st.context.url or "")._replace(query="", fragment="").geturl().rstrip("/")
+    return f"{calculator_url}/{RESULT_PAGE.url_path}?{database.PROJECT_ID_QUERY_PARAM}={public_id}"
 
 
 def copy_link_button(label: str, url: str, copied_label: str, help: str, key: str) -> None:
@@ -1446,7 +1149,7 @@ if "indirect_cost_percentage" not in st.session_state:
     st.session_state["indirect_cost_percentage"] = DEFAULT_INDIRECT_COST_PERCENTAGE
 
 if "user_country_select" not in st.session_state:
-    st.session_state["user_country_select"]: str | None = st.session_state["user_country"] or None
+    st.session_state["user_country_select"] = st.session_state["user_country"] or None
 
 
 # Create and initialise the database set by DATABASE_TYPE, if any. Saving is disabled when it is "none".
@@ -1463,13 +1166,6 @@ if "database_initialised" not in st.session_state:
     st.session_state["database_initialised"] = True
 
 
-# Load only when the query parameter changes, so the user's edits are not overwritten by the saved project every rerun.
-query_project_id: str | None = st.query_params.get(database.PROJECT_ID_QUERY_PARAM)
-if query_project_id is not None and query_project_id != st.session_state.get("loaded_query_project_id"):
-    st.session_state["loaded_query_project_id"] = query_project_id
-    load_from_database(query_project_id)
-
-
 # -----------------------------------------------
 # Header
 # -----------------------------------------------
@@ -1477,34 +1173,99 @@ if query_project_id is not None and query_project_id != st.session_state.get("lo
 
 with st.sidebar:
     st.subheader("Contents")
-    for toc_label, toc_anchor in TABLE_OF_CONTENTS:
-        st.markdown(f"[{toc_label}](#{toc_anchor})")
+    # Anchor links cannot be st.page_link elements, so style them to look like page links.
+    st.html(
+        """
+        <style>
+        .st-key-toc a {
+            display: block;
+            padding: 0.375rem 0.5rem;
+            border-radius: 0.5rem;
+            color: inherit;
+            text-decoration: none;
+        }
+        .st-key-toc a:hover {
+            background-color: color-mix(in srgb, currentColor 8%, transparent);
+            text-decoration: none;
+        }
+        .st-key-toc [data-testid="stMarkdownContainer"] p {
+            margin: 0;
+        }
+        </style>
+        """
+    )
+    with st.container(key="toc", gap="small"):
+        for toc_label, toc_anchor in TABLE_OF_CONTENTS:
+            if toc_anchor in RESULTS_ANCHORS and not st.session_state.get("show_results", False):
+                continue
+            st.markdown(f"[{toc_label}](#{toc_anchor})")
 
-st.title("Cost of Knowledge Calculator")
+
+toggletip_styles()
+
+st.title("The Cost of Knowledge Calculator")
 st.markdown(
     """
-            <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
-            journal article from ideation to publication?**</span>
+        <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
+        journal article from ideation to publication?**</span>
 
-            "Debates about the economics of scholarly publishing typically focus on subscription prices, article
-            processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-            incurred in producing the research that makes scholarly publishing possible."<sup>1</sup> This tool aims to
-            make visible the substantial investment underpinning scholarly publishing.
+        "Debates about the economics of scholarly publishing typically focus on subscription prices, article
+        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
+        incurred in producing the research that makes scholarly publishing possible."{footnote_1} This tool aims to
+        make visible the substantial investment underpinning scholarly publishing.
 
-            Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
-            your refereed journal articles (including the cost of academic labor and institutional resources). Use your
-            **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
-            median time required for preparing a social science article from Alam et al. (2026), the publication
-            accompanying this tool.
+        Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
+        your refereed journal articles (including the cost of academic labor and institutional resources). Use your
+        **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
+        median time required for preparing a social science article.{footnote_2}
 
-            The results of this tool should not be taken to reflect or quantify the value of research, only the costs
-            involved in preparing a refereed journal article. Prior literature has established that research provides
-            substantial economic and social returns<sup>2</sup>, and with this tool we instead seek to draw attention
-            to the resources required for scholarly publishing.
-            """,
+        *The estimated time to complete this tool is 10-15 minutes.*
+
+        The results of this tool should not be taken to reflect or quantify the value of research, only the costs
+        involved in preparing a refereed journal article. Prior literature has established that research provides
+        substantial economic and social returns{footnote_3}, and with this tool we instead seek to draw attention
+        to the resources required for scholarly publishing.
+        """.replace(
+        "{footnote_1}",
+        toggletip("<sup>1</sup>", "Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo."),
+    )
+    .replace(
+        "{footnote_2}",
+        toggletip(
+            "<sup>2</sup>",
+            "Estimates sourced from Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo.",
+        ),
+    )
+    .replace(
+        "{footnote_3}",
+        toggletip(
+            "<sup>3</sup>",
+            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
+            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
+            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
+            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
+            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
+        ),
+    ),
     unsafe_allow_html=True,
 )
 
+
+st.html(
+    f"""
+    <style>
+    .st-key-help-hint {{
+        background-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 12%, transparent);
+        border-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 30%, transparent);
+    }}
+    </style>
+    """
+)
+with st.container(border=True, key="help-hint"):
+    st.markdown(
+        ":material/help: If you are unsure what is meant by a question, click on this help icon to the right of "
+        "the question to view a more detailed explanation."
+    )
 
 with st.expander("About the data", expanded=False):
     st.markdown("""
@@ -1520,9 +1281,8 @@ with st.expander("About the data", expanded=False):
 
 st.header(":material/article: Your Refereed Journal Article", anchor=ARTICLE_ANCHOR)
 st.markdown("""
-            Please fill in some details about the refereed journal article you will estimate the cost for using this
-            tool. The country primarily associated with this journal article will determine the currency that is
-            displayed in the tool, and any costs already set will be converted based on recent exchange rates.
+            Please fill in some details about a **single refereed journal article** for which you will estimate the cost
+            of.
             """)
 
 with st.container(border=True):
@@ -1532,10 +1292,11 @@ with st.container(border=True):
         format_func=lambda code: COUNTRY_NAMES[code],
         key="user_country_select",
         index=None,
-        placeholder="Choose a country. You may type to search for a country.",
+        placeholder="Type in the box to search for a country.",
         on_change=convert_monetary_values,
-        help="The country chosen will determine the currency used for monetary values in this tool and the results "
-        "calculated. You may clear the textbox and type to search for a country.",
+        help="Type in the box to search for a country. The country chosen will determine the currency used for "
+        "monetary values in this tool and the results calculated. Changing the country will automatically convert "
+        "values already entered in based on recent exchange rates.",
     )
     st.session_state["international_collaborators"] = st.radio(
         "Does your project have international collaborators outside of the primary country?",
@@ -1555,8 +1316,9 @@ with st.container(border=True):
             "Field of research your paper/project is located in",
             field_options,
             index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
-            placeholder="Choose a field of research. You may type to search for a field of research.",
+            placeholder="Type in the box to search for a field of research.",
             format_func=field_of_research_display_name,
+            help="Type in the box to search for a field of research.",
         )
         or ""
     )
@@ -1598,7 +1360,6 @@ with st.expander("Optional: Adjust indirect cost rate"):
 # -----------------------------------------------
 
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
-# TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
             preparation.
@@ -1610,7 +1371,7 @@ with st.container(border=True):
 
 if not st.session_state["people"]:
     st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
-for key, person in st.session_state["people"].items():
+for person in st.session_state["people"].values():
     with st.container(border=True):
         label_column, rate_column, quantity_column, button_column = st.columns(
             [3, 1, 1, 1], vertical_alignment="center"
@@ -1696,32 +1457,19 @@ if st.session_state["calculator_mode"] == "granular":
 # TODO: Include buttons to load information about the activities/phases.
 
 st.subheader(RESEARCH_PHASES["incubation"])
-st.markdown("""
-            The ideation phase includes ideation and conception of the research questions, applications for ethics
-            approval from an Institutional Review Board, and applications for grants (both successful and unsucessful).
-            """)
+st.markdown(PHASE_DESCRIPTIONS["incubation"])
 phase_inputs("incubation")
 
 st.subheader(RESEARCH_PHASES["data"])
-st.markdown("""
-            This phase encompasses all activities and direct costs involved in carrying out the research.
-            """)
+st.markdown(PHASE_DESCRIPTIONS["data"])
 phase_inputs("data")
 
 st.subheader(RESEARCH_PHASES["writing"])
-st.markdown("""
-            Encompasses the writing of the manuscript. This should include the presentation of versions of the
-            manuscript to peers, such as at seminars and conferences, as peer feedback is generally crucial for
-            the development of journal articles. Also include the time spent on revising manuscripts for resubmission.
-            """)
+st.markdown(PHASE_DESCRIPTIONS["writing"])
 phase_inputs("writing")
 
 st.subheader(RESEARCH_PHASES["editing"])
-st.markdown("""
-            The cost of peer review and journal editorial work is based on the number of journals the manuscript was
-            submitted to before it was published, and the average number of peer review rounds across the journal
-            submissions.
-            """)
+st.markdown(PHASE_DESCRIPTIONS["editing"])
 
 # Loading a state writes the sliders' values into their widget state, so seed it here rather than
 # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
@@ -1729,49 +1477,80 @@ if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
     st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
-st.session_state["journal_submissions"]: int = st.slider(
-    "Number of journals submitted to",
-    min_value=1,
-    max_value=20,
-    step=1,
-    key="journal-submissions",
-)
-st.session_state["peer_review_activity"].journal_submissions: int = st.session_state["journal_submissions"]
-st.session_state["journal_editing_activity"].journal_submissions: int = st.session_state["journal_submissions"]
+with st.container(border=True):
+    st.session_state["journal_submissions"] = st.slider(
+        "Number of journals submitted to",
+        min_value=1,
+        max_value=20,
+        step=1,
+        key="journal-submissions",
+        help="""The number of journals that the manuscript was submitted to, including rejections. Each journal
+        submission is estimated to encompass 15 hours of work by journal editors. The median hourly rate for an
+        associate professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate
+        (see Alam et al. (2026) for details).""",
+    )
+    st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
+    st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
 
-st.session_state["review_rounds"]: int = st.slider(
-    "Average number of review rounds per journal submission",
-    min_value=1,
-    max_value=20,
-    step=1,
-    key="review-rounds",
-    help="We estimate that the first round of review involves 4 hours of work, with subsequent rounds "
-    "involving 2 hours each.",
-)
-st.session_state["peer_review_activity"].review_rounds: int = st.session_state["review_rounds"]
+    st.session_state["review_rounds"] = st.slider(
+        "Average number of review rounds per journal submission",
+        min_value=1,
+        max_value=20,
+        step=1,
+        key="review-rounds",
+        help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
+        across all journal submissions. It is estimated that the first round of review involves 4 hours of work by
+        peer reviewers, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
+        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.
+        (2026) for details).""",
+    )
+    st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
-# Special phase for saving to the database, shown only when a database is configured.
+st.subheader("Calculate the cost and share your results")
+
+# Final step: calculating the cost shows the results and share sections, and optionally saves the result.
+if "show_results" not in st.session_state:
+    st.session_state["show_results"] = False
+
+# The toggle is shown only when a database is configured, and is off by default.
 if DATABASE_TYPE in ("sqlite", "mysql"):
-    st.subheader("Save and share your result?")
-    st.markdown("""
-                If you would like to share your result with others, we will require your permission to save
-                the information you have input into this tool. If you are happy to do so, please click on the
-                button below. You can then share your result with the buttons below.
-                """)
-    with st.container(horizontal=True, horizontal_alignment="left"):
-        if st.button(
-            "Save your result to share",
-            icon=":material/save:",
-            type="primary",
-            help="Save your inputs to the database. Saving again after making changes saves them as a new "
-            "result, generating a new share link. Old links will not show your changes.",
-        ):
-            save_to_database()
-        st.button(
-            "Continue without saving",
-            key="close-without-saving",
-            icon=":material/close:",
-        )
+    st.markdown(
+        """
+        You may save your result so that you may share an abbreviated version of the results with other people. The
+        abbreviated version will not display details of the hours of labor performed by each researcher, as this may
+        potentially be used to calculate an approximation of a researcher's salary.
+
+        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining this
+        data, and to potential use of this data by SPARC for future research. Please refer to
+        [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for details about how your data will be
+        handled.
+
+        If you continue without saving your result, please download the generated infographic to keep a record of the
+        total cost you have calculated.
+        """
+    )
+    st.toggle(
+        """Save my result so I can share it. I consent to SPARC retaining the data I have entered into this tool
+        and using it for future research.""",
+        key="save_result_to_database",
+        value=False,
+        help="If enabled, the information you have input into this tool is saved to the database when you "
+        "calculate the cost, so you can share a link to your result. Calculating again after making changes "
+        "overwrites your saved result, so your share link stays the same and shows your latest changes.",
+    )
+
+st.button(
+    "Calculate the cost of your journal article",
+    key="calculate-cost",
+    icon=":material/calculate:",
+    type="primary",
+    on_click=toggle_results,
+)
+
+# Nothing below the button, apart from the footer, is shown until the cost has been calculated.
+if not st.session_state["show_results"]:
+    show_footer()
+    st.stop()
 
 
 # Visualisation pane
@@ -1837,40 +1616,17 @@ costs_chart_selection = st.pills(
 costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
 
 
-costs_df = pd.DataFrame(
-    {
-        "Item": [item.get_name() or "Unnamed" for item in combined_costs_list],
-        "Cost": [item.get_total_cost() for item in combined_costs_list],
-        "Phase": [RESEARCH_PHASES[item.get_phase()] for item in combined_costs_list],
-    }
-)
+costs_df = costs_dataframe(combined_costs_list)
 
 
-costs_pie = px.pie(
-    costs_df,
-    values="Cost",
-    names=costs_pie_names,
-    color=costs_pie_names,
-    color_discrete_map={**phase_color_map, **item_color_map},
-    title="Total Cost Breakdown",
-)
-costs_pie.update_layout(height=720)
-st.plotly_chart(costs_pie, width="stretch")
+st.plotly_chart(costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map), width="stretch")
 
 
 # Labour cost bar chart
 st.subheader("Labor activity breakdown")
 
 
-labour_df = pd.DataFrame(
-    {
-        "Activity": [activity.get_name() or "Unnamed" for activity in results_activities],
-        "Cost": [activity.get_total_cost() for activity in results_activities],
-        "Hours": [activity.get_hours() for activity in results_activities],
-        "Phase": [RESEARCH_PHASES[activity.get_phase()] for activity in results_activities],
-        "Person": [activity.get_person().label for activity in results_activities],
-    }
-)
+labour_df = labour_dataframe(results_activities)
 
 
 # The sunburst breaks costs down by activity, so it is only shown for the granular calculator.
@@ -1879,39 +1635,7 @@ if st.session_state["calculator_mode"] == "granular":
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.
                 """)
-
-    sunburst = px.sunburst(
-        labour_df,
-        path=["Phase", "Person", "Activity"],
-        values="Cost",
-        color="Phase",
-        labels={"Cost": f"Cost ({currency_code()})"},
-        color_discrete_map=phase_color_map,
-        title="Cost of Labor Breakdown by Phase, Role and Activity",
-    )
-    # Label each segment with its cost as a percentage of the overall total cost.
-    # total_cost includes direct costs, which are not shown in this sunburst, so
-    # the percentages of the top-level segments will not sum to 100%.
-    node_costs: list[float] = list(sunburst.data[0].values)
-    sunburst.data[0].text = [f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%" for cost in node_costs]
-    sunburst.data[0].texttemplate = "%{label}<br>%{text}"
-    # Sunburst traces cannot show a legend, so add an invisible placeholder trace per phase to create
-    # legend entries. The legend takes up the same space as the pie chart's legend, aligning the two charts.
-    for phase in (phase for phase in phase_color_map if phase in set(labour_df["Phase"])):
-        sunburst.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode="markers",
-                marker={"color": phase_color_map[phase], "size": 12, "symbol": "square"},
-                name=phase,
-                hoverinfo="skip",
-            )
-        )
-    sunburst.update_xaxes(visible=False)
-    sunburst.update_yaxes(visible=False)
-    sunburst.update_layout(height=720, showlegend=True, legend={"itemclick": False, "itemdoubleclick": False})
-    st.plotly_chart(sunburst, width="stretch")
+    st.plotly_chart(labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code()), width="stretch")
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
         "paper, including direct costs that are not shown in this chart."
@@ -1944,22 +1668,17 @@ labour_chart_selection = st.pills(
 )
 
 
-labour_chart = px.bar(
-    labour_df,
-    x="Activity",
-    y=labour_chart_selection,
-    color="Phase",
-    color_discrete_map=phase_color_map,
-    title="Cost of and Time Spent on Labor Activities",
-    text_auto=True,
-    labels={"Cost": f"Cost ({currency_code()})"},
+st.plotly_chart(
+    labour_bar_chart(
+        labour_df,
+        labour_chart_selection or "Cost",
+        "Cost of and Time Spent on Labor Activities",
+        phase_color_map,
+        currency_code(),
+        currency_prefix(),
+    ),
+    width="stretch",
 )
-if labour_chart_selection == "Cost":
-    labour_chart.update_traces(texttemplate=f"{currency_prefix()}%{{y:,.2f}}", textposition="outside")
-    labour_chart.update_yaxes(tickprefix=currency_prefix())
-else:
-    labour_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
-st.plotly_chart(labour_chart, width="stretch")
 
 
 # -----------------------------------------------
@@ -2002,6 +1721,7 @@ social_media_svg: str = create_social_media_svg(
     total_cost=total_cost,
     total_hours=total_hours,
     phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    format_currency=format_currency,
     show_hours=st.session_state["share_show_hours"],
 ).as_svg()
 
@@ -2067,25 +1787,4 @@ with st.container(horizontal=True, horizontal_alignment="left"):
             key="copy-saved-project-link",
         )
 
-
-st.markdown(
-    """
-            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
-
-            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
-            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
-            https://doi.org/10.7208/chicago/9780226805597.003.0002;
-            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
-            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
-
-            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
-            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
-            5, 133–182. https://doi.org/10.1086/738903
-
-            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
-            Lay, Loh, and Tanima.
-            :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
-            International License](https://creativecommons.org/licenses/by/4.0/).]
-            """,
-    unsafe_allow_html=True,
-)
+show_footer()

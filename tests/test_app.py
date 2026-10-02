@@ -54,6 +54,9 @@ def run(at: AppTest) -> None:
         for selectbox in at.selectbox:
             if selectbox.key and selectbox.key.startswith("activity-person-"):
                 at.session_state[TESTING_KEY][selectbox.id] = lambda key: people[key].label
+    # The results are hidden until the cost is calculated, so show them from the first run.
+    if "show_results" not in at.session_state:
+        at.session_state["show_results"] = True
     at.run()
     assert not at.exception
 

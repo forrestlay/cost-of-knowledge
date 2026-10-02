@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
     from src.sql_store import Connection
 
+# Stands in for main.FORM_VERSION, which cannot be imported as main.py is a script.
+FORM_VERSION: int = 1
+
 # Child tables first, as they reference projects.
 TABLES: tuple[str, ...] = (
     "activities",
@@ -89,7 +92,7 @@ def modified_state() -> CalculatorState:
 
 def test_save_and_load(conn: Connection) -> None:
     state: CalculatorState = modified_state()
-    public_id: str = sql_store.save_project(conn, state)
+    public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
     restored: CalculatorState = sql_store.load_project(conn, public_id)
     assert restored == state
     assert restored.total_cost() == pytest.approx(state.total_cost())
@@ -99,15 +102,15 @@ def test_save_and_load(conn: Connection) -> None:
 
 
 def test_update_project(conn: Connection) -> None:
-    public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    public_id: str = sql_store.save_project(conn, CalculatorState.default(), FORM_VERSION)
     state: CalculatorState = modified_state()
-    sql_store.update_project(conn, public_id, state)
+    sql_store.update_project(conn, public_id, state, FORM_VERSION)
     assert sql_store.load_project(conn, public_id) == state
     assert len(sql_store.list_projects(conn)) == 1
 
 
 def test_projects_are_found_by_public_id_only(conn: Connection) -> None:
-    public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    public_id: str = sql_store.save_project(conn, CalculatorState.default(), FORM_VERSION)
     assert len(public_id) == sql_store.PUBLIC_ID_LENGTH
     assert set(public_id) <= set(sql_store.PUBLIC_ID_ALPHABET)
     [project] = sql_store.list_projects(conn)
@@ -115,30 +118,15 @@ def test_projects_are_found_by_public_id_only(conn: Connection) -> None:
         sql_store.load_project(conn, str(project["id"]))
 
 
-def test_save_project_with_parent(conn: Connection) -> None:
-    parent_public_id: str = sql_store.save_project(conn, CalculatorState.default())
-    state: CalculatorState = modified_state()
-    child_public_id: str = sql_store.save_project(conn, state, parent_public_id)
-    projects = {project["public_id"]: project for project in sql_store.list_projects(conn)}
-    assert projects[child_public_id]["parent_id"] == projects[parent_public_id]["id"]
-    assert projects[parent_public_id]["parent_id"] is None
-    assert sql_store.load_project(conn, child_public_id) == state
-    assert sql_store.load_project(conn, parent_public_id) == CalculatorState.default()
-
-
-def test_save_project_with_missing_parent_has_no_parent(conn: Connection) -> None:
-    sql_store.save_project(conn, CalculatorState.default(), "missing")
+def test_save_and_update_record_form_version(conn: Connection) -> None:
+    public_id: str = sql_store.save_project(conn, CalculatorState.default(), FORM_VERSION)
     [project] = sql_store.list_projects(conn)
-    assert project["parent_id"] is None
+    assert project["version"] == FORM_VERSION
+    assert "parent_id" not in project
 
-
-def test_deleting_parent_keeps_child(conn: Connection) -> None:
-    parent_public_id: str = sql_store.save_project(conn, CalculatorState.default())
-    child_public_id: str = sql_store.save_project(conn, modified_state(), parent_public_id)
-    sql_store.delete_project(conn, parent_public_id)
+    sql_store.update_project(conn, public_id, modified_state(), FORM_VERSION + 1)
     [project] = sql_store.list_projects(conn)
-    assert project["public_id"] == child_public_id
-    assert project["parent_id"] is None
+    assert project["version"] == FORM_VERSION + 1
 
 
 def test_save_and_load_simplified_estimates(conn: Connection) -> None:
@@ -146,7 +134,7 @@ def test_save_and_load_simplified_estimates(conn: Connection) -> None:
     state.people["2"] = Person("2", PersonType.RESEARCH_TEAM, 40)
     state.simplified_hours = {"incubation": {"1": 286, "2": 12.5}, "data": {"1": 266.5}}
     state.simplified_direct_costs = {"data": 250.5, "writing": 3400}
-    public_id: str = sql_store.save_project(conn, state)
+    public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
     restored: CalculatorState = sql_store.load_project(conn, public_id)
     assert restored == state
     assert restored.calculator_mode == "simplified"
@@ -155,7 +143,7 @@ def test_save_and_load_simplified_estimates(conn: Connection) -> None:
 
     # Granular mode ignores the simplified estimates, which are kept.
     state.calculator_mode = "granular"
-    sql_store.update_project(conn, public_id, state)
+    sql_store.update_project(conn, public_id, state, FORM_VERSION)
     restored = sql_store.load_project(conn, public_id)
     assert restored == state
     assert restored.total_hours() == 23
@@ -163,12 +151,12 @@ def test_save_and_load_simplified_estimates(conn: Connection) -> None:
 
 def test_update_missing_project_raises(conn: Connection) -> None:
     with pytest.raises(KeyError):
-        sql_store.update_project(conn, "missing", CalculatorState.default())
+        sql_store.update_project(conn, "missing", CalculatorState.default(), FORM_VERSION)
 
 
 def test_list_projects(conn: Connection) -> None:
     state: CalculatorState = modified_state()
-    public_id: str = sql_store.save_project(conn, state)
+    public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
     [project] = sql_store.list_projects(conn)
     assert project["public_id"] == public_id
     assert project["total_cost"] == pytest.approx(state.total_cost())
@@ -176,9 +164,9 @@ def test_list_projects(conn: Connection) -> None:
 
 def test_load_projects(conn: Connection) -> None:
     assert sql_store.load_projects(conn) == []
-    first_public_id: str = sql_store.save_project(conn, CalculatorState.default())
+    first_public_id: str = sql_store.save_project(conn, CalculatorState.default(), FORM_VERSION)
     state: CalculatorState = modified_state()
-    second_public_id: str = sql_store.save_project(conn, state)
+    second_public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
     projects: list[tuple[dict[str, Any], CalculatorState]] = sql_store.load_projects(conn)
     # Most recently created first, each with its own people, activities and direct costs.
     assert [project["public_id"] for project, _ in projects] == [second_public_id, first_public_id]
@@ -186,7 +174,7 @@ def test_load_projects(conn: Connection) -> None:
 
 
 def test_delete_project_cascades(conn: Connection) -> None:
-    public_id: str = sql_store.save_project(conn, modified_state())
+    public_id: str = sql_store.save_project(conn, modified_state(), FORM_VERSION)
     sql_store.delete_project(conn, public_id)
     assert sql_store.list_projects(conn) == []
     for table in ("people", "activities", "direct_costs"):

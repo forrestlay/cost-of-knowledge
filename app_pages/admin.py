@@ -1,4 +1,4 @@
-"""Page listing every result saved to the database, at BASE-URL/results. It is not linked to from the calculator.
+"""Page listing every result saved to the database, at BASE-URL/admin. It is not linked to from the calculator.
 
 Copyright 2026 Nurul Alam, Ben Lay
 
@@ -32,15 +32,17 @@ if TYPE_CHECKING:
     from src.models import Cost
 
 # url_path of this page, set in main.py.
-RESULTS_URL_PATH: str = "results"
+ADMIN_URL_PATH: str = "admin"
+# url_path of the result page, set in main.py.
+RESULT_URL_PATH: str = "result"
 
 
 def calculator_url() -> str:
-    """URL of the calculator, from the URL of this page, which is the calculator's URL followed by RESULTS_URL_PATH.
+    """URL of the calculator, from the URL of this page, which is the calculator's URL followed by ADMIN_URL_PATH.
 
     Falls back to a relative URL when the browser's URL is unknown, e.g. when running under AppTest.
     """
-    return (st.context.url or "./").removesuffix(RESULTS_URL_PATH)
+    return (st.context.url or "./").removesuffix(ADMIN_URL_PATH)
 
 
 @st.cache_data(ttl=60, show_spinner="Loading saved results...")
@@ -110,9 +112,11 @@ if results.empty:
     st.info("No results have been saved yet.", icon=":material/info:")
     st.stop()
 
-# Link each result to the calculator with its public id filled in, which loads it.
+# Link each result to its result page, with its public id filled in.
 results.insert(
-    0, "Link", calculator_url() + f"?{database.PROJECT_ID_QUERY_PARAM}=" + results.pop("public_id").astype(str)
+    0,
+    "Link",
+    calculator_url() + f"{RESULT_URL_PATH}?{database.PROJECT_ID_QUERY_PARAM}=" + results.pop("public_id").astype(str),
 )
 
 st.dataframe(
@@ -121,7 +125,7 @@ st.dataframe(
     column_config={
         "Link": st.column_config.LinkColumn(
             "Link",
-            help="Open this result in the calculator.",
+            help="Open this result's page.",
             display_text=f"{database.PROJECT_ID_QUERY_PARAM}=(.*)$",
             pinned=True,
         ),

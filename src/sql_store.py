@@ -1,8 +1,8 @@
 """SQLite and MySQL persistence for Cost of Knowledge calculator projects.
 
 Each saved CalculatorState is a row in the projects table, with its people, activities and direct costs in child
-tables. Saving changes to a saved project creates a new row whose parent_id is the id of the project it was amended
-from, so saved results that have been shared are never overwritten. Rows are built from CalculatorState.to_dict() and
+tables. save_project creates a new row and update_project overwrites a saved project in place. Each project records
+the version of the form (main.FORM_VERSION) that it was saved under. Rows are built from CalculatorState.to_dict() and
 loaded back through CalculatorState.from_dict(), so the dict format remains the single definition of what is serialised.
 
 No names are stored. Databases created by older versions are not migrated and must be reset.
@@ -62,8 +62,8 @@ CREATE TABLE IF NOT EXISTS projects (
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
-    -- The project this one was amended from, or NULL if it was saved from scratch or its parent was deleted.
-    parent_id INTEGER REFERENCES projects (id) ON DELETE SET NULL
+    -- Version of the form (main.FORM_VERSION) that the project was saved under.
+    version INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS people (
@@ -152,9 +152,8 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
-        -- The project this one was amended from, or NULL if it was saved from scratch or its parent was deleted.
-        parent_id INTEGER,
-        FOREIGN KEY (parent_id) REFERENCES projects (id) ON DELETE SET NULL
+        -- Version of the form (main.FORM_VERSION) that the project was saved under.
+        version INTEGER NOT NULL
     )
     """,
     """
@@ -401,44 +400,38 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     )
 
 
-def save_project(conn: Connection, state: CalculatorState, parent_public_id: str | None = None) -> str:
+def save_project(conn: Connection, state: CalculatorState, version: int) -> str:
     """Saves a calculator state as a new project and returns its public id.
 
     Args:
         conn: Connection to the database.
         state: Calculator state to save.
-        parent_public_id: Public id of the saved project that this one amends, if any. The new project is saved without
-            a parent if no project with that public id exists, for example because it was deleted.
+        version: Version of the form that the project is saved under.
     """
-    values: dict[str, Any] = _project_values(state)
+    values: dict[str, Any] = {**_project_values(state), "version": version}
     public_id: str = generate_public_id()
     timestamp: str = _now()
     with _transaction(conn) as cursor:
-        parent_id: int | None = None
-        if parent_public_id is not None:
-            cursor.execute(_sql(conn, "SELECT id FROM projects WHERE public_id = ?"), (parent_public_id,))
-            row: tuple[Any, ...] | None = cursor.fetchone()
-            parent_id = row[0] if row is not None else None
         cursor.execute(
             _sql(
                 conn,
-                f"INSERT INTO projects (public_id, parent_id, created_at, updated_at, {', '.join(values)})"
-                f" VALUES (?, ?, ?, ?, {', '.join('?' for _ in values)})",
+                f"INSERT INTO projects (public_id, created_at, updated_at, {', '.join(values)})"
+                f" VALUES (?, ?, ?, {', '.join('?' for _ in values)})",
             ),
-            (public_id, parent_id, timestamp, timestamp, *values.values()),
+            (public_id, timestamp, timestamp, *values.values()),
         )
         project_id: int = cursor.lastrowid  # ty:ignore[invalid-assignment]
         _insert_children(conn, cursor, project_id, state)
     return public_id
 
 
-def update_project(conn: Connection, public_id: str, state: CalculatorState) -> None:
-    """Replaces a saved project's data with the given calculator state.
+def update_project(conn: Connection, public_id: str, state: CalculatorState, version: int) -> None:
+    """Replaces a saved project's data, and its form version, with the given calculator state and version.
 
     Raises:
         KeyError: If no project with that public id exists.
     """
-    values: dict[str, Any] = _project_values(state)
+    values: dict[str, Any] = {**_project_values(state), "version": version}
     with _transaction(conn) as cursor:
         # Checked with a SELECT, as MySQL's rowcount for an UPDATE counts only the rows whose values changed.
         cursor.execute(_sql(conn, "SELECT id FROM projects WHERE public_id = ?"), (public_id,))
@@ -589,7 +582,7 @@ def list_projects(conn: Connection) -> list[dict[str, Any]]:
     """Lists saved projects, most recently updated first, without loading their full data."""
     with closing(conn.cursor()) as cursor:
         cursor.execute(
-            "SELECT id, public_id, parent_id, created_at, updated_at, total_cost, total_hours"
+            "SELECT id, public_id, version, created_at, updated_at, total_cost, total_hours"
             " FROM projects ORDER BY updated_at DESC, id DESC"
         )
         return _fetch_dicts(cursor)

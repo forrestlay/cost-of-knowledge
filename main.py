@@ -114,6 +114,7 @@ CALCULATOR_ANCHOR: str = "calculator"
 FORM_VERSION: int = 1
 RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
 SHARE_ANCHOR: str = "share-your-result"
+CALCULATE_ANCHOR: str = "calculate-and-share"
 # Contents links to sections that are only shown once the cost has been calculated.
 RESULTS_ANCHORS: tuple[str, ...] = (RESULTS_HEADER_ANCHOR, SHARE_ANCHOR)
 TABLE_OF_CONTENTS: list[tuple[str, str]] = [
@@ -1727,7 +1728,7 @@ with st.container(border=True):
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
-st.subheader("Calculate the cost and share your results")
+st.subheader("Calculate the cost and share your results", anchor=CALCULATE_ANCHOR)
 
 # Final step: calculating the cost shows the results and share sections, and optionally saves the result.
 if "show_results" not in st.session_state:
@@ -1981,6 +1982,10 @@ with share_left:
         share_intro += """ In addition, because you have saved your result, please use the "copy link" button to save a
         link to the result so you may return to it at a later time. This result link will also be included in your
         LinkedIn, X, Facebook, or email message by default."""
+    else:
+        share_intro += f""" If you would like to save your result to share an abbreviated version of the above graphs,
+        please return to the "[Calculate the cost and share your results](#{CALCULATE_ANCHOR})" section and opt-in to
+        save your result."""
     st.markdown(share_intro)
 
     # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the

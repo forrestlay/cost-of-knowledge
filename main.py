@@ -1437,6 +1437,10 @@ with st.container(border=True):
         max_value=20,
         step=1,
         key="journal-submissions",
+        help="""The number of journals that the manuscript was submitted to, including rejections. Each journal
+        submission is estimated to encompass 15 hours of work by journal editors. The median hourly rate for an
+        associate professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate
+        (see Alam et al. (2026) for details).""",
     )
     st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
     st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
@@ -1447,8 +1451,11 @@ with st.container(border=True):
         max_value=20,
         step=1,
         key="review-rounds",
-        help="We estimate that the first round of review involves 4 hours of work, with subsequent rounds "
-        "involving 2 hours each.",
+        help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
+        across all journal submissions. It is estimated that the first round of review involves 4 hours of work by
+        peer reviewers, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
+        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.
+        (2026) for details).""",
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 

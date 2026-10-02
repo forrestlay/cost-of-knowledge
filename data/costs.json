@@ -11,7 +11,7 @@
       "description": "Encompasses the writing of the manuscript. This should include the presentation of versions of the manuscript to peers, such as at seminars and conferences, as peer feedback is generally crucial for the development of journal articles. Also include the time spent on revising manuscripts for resubmission."
     },
     "editing": {
-      "description": "The cost of peer review and journal editorial work is based on the number of journals the manuscript was submitted to before it was published, and the average number of peer review rounds across the journal submissions."
+      "description": "To calculate the cost of peer review and journal editing, please provide the number of journals that the manuscript was submitted to (including rejections) and the average number of peer review rounds (i.e. the initial submission plus revise and resubmits) across journal submissions."
     }
   },
   "activities": [

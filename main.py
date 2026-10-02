@@ -1308,22 +1308,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-st.html(
-    f"""
-    <style>
-    .st-key-help-hint {{
-        background-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 12%, transparent);
-        border-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 30%, transparent);
-    }}
-    </style>
-    """
+st.info(
+    "If you are unsure what is meant by a question, click on this help icon to the right of "
+    "the question to view a more detailed explanation.",
+    icon=":material/help:",
 )
-with st.container(border=True, key="help-hint"):
-    st.markdown(
-        ":material/help: If you are unsure what is meant by a question, click on this help icon to the right of "
-        "the question to view a more detailed explanation."
-    )
 
 with st.expander("About the data", expanded=False):
     st.markdown("""
@@ -1897,10 +1886,13 @@ with share_left:
                        "copy link" button to save a link to the result so you may return to it at a later time."""
     st.markdown(share_intro)
 
-    st.markdown("""
-                **You may choose to show the total number of hours on your results image. However, for one-person or
-                small teams, this may be used to approximate your salary.**
-                """)
+    st.warning(
+        """
+                You may choose to show the total number of hours on your results image. However, for one-person or
+                small teams, this may be used to approximate your salary.
+                """,
+        icon=":material/warning:",
+    )
 
     # Keyed so the choice persists across reruns; hours are hidden by default.
     if "share_show_hours" not in st.session_state:

@@ -39,8 +39,10 @@ from src import database, reference_data, sql_store
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
+    DEFAULT_PUBLISHING_COSTS,
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
+    PUBLISHING_PHASE,
     CalculatorState,
     compute_costs,
     compute_hours,
@@ -239,6 +241,8 @@ def convert_monetary_values():
     for phase, simplified_cost in st.session_state["simplified_direct_costs"].items():
         st.session_state["simplified_direct_costs"][phase] = convert(simplified_cost)
         st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
+    st.session_state["publishing_costs"] = convert(st.session_state["publishing_costs"])
+    st.session_state["publishing-costs"] = st.session_state["publishing_costs"]
 
     st.toast(f"Costs converted from {from_code} to {to_code}.", icon=":material/currency_exchange:")
 
@@ -1043,6 +1047,9 @@ def show_footer() -> None:
             Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
             the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
+            :small[<sup>5</sup>Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
+            services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
+
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
@@ -1742,6 +1749,70 @@ with st.container(border=True):
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
+# The publishing phase also requires a special full width section
+st.subheader(RESEARCH_PHASES["publishing"])
+st.markdown(
+    """To account for the costs of publication and dissemination of a refereed journal article that are
+    generally borne by the journal publisher, this tool relies on the findings of Grossman & Brembs (2001){footnote_5}.
+    They identify activities such as submission handling, plagiarism checks, manuscript formatting, copyediting and
+    typesetting, web hosting, and indexing service submission which are handled by publishers.
+    """.replace(
+        "{footnote_5}",
+        toggletip(
+            "<sup>5</sup>",
+            """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
+            F1000Research. https://doi.org/10.12688/f1000research.27468.2""",
+        ),
+    ),
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+    The default value provided here corresponds to the cost per refereed journal article for a full service journal
+    publisher with in-house staff that relies on volunteer editors and peer reviewers, and publishes 100 journal
+    articles a year with a 50% rejection rate (Grossman & Brembs, 2021, p. 6). A publisher that publishes more articles
+    per year in its journal or outsources some of the above activities will bear lower costs per journal article, while
+    a publisher that does not rely on volunteer editors will bear higher costs. A journal with a high rejection rate
+    will bear higher costs per journal article.
+
+    arXiv, a nonprofit open access repository, has reported operating costs of $19 per manuscript (Alam et al., 2026,
+    p. 8).
+
+    Provide your best estimation of the cost of scholarly publishing for your refereed journal article, using
+    the default value as a benchmark. If you are unsure, you may disable the inclusion of this cost.
+    """.replace(
+        "{footnote_6}",
+        toggletip(
+            "<sup>6</sup>",
+            """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
+            F1000Research. https://doi.org/10.12688/f1000research.27468.2""",
+        ),
+    ),
+    unsafe_allow_html=True,
+)
+
+if "include-publishing-costs" not in st.session_state:
+    st.session_state["include-publishing-costs"] = st.session_state["include_publishing_costs"]
+if "publishing-costs" not in st.session_state:
+    st.session_state["publishing-costs"] = float(st.session_state["publishing_costs"])
+
+with st.container(border=True):
+    st.session_state["include_publishing_costs"] = st.toggle(
+        "Include the cost of publishing in the total cost",
+        key="include-publishing-costs",
+    )
+    st.session_state["publishing_costs"] = st.slider(
+        f"Cost of publishing a refereed journal article ({currency_code()})",
+        min_value=0.0,
+        # Converting to another currency or loading a saved result can give a value above the usual maximum.
+        max_value=max(1600.0, float(st.session_state["publishing-costs"])),
+        step=1.0,
+        key="publishing-costs",
+        help=f"The default value of US${DEFAULT_PUBLISHING_COSTS:,.2f} is the cost per refereed journal article "
+        "for a full service journal publisher with in-house staff using volunteer editors "
+        "(Grossmann & Brembs, 2021, p. 6).",
+    )
+
 st.subheader("Calculate the cost and share your results", anchor=CALCULATE_ANCHOR)
 
 # Final step: calculating the cost shows the results and share sections, and optionally saves the result.
@@ -1834,7 +1905,8 @@ k1.metric("Estimated total cost", format_currency(total_cost))
 k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
 k3.metric(
     "Estimated direct costs",
-    format_currency(compute_costs(results_direct_costs)),
+    # The publishing costs are borne by the publisher, not the researchers, so they are not a direct cost here.
+    format_currency(compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE])),
 )
 
 
@@ -1894,6 +1966,8 @@ with st.container(key="narrow-chart-costs-pie"):
 
 # Labour cost bar chart
 st.subheader("Labor activity breakdown")
+if st.session_state["include_publishing_costs"]:
+    st.caption("Labor associated with publishing and dissemination of the refereed journal article is not included.")
 
 
 labour_df = labour_dataframe(results_activities)

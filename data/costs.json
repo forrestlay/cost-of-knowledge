@@ -12,6 +12,9 @@
     },
     "editing": {
       "description": "To calculate the cost of peer review and journal editing, please provide the number of journals that the manuscript was submitted to (including rejections) and the average number of peer review rounds (i.e. the initial submission plus revise and resubmits) across journal submissions."
+    },
+    "publishing": {
+      "description": "To account for the costs of scholarly publishing borne by the journal publisher, this tool draws from the findings of Grossman and Brembs (2021)."
     }
   },
   "activities": [

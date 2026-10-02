@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS projects (
     -- 1 if the user loaded the default estimates from Alam et al. (2026) in the granular calculator, otherwise 0. NULL
     -- for simplified projects, as the button is only offered in the granular calculator.
     loaded_alam_defaults INTEGER CHECK (loaded_alam_defaults IN (0, 1)),
+    -- The user's estimate of the cost of publishing their journal article, in the currency of user_country.
+    publishing_costs NUMERIC NOT NULL,
+    -- 1 if publishing_costs count towards total_cost, otherwise 0.
+    include_publishing_costs INTEGER NOT NULL DEFAULT 0 CHECK (include_publishing_costs IN (0, 1)),
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
@@ -155,6 +159,10 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         -- 1 if the user loaded the default estimates from Alam et al. (2026) in the granular calculator, otherwise 0.
         -- NULL for simplified projects, as the button is only offered in the granular calculator.
         loaded_alam_defaults BOOLEAN,
+        -- The user's estimate of the cost of publishing their journal article, in the currency of user_country.
+        publishing_costs DOUBLE NOT NULL,
+        -- 1 if publishing_costs count towards total_cost, otherwise 0.
+        include_publishing_costs BOOLEAN NOT NULL DEFAULT 0,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
@@ -336,6 +344,7 @@ def _project_values(state: CalculatorState, loaded_alam_defaults: bool) -> dict[
         "schema_version": data["schema_version"],
         **data["project"],
         "international_collaborators": int(data["project"]["international_collaborators"]),
+        "include_publishing_costs": int(data["project"]["include_publishing_costs"]),
         "loaded_alam_defaults": int(loaded_alam_defaults) if state.calculator_mode == "granular" else None,
         "total_cost": data["summary"]["total_cost"],
         "total_hours": data["summary"]["total_hours"],
@@ -504,6 +513,8 @@ def _state_from_rows(
                 "project_field": project["project_field"],
                 "indirect_cost_percentage": project["indirect_cost_percentage"],
                 "calculator_mode": project["calculator_mode"],
+                "publishing_costs": project["publishing_costs"],
+                "include_publishing_costs": bool(project["include_publishing_costs"]),
             },
             "people": people["team"],
             "peer_reviewer": people["peer_reviewer"][0],

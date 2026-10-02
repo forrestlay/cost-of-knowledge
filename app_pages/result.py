@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 import streamlit as st
 
 from src import database, sql_store
-from src.calculator_state import compute_costs
+from src.calculator_state import PUBLISHING_PHASE, compute_costs
 from src.figures import (
     build_color_map,
     costs_dataframe,
@@ -191,7 +191,12 @@ st.markdown(
 
 k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
-k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
+k2.metric(
+    "Estimated direct costs",
+    format_currency(
+        compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE]), country
+    ),
+)
 
 with st.container(border=True):
     colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")

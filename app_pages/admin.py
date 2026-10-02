@@ -88,6 +88,8 @@ def load_results() -> pd.DataFrame:
                 "Loaded Alam et al. defaults": None
                 if project["loaded_alam_defaults"] is None
                 else bool(project["loaded_alam_defaults"]),
+                "Include publishing costs": state.include_publishing_costs,
+                "Publishing cost estimate": round(state.publishing_costs),
                 "Currency": COUNTRY_CURRENCIES.get(state.user_country, ("", ""))[0],
                 **{label: round(compute_costs(combined, phase=key)) for key, label in RESEARCH_PHASES.items()},
                 "Total": round(state.total_cost()),
@@ -106,6 +108,8 @@ def load_results() -> pd.DataFrame:
             "Journal submissions",
             "Calculator mode",
             "Loaded Alam et al. defaults",
+            "Include publishing costs",
+            "Publishing cost estimate",
             "Currency",
             *RESEARCH_PHASES.values(),
             "Total",
@@ -172,9 +176,13 @@ table_event = st.dataframe(
             "Loaded Alam et al. defaults",
             help="Whether the defaults from Alam et al. (2026) were loaded. Blank for simplified results.",
         ),
+        "Include publishing costs": st.column_config.CheckboxColumn(
+            "Include publishing costs",
+            help="Whether the publishing cost estimate counts towards the total.",
+        ),
         **{
             label: st.column_config.NumberColumn(label, format="localized")
-            for label in [*RESEARCH_PHASES.values(), "Total"]
+            for label in ["Publishing cost estimate", *RESEARCH_PHASES.values(), "Total"]
         },
     },
 )
@@ -275,12 +283,17 @@ else:
         column_config={"Cost": st.column_config.NumberColumn("Cost", format="localized")},
     )
 
-st.markdown("**Peer review and journal submissions**")
+st.markdown("**Peer review, journal submissions and publishing**")
 st.dataframe(
     pd.DataFrame(
         [
             {"Activity": "Peer review rounds", "Value": state.peer_review.review_rounds},
             {"Activity": "Journal editorial work submissions", "Value": state.journal_editing.journal_submissions},
+            {
+                "Activity": f"Publishing cost estimate ({COUNTRY_CURRENCIES.get(state.user_country, ('USD', ''))[0]})"
+                f"{'' if state.include_publishing_costs else ', not included in the total'}",
+                "Value": state.publishing_costs,
+            },
         ],
         columns=["Activity", "Value"],
     ),

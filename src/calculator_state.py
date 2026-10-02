@@ -48,9 +48,10 @@ type SessionStateKey = str | int
 # Bump when the serialised format changes, and teach CalculatorState.from_dict to read the older versions.
 # Version 2 removed the user's name, the project's name and people's names, and added people's roles. Version 1 data
 # is read by ignoring the names, with no roles. Version 3 added the calculator mode and the simplified estimates. Older
-# data is read in granular mode with no simplified estimates.
-SCHEMA_VERSION: int = 3
-SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3)
+# data is read in granular mode with no simplified estimates. Version 4 added the publishing cost. Older data is read
+# with the default publishing cost.
+SCHEMA_VERSION: int = 4
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4)
 # The two ways of estimating activities and costs in the calculator. Simplified takes an overall number of hours per
 # researcher and an overall direct cost for each phase in OVERALL_TOTAL_PHASES. Granular takes individual activities and
 # direct costs.
@@ -79,7 +80,11 @@ WIDGET_KEYS: tuple[str, ...] = (
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
     "calculator-mode",  # Calculator: simplified or granular estimates radio
+    "publishing-costs",  # Publishing: cost of publishing a refereed journal article slider
+    "include-publishing-costs",  # Publishing: toggle to include the publishing costs in the totals
 )
+# Phase key of the publishing costs, which are not part of the researchers' activities and direct costs.
+PUBLISHING_PHASE: str = "publishing"
 # Conservative estimates of the activities and costs of a social sciences journal article from Alam et al. (2026),
 # loaded from data/default_costs.json, and the starting hourly rate of the calculator's people.
 _DEFAULT_COSTS: dict[str, Any] = json.loads(
@@ -89,6 +94,8 @@ _DEFAULT_COSTS: dict[str, Any] = json.loads(
 # activities and direct costs added in the granular calculator. The editing phase has its own peer review and journal
 # editorial work activities instead.
 OVERALL_TOTAL_PHASES: tuple[str, ...] = ("incubation", "data", "writing")
+# Default cost in USD of publishing a refereed journal article, from Grossmann & Brembs (2021).
+DEFAULT_PUBLISHING_COSTS: float = float(_DEFAULT_COSTS["publishing"]["publishing_costs"])
 
 
 def default_phase_hours() -> dict[str, float]:
@@ -175,6 +182,10 @@ class CalculatorState:
             by the researcher's unique_key. Missing entries are 0 hours.
         simplified_direct_costs: Simplified estimate of the total direct costs of each phase, keyed by phase. Missing
             entries are 0.
+        publishing_costs: The user's estimate of the cost of publishing their refereed journal article, which is borne
+            by the journal publisher.
+        include_publishing_costs: Whether publishing_costs count towards the totals, as a direct cost in the
+            publishing phase.
     """
 
     user_country: str
@@ -189,6 +200,8 @@ class CalculatorState:
     calculator_mode: str = DEFAULT_CALCULATOR_MODE
     simplified_hours: dict[str, dict[str, float]] = field(default_factory=dict)
     simplified_direct_costs: dict[str, float] = field(default_factory=dict)
+    publishing_costs: float = DEFAULT_PUBLISHING_COSTS
+    include_publishing_costs: bool = True
 
     @property
     def peer_review(self) -> PeerReview:
@@ -259,15 +272,24 @@ class CalculatorState:
     def effective_direct_costs(self) -> list[DirectCost]:
         """Returns the direct costs that count towards the totals in the current calculator mode.
 
-        In simplified mode these are an "(Overall Total)" direct cost for each phase with a cost.
+        In simplified mode these are an "(Overall Total)" direct cost for each phase with a cost. In either mode, the
+        publishing costs are added as a direct cost in the publishing phase if they are included and above 0.
         """
+        direct_costs: list[DirectCost]
         if self.calculator_mode != "simplified":
-            return list(self.direct_costs)
-        return [
-            DirectCost(f"{RESEARCH_PHASES[phase]} (Overall Total)", phase, self.simplified_direct_costs[phase], key)
-            for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
-            if self.simplified_direct_costs.get(phase, 0.0) > 0
-        ]
+            direct_costs = list(self.direct_costs)
+        else:
+            direct_costs = [
+                DirectCost(f"{RESEARCH_PHASES[phase]} (Overall Total)", phase, self.simplified_direct_costs[phase], key)
+                for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
+                if self.simplified_direct_costs.get(phase, 0.0) > 0
+            ]
+        if self.include_publishing_costs and self.publishing_costs > 0:
+            key: int = max((direct_cost.unique_key for direct_cost in direct_costs), default=0) + 1
+            direct_costs.append(
+                DirectCost(RESEARCH_PHASES[PUBLISHING_PHASE], PUBLISHING_PHASE, self.publishing_costs, key)
+            )
+        return direct_costs
 
     def with_default_costs(self, usd_to_currency: float = 1.0) -> CalculatorState:
         """Returns a copy of this state with its activities and direct costs replaced by the conservative estimates for
@@ -362,6 +384,8 @@ class CalculatorState:
                 "project_field": self.project_field,
                 "indirect_cost_percentage": self.indirect_cost_percentage,
                 "calculator_mode": self.calculator_mode,
+                "publishing_costs": self.publishing_costs,
+                "include_publishing_costs": self.include_publishing_costs,
             },
             "people": [person.to_dict() for person in self.people.values()],
             "peer_reviewer": self.peer_reviewer.to_dict(),
@@ -440,6 +464,8 @@ class CalculatorState:
             simplified_direct_costs={
                 cost_data["phase"]: cost_data["cost"] for cost_data in data.get("simplified_direct_costs", [])
             },
+            publishing_costs=float(project.get("publishing_costs", DEFAULT_PUBLISHING_COSTS)),
+            include_publishing_costs=bool(project.get("include_publishing_costs", False)),
         )
 
     def to_json(self, indent: int | None = 2) -> str:
@@ -475,6 +501,8 @@ class CalculatorState:
             calculator_mode=session_state["calculator_mode"],
             simplified_hours=session_state["simplified_hours"],
             simplified_direct_costs=session_state["simplified_direct_costs"],
+            publishing_costs=session_state["publishing_costs"],
+            include_publishing_costs=session_state["include_publishing_costs"],
         )
 
     def apply_to_session_state(self, session_state: MutableMapping[SessionStateKey, Any]) -> None:
@@ -509,6 +537,8 @@ class CalculatorState:
         session_state["calculator_mode"] = self.calculator_mode
         session_state["simplified_hours"] = self.simplified_hours
         session_state["simplified_direct_costs"] = self.simplified_direct_costs
+        session_state["publishing_costs"] = self.publishing_costs
+        session_state["include_publishing_costs"] = self.include_publishing_costs
         session_state["review_rounds"] = peer_review.review_rounds
         session_state["journal_submissions"] = peer_review.journal_submissions
         session_state["review-rounds"] = peer_review.review_rounds
@@ -520,3 +550,5 @@ class CalculatorState:
                 )
             session_state[f"simplified-cost-{phase}"] = float(self.simplified_direct_costs.get(phase, 0.0))
         session_state["calculator-mode"] = self.calculator_mode
+        session_state["publishing-costs"] = float(self.publishing_costs)
+        session_state["include-publishing-costs"] = self.include_publishing_costs

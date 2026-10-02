@@ -37,6 +37,7 @@ from src.figures import (
     labour_bar_chart,
     labour_dataframe,
     labour_sunburst_chart,
+    social_media_svg_to_png,
 )
 from src.reference_data import (
     COUNTRY_NAMES,
@@ -238,7 +239,7 @@ social_media_svg: str = create_social_media_svg(
 ).as_svg()
 
 with st.container(horizontal=True, horizontal_alignment="center"):
-    st.image(social_media_svg, width=540)
+    st.image(social_media_svg_to_png(social_media_svg), width=540)
 
 
 with st.container(horizontal=True, horizontal_alignment="center"):

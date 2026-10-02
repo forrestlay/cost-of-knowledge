@@ -20,6 +20,48 @@ if TYPE_CHECKING:
 _PHASE_PALETTE: list[str] = px.colors.qualitative.Bold
 
 
+_HATCH_TILE: int = 16
+_HATCH_STYLES: int = 8
+
+
+def _hatched_fill(colour: str, index: int) -> draw.Pattern | str:
+    """Builds a fill of the colour overlaid with a hatching pattern, so categories differ by more than hue.
+
+    Args:
+        colour: Base fill colour.
+        index: Position of the category. Cycles through solid, diagonal stripes, dots, opposite diagonal stripes,
+            horizontal stripes, vertical stripes, crosshatch, and grid styles.
+
+    Returns:
+        A solid colour for the first style, otherwise an SVG pattern.
+    """
+    style: int = index % _HATCH_STYLES
+    if style == 0:
+        return colour
+    tile: int = _HATCH_TILE
+    transform: str | None = {1: "rotate(45)", 3: "rotate(-45)", 6: "rotate(45)"}.get(style)
+    pattern: draw.Pattern = draw.Pattern(tile, tile, patternTransform=transform)
+    pattern.append(draw.Rectangle(0, 0, tile, tile, fill=colour))
+
+    def line(x1: float, y1: float, x2: float, y2: float) -> None:
+        pattern.append(draw.Line(x1, y1, x2, y2, stroke="#ffffff", stroke_width=3, stroke_opacity=0.9))
+
+    half: float = tile / 2
+    if style in (1, 3, 4):  # diagonal stripes in either direction, then horizontal stripes
+        line(0, half, tile, half)
+    elif style == 2:  # dots
+        pattern.append(draw.Circle(half, half, 2.5, fill="#ffffff", fill_opacity=0.9))
+    elif style == 5:  # vertical stripes
+        line(half, 0, half, tile)
+    elif style == 6:  # diagonal crosshatch
+        line(0, half, tile, half)
+        line(half, 0, half, tile)
+    else:  # square grid
+        line(0, half, tile, half)
+        line(half, 0, half, tile)
+    return pattern
+
+
 # Placeholder hex values that Streamlit's frontend swaps for its theme's categorical
 # colour palette (see streamlit/elements/lib/streamlit_plotly_theme.py). Assigning one
 # of these to a category keeps that phase or activity on the same Streamlit colour in
@@ -44,6 +86,22 @@ def build_color_map(names: Sequence[str], palette: Sequence[str] | None = None) 
             else px.colors.qualitative.Light24
         )
     return {name: palette[i % len(palette)] for i, name in enumerate(distinct)}
+
+
+# Plotly pattern shapes matching the hatching on the social media card, so categories differ by more than colour
+# for colourblind users. The first is solid, and the order follows the card's cycle.
+_PATTERN_SHAPES: list[str] = ["", "/", ".", "\\", "-", "|", "x", "+"]
+_PATTERN_LINE_COLOUR: str = "#ffffff"
+
+
+def _pattern_shape(index: int) -> str:
+    """The Plotly pattern shape for the category at the position, cycling once the shapes run out."""
+    return _PATTERN_SHAPES[index % len(_PATTERN_SHAPES)]
+
+
+def _pattern(shape: str | list[str]) -> dict:
+    """Plotly marker pattern drawing white hatching in the given shape(s) over the marker colour."""
+    return {"shape": shape, "fgcolor": _PATTERN_LINE_COLOUR, "fillmode": "overlay", "size": 8, "solidity": 0.35}
 
 
 def costs_dataframe(costs: Sequence[Cost]) -> pd.DataFrame:
@@ -74,10 +132,50 @@ def labour_dataframe(activities: Sequence[BaseActivity], include_hours: bool = T
     return pd.DataFrame(data)
 
 
+_LEGEND_ROW_HEIGHT: int = 24
+
+
+def _legend_below(figure: go.Figure, entries: int, plot_height: int, bottom_margin: int = 0) -> None:
+    """Moves the legend of a figure to a single vertical column beneath the plot, for narrow screens.
+
+    The figure is made tall enough for the plot plus one legend row per entry, and the legend is pinned to the bottom
+    of the figure.
+
+    Args:
+        figure: The figure to modify in place.
+        entries: Number of legend entries.
+        plot_height: Height in pixels of the plot area above the legend.
+        bottom_margin: Extra space in pixels beneath the plot for content such as axis labels.
+    """
+    legend_height: int = entries * _LEGEND_ROW_HEIGHT + 20
+    figure.update_layout(
+        height=plot_height + bottom_margin + legend_height,
+        showlegend=True,
+        legend={
+            "orientation": "v",
+            "x": 0,
+            "xanchor": "left",
+            "y": 0,
+            "yanchor": "bottom",
+            "yref": "container",
+        },
+        margin={"b": bottom_margin + legend_height},
+    )
+
+
 def costs_pie_chart(
-    costs_df: pd.DataFrame, names: str, phase_color_map: dict[str, str], item_color_map: dict[str, str]
+    costs_df: pd.DataFrame,
+    names: str,
+    phase_color_map: dict[str, str],
+    item_color_map: dict[str, str],
+    legend_below: bool = False,
+    hatching: bool = False,
 ) -> go.Figure:
-    """Pie chart of the total cost, split by phase (names="Phase") or by activity and direct cost (names="Item")."""
+    """Pie chart of the total cost, split by phase (names="Phase") or by activity and direct cost (names="Item").
+
+    Pass legend_below=True for narrow screens, to list the legend vertically beneath the pie. Pass hatching=True to
+    add patterns to the colours, for colourblind users.
+    """
     pie: go.Figure = px.pie(
         costs_df,
         values="Cost",
@@ -86,14 +184,32 @@ def costs_pie_chart(
         color_discrete_map={**phase_color_map, **item_color_map},
         title="Total Cost Breakdown",
     )
-    pie.update_layout(height=720)
+    if hatching:
+        color_map: dict[str, str] = phase_color_map if names == "Phase" else item_color_map
+        positions: dict[str, int] = {name: i for i, name in enumerate(color_map)}
+        pie.update_traces(
+            marker={"pattern": _pattern([_pattern_shape(positions.get(label, 0)) for label in pie.data[0].labels])}
+        )
+    if legend_below:
+        _legend_below(pie, costs_df[names].nunique(), plot_height=380)
+    else:
+        pie.update_layout(height=720)
     return pie
 
 
 def labour_sunburst_chart(
-    labour_df: pd.DataFrame, phase_color_map: dict[str, str], total_cost: float, currency_code: str
+    labour_df: pd.DataFrame,
+    phase_color_map: dict[str, str],
+    total_cost: float,
+    currency_code: str,
+    legend_below: bool = False,
+    hatching: bool = False,
 ) -> go.Figure:
-    """Sunburst of the cost of labour by phase, person and activity, labelled as a percentage of total_cost."""
+    """Sunburst of the cost of labour by phase, person and activity, labelled as a percentage of total_cost.
+
+    Pass legend_below=True for narrow screens, to list the legend vertically beneath the sunburst. Pass hatching=True
+    to add patterns to the colours, for colourblind users.
+    """
     sunburst: go.Figure = px.sunburst(
         labour_df,
         path=["Phase", "Person", "Activity"],
@@ -109,15 +225,28 @@ def labour_sunburst_chart(
     node_costs: list[float] = list(sunburst.data[0].values)
     sunburst.data[0].text = [f"{(cost / total_cost * 100):.1f}%" if total_cost else "0.0%" for cost in node_costs]
     sunburst.data[0].texttemplate = "%{label}<br>%{text}"
+    # Each node shares its phase's colour, so the colour tells which phase's pattern the node takes.
+    if hatching:
+        shape_by_colour: dict[str, str] = {
+            colour: _pattern_shape(i) for i, colour in enumerate(phase_color_map.values())
+        }
+        sunburst.data[0].marker.pattern = _pattern(
+            [shape_by_colour.get(colour, "") for colour in sunburst.data[0].marker.colors]
+        )
     # Sunburst traces cannot show a legend, so add an invisible placeholder trace per phase to create
     # legend entries. The legend takes up the same space as the pie chart's legend, aligning the two charts.
-    for phase in (phase for phase in phase_color_map if phase in set(labour_df["Phase"])):
+    # Bar traces are used as scatter markers cannot show patterns.
+    for i, phase in enumerate(phase_color_map):
+        if phase not in set(labour_df["Phase"]):
+            continue
         sunburst.add_trace(
-            go.Scatter(
+            go.Bar(
                 x=[None],
                 y=[None],
-                mode="markers",
-                marker={"color": phase_color_map[phase], "size": 12, "symbol": "square"},
+                marker={
+                    "color": phase_color_map[phase],
+                    **({"pattern": _pattern(_pattern_shape(i))} if hatching else {}),
+                },
                 name=phase,
                 hoverinfo="skip",
             )
@@ -125,6 +254,8 @@ def labour_sunburst_chart(
     sunburst.update_xaxes(visible=False)
     sunburst.update_yaxes(visible=False)
     sunburst.update_layout(height=720, showlegend=True, legend={"itemclick": False, "itemdoubleclick": False})
+    if legend_below:
+        _legend_below(sunburst, labour_df["Phase"].nunique(), plot_height=380)
     return sunburst
 
 
@@ -135,10 +266,14 @@ def labour_bar_chart(
     phase_color_map: dict[str, str],
     currency_code: str,
     currency_prefix: str,
+    legend_below: bool = False,
+    hatching: bool = False,
 ) -> go.Figure:
     """Bar chart of each labour activity's cost (measure="Cost") or hours (measure="Hours"), coloured by phase.
 
     The cost and hours of every researcher in an activity are added together, so each activity is a single bar.
+    Pass legend_below=True for narrow screens, to list the legend vertically beneath the chart. Pass hatching=True to
+    add patterns to the colours, for colourblind users.
     """
     totals_df: pd.DataFrame = labour_df.groupby(["Activity", "Phase"], as_index=False, sort=False)[[measure]].sum()
     chart: go.Figure = px.bar(
@@ -151,11 +286,19 @@ def labour_bar_chart(
         text_auto=True,
         labels={"Cost": f"Cost ({currency_code})"},
     )
+    if hatching:
+        positions: dict[str, int] = {name: i for i, name in enumerate(phase_color_map)}
+        chart.for_each_trace(
+            lambda trace: trace.update(marker={"pattern": _pattern(_pattern_shape(positions.get(trace.name, 0)))})
+        )
     if measure == "Cost":
         chart.update_traces(texttemplate=f"{currency_prefix}%{{y:,.2f}}", textposition="outside")
         chart.update_yaxes(tickprefix=currency_prefix)
     else:
         chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
+    if legend_below:
+        # The bottom margin leaves room for the rotated activity names between the plot and the legend.
+        _legend_below(chart, totals_df["Phase"].nunique(), plot_height=380, bottom_margin=140)
     return chart
 
 
@@ -301,6 +444,9 @@ def create_social_media_svg(
     palette: dict[str, str] = {
         name: _PHASE_PALETTE[i % len(_PHASE_PALETTE)] for i, name in enumerate(dict.fromkeys(phase_names))
     }
+    fills: dict[str, draw.Pattern | str] = {
+        name: _hatched_fill(palette[name], i) for i, name in enumerate(dict.fromkeys(phase_names))
+    }
     breakdown_total: float = sum(phase_costs.values())
     visible_phases: list[str] = [name for name in phase_names if phase_costs[name] > 0] or phase_names
 
@@ -415,7 +561,7 @@ def create_social_media_svg(
             segment: float = bar_w * (phase_costs[name] / breakdown_total)
             if segment <= 0:
                 continue
-            image.append(draw.Rectangle(cursor, bar_y, segment, bar_h, fill=palette[name]))
+            image.append(draw.Rectangle(cursor, bar_y, segment, bar_h, fill=fills[name]))
             cursor += segment
     else:
         image.append(draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4))
@@ -440,7 +586,7 @@ def create_social_media_svg(
             continue
         row_y: float = legend_first_y + row_index * legend_row_h
         share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
-        image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=palette[name]))
+        image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=fills[name]))
         image.append(
             draw.Text(
                 name,

@@ -37,6 +37,7 @@ from src.figures import (
     labour_bar_chart,
     labour_dataframe,
     labour_sunburst_chart,
+    social_media_svg_to_png,
 )
 from src.reference_data import (
     COUNTRY_NAMES,
@@ -100,47 +101,6 @@ toggletip_styles()
 
 st.title("The Cost of Knowledge")
 
-st.markdown(
-    """
-        <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
-        journal article from ideation to publication?**</span>
-
-        "Debates about the economics of scholarly publishing typically focus on subscription prices, article
-        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-        incurred in producing the research that makes scholarly publishing possible."{footnote_1}
-
-        The researcher who has shared their result with you has used this tool to estimate the full cost of preparing
-        and publishing one of their refereed journal articles. You can try the tool yourself:
-    """.replace(
-        "{footnote_1}",
-        toggletip("<sup>1</sup>", "Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo."),
-    ),
-    unsafe_allow_html=True,
-)
-
-with st.container(horizontal=True, horizontal_alignment="center"):
-    back_to_calculator_button()
-
-st.markdown(
-    """
-        These results should not be taken to reflect or quantify the value of research, only the costs
-        involved in preparing a refereed journal article. Prior literature has established that research provides
-        substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
-        to the resources required for scholarly publishing.
-        """.replace(
-        "{footnote_2}",
-        toggletip(
-            "<sup>2</sup>",
-            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
-            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
-            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
-            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
-            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
-        ),
-    ),
-    unsafe_allow_html=True,
-)
-
 public_id: str | None = st.query_params.get(database.PROJECT_ID_QUERY_PARAM)
 if public_id is None:
     st.info("No result was chosen.", icon=":material/info:")
@@ -162,6 +122,46 @@ results_direct_costs: list[DirectCost] = state.effective_direct_costs()
 combined_costs_list: list[Cost] = [*results_activities, *results_direct_costs]  # ty:ignore[invalid-assignment]
 total_cost: float = compute_costs(combined_costs_list)
 
+st.markdown(
+    """
+        <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
+        journal article from ideation to publication?**</span>
+
+        Debates about the economics of scholarly publishing typically focus on subscription prices, article
+        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
+        incurred in producing the research that makes scholarly publishing possible.
+
+        The researcher who has shared their result with you has used the Cost of Knowledge Calculator to estimate the
+        full cost of preparing and publishing one of their refereed journal articles.
+        """,
+    unsafe_allow_html=True,
+)
+
+social_media_svg: str = create_social_media_svg(
+    country=COUNTRY_NAMES.get(country, ""),
+    international_collaborators=state.international_collaborators,
+    project_field=FIELDS_OF_RESEARCH[state.project_field].name
+    if state.project_field in FIELDS_OF_RESEARCH
+    else state.project_field,
+    total_cost=total_cost,
+    total_hours=0.0,
+    phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    format_currency=lambda amount: format_currency(amount, country),
+    show_hours=False,
+).as_svg()
+with st.container(horizontal=True, horizontal_alignment="center"):
+    st.image(social_media_svg_to_png(social_media_svg), width=540)
+
+st.markdown(
+    """
+         You can try the Cost of Knowledge Calculator yourself:
+    """,
+    text_alignment="center",
+)
+
+with st.container(horizontal=True, horizontal_alignment="center"):
+    back_to_calculator_button()
+
 # Same colour maps as the calculator, so each phase and activity has the same colour on both pages.
 phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
 item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
@@ -169,9 +169,32 @@ item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" f
 
 st.header("The Cost of This Refereed Journal Article")
 
+st.markdown(
+    """
+        These results should not be taken to reflect or quantify the value of research, only the costs
+        involved in preparing a refereed journal article. Prior literature has established that research provides
+        substantial economic and social returns{footnote_1}, and with this tool we instead seek to draw attention
+        to the resources required for scholarly publishing.
+        """.replace(
+        "{footnote_1}",
+        toggletip(
+            "<sup>1</sup>",
+            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
+            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
+            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
+            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
+            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
+        ),
+    ),
+    unsafe_allow_html=True,
+)
+
 k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
 k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
+
+with st.container(border=True):
+    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
 
 
 st.subheader("Total cost breakdown")
@@ -183,7 +206,13 @@ costs_chart_selection = st.pills(
 )
 costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
 st.plotly_chart(
-    costs_pie_chart(costs_dataframe(combined_costs_list), costs_pie_names, phase_color_map, item_color_map),
+    costs_pie_chart(
+        costs_dataframe(combined_costs_list),
+        costs_pie_names,
+        phase_color_map,
+        item_color_map,
+        hatching=colorblind_safe_graphs,
+    ),
     width="stretch",
 )
 
@@ -200,7 +229,10 @@ if state.calculator_mode == "granular":
                 the phase or person again to return to the parent view.
                 """)
     st.plotly_chart(
-        labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(country)), width="stretch"
+        labour_sunburst_chart(
+            labour_df, phase_color_map, total_cost, currency_code(country), hatching=colorblind_safe_graphs
+        ),
+        width="stretch",
     )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
@@ -215,31 +247,29 @@ st.plotly_chart(
         phase_color_map,
         currency_code(country),
         currency_prefix(country),
+        hatching=colorblind_safe_graphs,
     ),
     width="stretch",
 )
 
-
-st.header("Summary")
-
-# Only the group name, as the division name would make the title too long for the card. Projects saved before Field of
-# Research codes were used hold a broad field name instead.
-social_media_svg: str = create_social_media_svg(
-    country=COUNTRY_NAMES.get(country, ""),
-    international_collaborators=state.international_collaborators,
-    project_field=FIELDS_OF_RESEARCH[state.project_field].name
-    if state.project_field in FIELDS_OF_RESEARCH
-    else state.project_field,
-    total_cost=total_cost,
-    total_hours=0.0,
-    phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-    format_currency=lambda amount: format_currency(amount, country),
-    show_hours=False,
-).as_svg()
-
-with st.container(horizontal=True, horizontal_alignment="center"):
-    st.image(social_media_svg, width=540)
-
-
 with st.container(horizontal=True, horizontal_alignment="center"):
     back_to_calculator_button()
+
+st.divider()
+st.markdown(
+    """
+        :small[<sup>1</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
+        Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+        https://doi.org/10.7208/chicago/9780226805597.003.0002;
+        Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
+        review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
+
+        :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+        Lay, Loh, and Tanima.
+        :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+        International License](https://creativecommons.org/licenses/by/4.0/).]
+
+        :small[[Privacy Policy](https://sparcopen.org/privacy-policy/)]
+        """,
+    unsafe_allow_html=True,
+)

@@ -44,6 +44,7 @@ from src.calculator_state import (
     CalculatorState,
     compute_costs,
     compute_hours,
+    default_phase_costs,
     default_phase_hours,
 )
 from src.currency_rates import convert_currency
@@ -74,7 +75,7 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import theme_color, toggletip, toggletip_styles
+from src.ui import colored_container_key, row_styles, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
     from src.models import Cost
@@ -246,6 +247,8 @@ def convert_monetary_values():
 
 # Option of the researcher form's role selectbox for entering a salary instead of choosing a preset role.
 MANUAL_SALARY_OPTION: str = "manual_salary"
+# Option of the same selectbox for entering an hourly rate directly.
+MANUAL_HOURLY_RATE_OPTION: str = "manual_hourly_rate"
 # Keys of the widgets of the form to add a researcher. The dialog to edit a researcher uses its own keys.
 ADD_PERSON_FORM_KEY: str = "add-person"
 
@@ -365,6 +368,7 @@ def calculate_hourly_rate(key: str, person: Person | None = None) -> None:
         value=12,
         min_value=1,
         key=f"{key}-months",
+        help="If the salary is an annual salary, use 12 months.",
     )
     st.number_input(
         "How many hours are they required to work per week?",
@@ -381,6 +385,36 @@ def calculate_hourly_rate(key: str, person: Person | None = None) -> None:
         st.caption(
             f"Their current hourly rate is {format_hourly_rate(person.hourly_rate)}. Leave the salary at 0 to keep it."
         )
+
+
+def calculate_manual_hourly_rate(key: str, person: Person | None = None) -> None:
+    """Shows the input for an hourly rate entered directly, inside a researcher form.
+
+    Args:
+        key: Prefix of the keys of the inputs.
+        person: The researcher being edited, if any, whose current rate is kept if no rate is entered.
+    """
+    st.number_input(
+        f"What is the researcher's hourly rate in {currency_code()}?",
+        step=0.5,
+        min_value=0.0,
+        format="%.2f",
+        key=f"{key}-hourly-rate",
+    )
+    st.caption(
+        f"The project-wide indirect cost rate of {st.session_state['indirect_cost_percentage']}% will be applied. "
+        "You can change it in the Indirect Costs section."
+    )
+    if person is not None and person.role is None:
+        st.caption(
+            f"Their current hourly rate is {format_hourly_rate(person.hourly_rate)}. Leave the rate at 0 to keep it."
+        )
+
+
+def manual_hourly_rate(key: str) -> float:
+    """Returns the hourly rate entered in calculate_manual_hourly_rate, including indirect costs."""
+    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
+    return round(st.session_state[f"{key}-hourly-rate"] * indirect_cost_multiplier, 2)
 
 
 def salary_hourly_rate(key: str) -> float:
@@ -411,7 +445,7 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
 
     role: str | None = None
     if choice is None:
-        st.toast("Choose a role or enter a salary first.", icon=":material/error:")
+        st.toast("Choose a role or enter a salary or hourly rate first.", icon=":material/error:")
         return
     if choice == MANUAL_SALARY_OPTION:
         if st.session_state[f"{key}-salary"] > 0:
@@ -420,6 +454,14 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
             hourly_rate = person.hourly_rate
         else:
             st.toast("Enter the researcher's salary first.", icon=":material/error:")
+            return
+    elif choice == MANUAL_HOURLY_RATE_OPTION:
+        if st.session_state[f"{key}-hourly-rate"] > 0:
+            hourly_rate = manual_hourly_rate(key)
+        elif person is not None and person.role is None:
+            hourly_rate = person.hourly_rate
+        else:
+            st.toast("Enter the researcher's hourly rate first.", icon=":material/error:")
             return
     else:
         role = choice
@@ -444,8 +486,8 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
 def researcher_form(key: str, person: Person | None = None) -> None:
     """Shows the form to add a researcher, or to edit the given one.
 
-    The role selectbox sits above the form so that choosing to enter a salary shows its inputs straight away, as inputs
-    inside a form only update when it is submitted.
+    The role selectbox sits above the form so that choosing to enter a salary or hourly rate shows its inputs straight
+    away, as inputs inside a form only update when it is submitted.
 
     Args:
         key: Prefix of the keys of the form's widgets.
@@ -463,16 +505,21 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         st.session_state[quantity_key] = person.quantity
 
     def role_display(option: str, country: str) -> str:
-        """Roles are shown by their US name, followed by their local name in the chosen country if it differs."""
-        return "Enter a salary manually" if option == MANUAL_SALARY_OPTION else ROLES[option].display_name(country)
+        """Roles are shown by their local name in the chosen country if it differs, followed by the US role their salary
+        is based on."""
+        if option == MANUAL_SALARY_OPTION:
+            return "Enter a salary manually"
+        if option == MANUAL_HOURLY_RATE_OPTION:
+            return "Enter an hourly rate manually"
+        return ROLES[option].display_name(country)
 
     choice: str | None = st.selectbox(
         "Title or role",
-        options=[*ROLES, MANUAL_SALARY_OPTION],
+        options=[*ROLES, MANUAL_SALARY_OPTION, MANUAL_HOURLY_RATE_OPTION],
         # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
         format_func=lambda option, country=st.session_state["user_country"]: role_display(option, country),
         placeholder="Choose a title or role to calculate costs based on the median US salary, or enter a salary "
-        "manually",
+        "or hourly rate manually",
         key=role_key,
         help="""To calculate the cost of labor, we calculate an hourly rate based on the salary of each researcher
         involved in preparing the refereed journal article. If you select a faculty title, the hourly rate is
@@ -486,6 +533,8 @@ def researcher_form(key: str, person: Person | None = None) -> None:
     with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
         if choice == MANUAL_SALARY_OPTION:
             calculate_hourly_rate(key, person)
+        elif choice == MANUAL_HOURLY_RATE_OPTION:
+            calculate_manual_hourly_rate(key, person)
         elif choice is not None:
             st.caption(
                 f"Hourly rate including the {st.session_state['indirect_cost_percentage']}% indirect cost rate: "
@@ -497,7 +546,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
             step=1,
             key=quantity_key,
             help="""Select the number of researchers that have the same title or role, if you selected a preset role,
-            or have the same salary if you added a salary manually.""",
+            or have the same salary or hourly rate if you added one manually.""",
         )
         with st.container(horizontal=True, vertical_alignment="center"):
             submitted: bool = st.form_submit_button(
@@ -592,6 +641,7 @@ def simplified_phase_inputs(phase: str) -> None:
 
 # Keys of the widgets of the form to add an activity or direct cost. The dialog to edit one uses its own keys.
 ADD_ITEM_FORM_KEY: str = "add-item"
+ADD_ITEM_STICKY_KEY: str = "add-item-sticky"
 # The kinds of item the form adds, and how they are described.
 ITEM_KINDS: dict[str, str] = {"activity": "Activity", "direct_cost": "Direct cost"}
 
@@ -825,7 +875,7 @@ def edit_item(kind: str, item_id: int) -> None:
 
 
 def item_row(
-    key: str, kind: str, item_id: int, name: str | None, detail: str, hours: float | None, cost: float
+    key: str, kind: str, item_id: int, name: str | None, detail: str, hours: float | None, cost: float, phase: str
 ) -> None:
     """Shows an activity or direct cost as a row with its details and buttons to edit and delete it.
 
@@ -837,8 +887,9 @@ def item_row(
         detail: Description shown beneath the name.
         hours: Total hours of the activity, or None for a direct cost.
         cost: Total cost of the item.
+        phase: Key of the item's phase in RESEARCH_PHASES, which sets the row's colours.
     """
-    with st.container(border=True):
+    with st.container(border=True, key=colored_container_key(phase, key)):
         label_column, hours_column, cost_column, button_column = st.columns([3, 1, 1, 1], vertical_alignment="center")
         label_column.markdown(f"**{name or 'Unnamed'}**  \n{detail}")
         hours_column.markdown(f"**Hours**  \n{'—' if hours is None else f'{hours:,.1f} h'}")
@@ -875,7 +926,7 @@ def granular_phase_items(phase: str) -> None:
     phase_direct_costs: list[DirectCost] = [cost for cost in st.session_state["cost_list"] if cost.phase == phase]
 
     if not activity_groups and not phase_direct_costs:
-        st.info("No activities or direct costs added to this phase yet. Use the form above to add some.")
+        st.info("No activities or direct costs added to this phase yet. Use the add form to add some.")
     for group_key, group_activities in activity_groups.items():
         item_row(
             f"item-activity-{group_key}",
@@ -885,6 +936,7 @@ def granular_phase_items(phase: str) -> None:
             ", ".join(f"{activity.person.label}: {activity.hours:,.1f} h" for activity in group_activities),
             compute_hours(group_activities),
             compute_costs(group_activities),
+            phase,
         )
     for direct_cost in phase_direct_costs:
         item_row(
@@ -895,6 +947,7 @@ def granular_phase_items(phase: str) -> None:
             "Direct cost",
             None,
             direct_cost.cost,
+            phase,
         )
 
 
@@ -937,13 +990,34 @@ def save_to_database() -> None:
     st.toast("Saved to the database.", icon=":material/check_circle:")
 
 
-def toggle_results() -> None:
-    """Callback for the "Calculate the cost of your journal article" button. Shows or hides the results and share
-    sections, saving the result to the database when it is being shown and the user has opted in.
+def delete_from_database() -> None:
+    """Deletes the previously saved result from the database, if there is one, and forgets its public id so the share
+    buttons go back to linking to the tool.
     """
-    st.session_state["show_results"] = not st.session_state["show_results"]
-    if st.session_state["show_results"] and st.session_state.get("save_result_to_database", False):
+    public_id: str | None = st.session_state.get("database_public_id")
+    if public_id is None:
+        return
+    try:
+        with closing(database.connect()) as conn:
+            sql_store.delete_project(conn, public_id)
+    except database.DATABASE_ERRORS as error:
+        st.toast(f"Could not delete your saved result: {error}", icon=":material/error:")
+        return
+    st.session_state["database_public_id"] = None
+    st.session_state["database_saved_inputs"] = None
+    st.toast("Your saved result has been deleted.", icon=":material/delete:")
+
+
+def toggle_results() -> None:
+    """Callback for the "Calculate the cost of your journal article" button. Shows the results and share sections
+    (they stay visible afterwards). Each click syncs the database with the "save my result" toggle: if it is on, the
+    result is saved (or updated if it was saved before); if it is off, a previously saved result is deleted.
+    """
+    st.session_state["show_results"] = True
+    if st.session_state.get("save_result_to_database", False):
         save_to_database()
+    else:
+        delete_from_database()
 
 
 def show_footer() -> None:
@@ -951,24 +1025,25 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-            <sup>1</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.
+            :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
+            Knowledge. Preprint available on Zenodo.]
 
-            <sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
-            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+            :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
+            Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
             https://doi.org/10.7208/chicago/9780226805597.003.0002;
-            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
-            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.
+            Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
+            review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
 
-            <sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
-            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
-            5, 133–182. https://doi.org/10.1086/738903
+            :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
+            Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
+            the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
             International License](https://creativecommons.org/licenses/by/4.0/).]
 
-            [Privacy Policy](https://sparcopen.org/privacy-policy/)
+            :small[[Privacy Policy](https://sparcopen.org/privacy-policy/)]
             """,
         unsafe_allow_html=True,
     )
@@ -986,6 +1061,60 @@ def load_alam_defaults() -> None:
         st.session_state
     )
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
+
+
+def reset_simplified_defaults() -> None:
+    """Callback for the simplified calculator's reset button. Sets the hours and direct costs back to the estimates
+    from Alam et al. (2026): the first researcher gets the default hours of each phase and everyone else has none.
+
+    The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
+    rate: float = 1.0 if usd_to_currency is None else usd_to_currency
+    first_person: Person | None = next(iter(st.session_state["people"].values()), None)
+    default_hours: dict[str, float] = default_phase_hours()
+    for phase, cost in default_phase_costs().items():
+        for person in st.session_state["people"].values():
+            hours: float = default_hours[phase] if person is first_person else 0.0
+            set_simplified_hours(phase, person.unique_key, hours)
+        st.session_state["simplified_direct_costs"][phase] = round(cost * rate, 2)
+        st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
+    st.toast("Reset the hours and costs to the defaults.", icon=":material/check_circle:")
+
+
+def clear_simplified_estimates() -> None:
+    """Callback for the simplified calculator's clear button. Sets every researcher's hours and the direct costs of each
+    phase to 0.
+    """
+    for phase in OVERALL_TOTAL_PHASES:
+        for person in st.session_state["people"].values():
+            set_simplified_hours(phase, person.unique_key, 0.0)
+        st.session_state["simplified_direct_costs"][phase] = 0.0
+        st.session_state[f"simplified-cost-{phase}"] = 0.0
+    st.toast("Set all hours and costs to zero.", icon=":material/check_circle:")
+
+
+def reset_activities_and_costs() -> None:
+    """Removes every activity and direct cost added in the granular calculator, keeping the project and people. The
+    activities of peer review and journal editorial work are left alone, as they are set by their sliders.
+    """
+    st.session_state["activity_list"] = [
+        activity for activity in st.session_state["activity_list"] if not isinstance(activity, Activity)
+    ]
+    st.session_state["cost_list"] = []
+
+
+@st.dialog("Reset activities and direct costs")
+def confirm_reset() -> None:
+    """Asks for confirmation before removing every activity and direct cost."""
+    st.write("This will remove all of the activities and direct costs you have added. This cannot be undone.")
+    confirm_column, cancel_column = st.columns(2)
+    if confirm_column.button("Reset", key="confirm-reset", type="primary", icon=":material/delete:", width="stretch"):
+        reset_activities_and_costs()
+        st.toast("Removed all activities and direct costs.", icon=":material/check_circle:")
+        st.rerun()
+    if cancel_column.button("Cancel", key="cancel-reset", width="stretch"):
+        st.rerun()
 
 
 # -----------------------------------------------
@@ -1209,37 +1338,34 @@ st.markdown(
         <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
         journal article from ideation to publication?**</span>
 
-        "Debates about the economics of scholarly publishing typically focus on subscription prices, article
+        Debates about the economics of scholarly publishing typically focus on subscription prices, article
         processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-        incurred in producing the research that makes scholarly publishing possible."{footnote_1} This tool aims to
+        incurred in producing the research that makes scholarly publishing possible. This tool aims to
         make visible the substantial investment underpinning scholarly publishing.
 
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
-        **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
-        median time required for preparing a social science article.{footnote_2}
+        **best estimate** of the time and costs involved - if you aren't sure, we have provided conservative estimates
+        of the time required to prepare a social science journal article for publication.{footnote_1}
 
         *The estimated time to complete this tool is 10-15 minutes.*
 
         The results of this tool should not be taken to reflect or quantify the value of research, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
-        substantial economic and social returns{footnote_3}, and with this tool we instead seek to draw attention
+        substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
         """.replace(
         "{footnote_1}",
-        toggletip("<sup>1</sup>", "Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo."),
-    )
-    .replace(
+        toggletip(
+            "<sup>1</sup>",
+            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
+            available on Zenodo.""",
+            key="footnote-1",
+        ),
+    ).replace(
         "{footnote_2}",
         toggletip(
             "<sup>2</sup>",
-            "Estimates sourced from Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo.",
-        ),
-    )
-    .replace(
-        "{footnote_3}",
-        toggletip(
-            "<sup>3</sup>",
             "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
             "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
             "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
@@ -1250,22 +1376,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
-st.html(
-    f"""
-    <style>
-    .st-key-help-hint {{
-        background-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 12%, transparent);
-        border-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 30%, transparent);
-    }}
-    </style>
-    """
+st.info(
+    "If you are unsure what is meant by a question, click on this help icon to the right of "
+    "the question to view a more detailed explanation.",
+    icon=":material/help:",
 )
-with st.container(border=True, key="help-hint"):
-    st.markdown(
-        ":material/help: If you are unsure what is meant by a question, click on this help icon to the right of "
-        "the question to view a more detailed explanation."
-    )
 
 with st.expander("About the data", expanded=False):
     st.markdown("""
@@ -1332,9 +1447,17 @@ st.markdown(
     journal subscriptions, database and software licenses, and open access agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
-    rate of 40% sourced from Azoulay et al. (2026)<sup>3</sup>, being an approximate middle ground within
+    rate of 40% sourced from Azoulay et al. (2026){footnote_3}, being an approximate middle ground within
     the range of effective indirect cost recovery rates they observe from a sample of US universities.
-    """,
+    """.replace(
+        "{footnote_3}",
+        toggletip(
+            "<sup>3</sup>",
+            """Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
+            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
+            5, 133–182. https://doi.org/10.1086/738903""",
+        ),
+    ),
     unsafe_allow_html=True,
 )
 with st.expander("Optional: Adjust indirect cost rate"):
@@ -1371,8 +1494,9 @@ with st.container(border=True):
 
 if not st.session_state["people"]:
     st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
+row_styles(list(RESEARCH_PHASES))
 for person in st.session_state["people"].values():
-    with st.container(border=True):
+    with st.container(border=True, key=colored_container_key("researcher", person.unique_key)):
         label_column, rate_column, quantity_column, button_column = st.columns(
             [3, 1, 1, 1], vertical_alignment="center"
         )
@@ -1429,19 +1553,70 @@ st.session_state["calculator_mode"] = st.radio(
     help="You can switch between the two at any time. Only the one selected is included in your results.",
 )
 
-st.markdown("""
+st.markdown(
+    """
             The process has been divided between four distinct phases: **incubation**, **data collection and
             analysis**, **manuscript preparation**, and **peer review and journal editorial work**. Provide your
-            best estimate of the hours and direct costs involved in each phase of preparing your refereed journal
-            article. If you would like a starting point, the default estimates are the conservative estimates for a
-            social sciences journal article from Alam et al. (2026), the publication accompanying this tool.
+            best estimate of the hours and {direct costs} involved in each phase of preparing your refereed journal
+            article. {starting_point}
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
             per person).
-            """)
+            """.replace(
+        "{starting_point}",
+        (
+            "If you would like a starting point, you can click the button below to load default estimates, which "
+            if st.session_state["calculator_mode"] == "granular"
+            else "If you would like a starting point, the default estimates "
+        )
+        + "are the conservative estimates for a social sciences journal article{footnote_alam}.",
+    )
+    .replace(
+        "{footnote_alam}",
+        toggletip(
+            "<sup>4</sup>",
+            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
+            available on Zenodo.""",
+            key="footnote-4",
+        ),
+    )
+    .replace(
+        "{direct costs}",
+        toggletip(
+            "direct costs",
+            """Direct costs are costs that are directly
+            associated with the preparation of the refereed journal article. This would include incentives provided to
+            participants, databases and software acquired for the data collection and analysis phase by the study team,
+            and the costs of hiring proofreaders/editors. You should not include indirect costs, such as administrative
+            costs, infrastructure costs such as laboratories and equipment that are used across multiple research
+            projects or teams, and library journal subscriptions.
+            """,
+        ),
+    ),
+    unsafe_allow_html=True,
+)
+if st.session_state["calculator_mode"] == "simplified":
+    reset_defaults_column, clear_column, _ = st.columns([1, 1, 2])
+    reset_defaults_column.button(
+        "Reset hours and costs to defaults",
+        key="reset-simplified-defaults",
+        icon=":material/restart_alt:",
+        on_click=reset_simplified_defaults,
+        disabled=not st.session_state["people"],
+        help=None if st.session_state["people"] else "Add a researcher to assign the hours to first.",
+        width="stretch",
+    )
+    clear_column.button(
+        "Set all hours and costs to zero",
+        key="clear-simplified-estimates",
+        icon=":material/delete_sweep:",
+        on_click=clear_simplified_estimates,
+        width="stretch",
+    )
 if st.session_state["calculator_mode"] == "granular":
-    st.button(
+    defaults_column, reset_column, _ = st.columns([1, 1, 2])
+    defaults_column.button(
         "Load defaults from Alam et al. 2026",
         key="load-alam-defaults",
         icon=":material/download:",
@@ -1449,25 +1624,71 @@ if st.session_state["calculator_mode"] == "granular":
         on_click=load_alam_defaults,
         disabled=not st.session_state["people"],
         help=None if st.session_state["people"] else "Add a researcher to assign the activities to first.",
+        width="stretch",
     )
-    with st.container(border=True):
+    has_items: bool = bool(
+        st.session_state["cost_list"]
+        or any(isinstance(activity, Activity) for activity in st.session_state["activity_list"])
+    )
+    if reset_column.button(
+        "Reset all activities and costs",
+        key="reset-activities-and-costs",
+        icon=":material/restart_alt:",
+        disabled=not has_items,
+        help=None if has_items else "There are no activities or direct costs to remove.",
+        width="stretch",
+    ):
+        confirm_reset()
+    # Keeps the add form in view while the list of phases scrolls. Sticky positioning only works if the form's column
+    # stretches to the height of the list, and is only applied when the columns sit side by side (wide screens).
+    st.html(
+        f"""
+        <style>
+            @media (min-width: 992px) {{
+                [data-testid="stColumn"]:has([data-testid="stLayoutWrapper"] > .st-key-{ADD_ITEM_STICKY_KEY}) {{
+                    align-self: stretch;
+                }}
+                [data-testid="stColumn"]:has([data-testid="stLayoutWrapper"] > .st-key-{ADD_ITEM_STICKY_KEY})
+                    > [data-testid="stVerticalBlock"] {{
+                    flex: 1 1 auto;
+                    height: 100%;
+                }}
+                [data-testid="stLayoutWrapper"]:has(> .st-key-{ADD_ITEM_STICKY_KEY}) {{
+                    position: sticky;
+                    top: 4rem;
+                    max-height: calc(100vh - 5rem);
+                    overflow-y: auto;
+                }}
+            }}
+        </style>
+        """
+    )
+
+# Granular calculator: the add form sits beside the phases, otherwise the phases take the full width.
+if st.session_state["calculator_mode"] == "granular":
+    form_column, phases_column = st.columns([1, 2], gap="large")
+    with form_column, st.container(border=True, key=ADD_ITEM_STICKY_KEY):
         st.markdown("**Add an activity or direct cost**")
         item_form(ADD_ITEM_FORM_KEY)
+else:
+    phases_column = st.container()
 
 # TODO: Include buttons to load information about the activities/phases.
 
-st.subheader(RESEARCH_PHASES["incubation"])
-st.markdown(PHASE_DESCRIPTIONS["incubation"])
-phase_inputs("incubation")
+phases_column.subheader(RESEARCH_PHASES["incubation"])
+phases_column.markdown(PHASE_DESCRIPTIONS["incubation"])
+with phases_column:
+    phase_inputs("incubation")
 
-st.subheader(RESEARCH_PHASES["data"])
-st.markdown(PHASE_DESCRIPTIONS["data"])
-phase_inputs("data")
+    st.subheader(RESEARCH_PHASES["data"])
+    st.markdown(PHASE_DESCRIPTIONS["data"])
+    phase_inputs("data")
 
-st.subheader(RESEARCH_PHASES["writing"])
-st.markdown(PHASE_DESCRIPTIONS["writing"])
-phase_inputs("writing")
+    st.subheader(RESEARCH_PHASES["writing"])
+    st.markdown(PHASE_DESCRIPTIONS["writing"])
+    phase_inputs("writing")
 
+# The editing phase sits below the columns, so it takes the full width in the granular calculator.
 st.subheader(RESEARCH_PHASES["editing"])
 st.markdown(PHASE_DESCRIPTIONS["editing"])
 
@@ -1501,8 +1722,8 @@ with st.container(border=True):
         help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
         across all journal submissions. It is estimated that the first round of review involves 4 hours of work by
         peer reviewers, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
-        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.
-        (2026) for details).""",
+        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.,
+        2026, pp. 11-3) for details).""",
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
@@ -1520,23 +1741,21 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         abbreviated version will not display details of the hours of labor performed by each researcher, as this may
         potentially be used to calculate an approximation of a researcher's salary.
 
-        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining this
-        data, and to potential use of this data by SPARC for future research. Please refer to
+        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining the
+        data you enter into this tool, and to potential use of this data by SPARC for future research. Please refer to
         [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for details about how your data will be
         handled.
 
         If you continue without saving your result, please download the generated infographic to keep a record of the
-        total cost you have calculated.
+        total cost you have calculated. Reloading this page will reset all information entered and you will have to
+        re-enter your data to view the results.
         """
     )
-    st.toggle(
+    st.container(border=True).toggle(
         """Save my result so I can share it. I consent to SPARC retaining the data I have entered into this tool
         and using it for future research.""",
         key="save_result_to_database",
         value=False,
-        help="If enabled, the information you have input into this tool is saved to the database when you "
-        "calculate the cost, so you can share a link to your result. Calculating again after making changes "
-        "overwrites your saved result, so your share link stays the same and shows your latest changes.",
     )
 
 st.button(
@@ -1604,6 +1823,26 @@ k3.metric(
 )
 
 
+with st.container(border=True):
+    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
+
+
+# Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the plot, or
+# the narrow version (for phones) with its legend listed beneath the plot.
+st.html(
+    """
+    <style>
+        @media (max-width: 640px) {
+            [class*="st-key-wide-chart-"] { display: none; }
+        }
+        @media (min-width: 641px) {
+            [class*="st-key-narrow-chart-"] { display: none; }
+        }
+    </style>
+    """
+)
+
+
 # Costs pie chart
 st.subheader("Total cost breakdown")
 
@@ -1619,7 +1858,23 @@ costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == 
 costs_df = costs_dataframe(combined_costs_list)
 
 
-st.plotly_chart(costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map), width="stretch")
+with st.container(key="wide-chart-costs-pie"):
+    st.plotly_chart(
+        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=colorblind_safe_graphs),
+        width="stretch",
+    )
+with st.container(key="narrow-chart-costs-pie"):
+    st.plotly_chart(
+        costs_pie_chart(
+            costs_df,
+            costs_pie_names,
+            phase_color_map,
+            item_color_map,
+            legend_below=True,
+            hatching=colorblind_safe_graphs,
+        ),
+        width="stretch",
+    )
 
 
 # Labour cost bar chart
@@ -1635,7 +1890,25 @@ if st.session_state["calculator_mode"] == "granular":
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.
                 """)
-    st.plotly_chart(labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code()), width="stretch")
+    with st.container(key="wide-chart-sunburst"):
+        st.plotly_chart(
+            labour_sunburst_chart(
+                labour_df, phase_color_map, total_cost, currency_code(), hatching=colorblind_safe_graphs
+            ),
+            width="stretch",
+        )
+    with st.container(key="narrow-chart-sunburst"):
+        st.plotly_chart(
+            labour_sunburst_chart(
+                labour_df,
+                phase_color_map,
+                total_cost,
+                currency_code(),
+                legend_below=True,
+                hatching=colorblind_safe_graphs,
+            ),
+            width="stretch",
+        )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
         "paper, including direct costs that are not shown in this chart."
@@ -1668,17 +1941,21 @@ labour_chart_selection = st.pills(
 )
 
 
-st.plotly_chart(
-    labour_bar_chart(
-        labour_df,
-        labour_chart_selection or "Cost",
-        "Cost of and Time Spent on Labor Activities",
-        phase_color_map,
-        currency_code(),
-        currency_prefix(),
-    ),
-    width="stretch",
-)
+for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart-labour-bar", True)):
+    with st.container(key=chart_key):
+        st.plotly_chart(
+            labour_bar_chart(
+                labour_df,
+                labour_chart_selection or "Cost",
+                "Cost of and Time Spent on Labor Activities",
+                phase_color_map,
+                currency_code(),
+                currency_prefix(),
+                legend_below=legend_below,
+                hatching=colorblind_safe_graphs,
+            ),
+            width="stretch",
+        )
 
 
 # -----------------------------------------------
@@ -1688,48 +1965,6 @@ st.plotly_chart(
 
 st.header(":material/share: Share your result", anchor=SHARE_ANCHOR)
 
-
-st.markdown("""
-            Share your result using the buttons below.
-            """)
-
-
-st.markdown("""
-            You may choose to show the total number of hours on your results image. However, for one-person or small
-            teams, this may be used to approximate your salary.
-            """)
-
-
-# Keyed so the choice persists across reruns; hours are hidden by default.
-if "share_show_hours" not in st.session_state:
-    st.session_state["share_show_hours"] = False
-st.toggle("Show estimated hours of labor on the image", key="share_show_hours")
-
-
-# Rendered fresh each run from the (persisted) project inputs and computed totals,
-# so it never needs its own st.session_state entry.
-social_media_svg: str = create_social_media_svg(
-    country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
-    international_collaborators=st.session_state["international_collaborators"],
-    # Only the group name, as the division name would make the title too long for the card. Projects saved before
-    # Field of Research codes were used hold a broad field name instead.
-    project_field=(
-        FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
-        if st.session_state["project_field"] in FIELDS_OF_RESEARCH
-        else st.session_state["project_field"]
-    ),
-    total_cost=total_cost,
-    total_hours=total_hours,
-    phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-    format_currency=format_currency,
-    show_hours=st.session_state["share_show_hours"],
-).as_svg()
-
-
-with st.container(horizontal=True, horizontal_alignment="center"):
-    st.image(social_media_svg, width=540)
-
-
 # Link to the saved result, which the share buttons use in place of the tool's link once the result is saved. Saving
 # happens above in the setup pane, so the buttons update in the same run as the save.
 saved_result_url: str | None = (
@@ -1738,53 +1973,111 @@ saved_result_url: str | None = (
     else None
 )
 
+share_left, share_right = st.columns(2)
 
-# TODO: Add names to our social media share message.
-# TODO: Move the save button here.
-# TODO: Add messaging above the share posts.
-
-
-with st.container(horizontal=True, horizontal_alignment="left"):
-    st.download_button(
-        "Download image",
-        data=social_media_svg_to_png(social_media_svg),
-        file_name="cost-of-knowledge-estimate.png",
-        mime="image/png",
-        icon=":material/image:",
-        type="primary",
-    )
-    st.link_button(
-        "Share on LinkedIn",
-        linkedin_share_url(total_cost, saved_result_url),
-        icon=":material/share:",
-        help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-    )
-    st.link_button(
-        "Share on X",
-        x_share_url(total_cost, saved_result_url),
-        icon=":material/share:",
-        help="Share this tool on X. Download the image first and attach it to your post.",
-    )
-    st.link_button(
-        "Share on Facebook",
-        facebook_share_url(saved_result_url),
-        icon=":material/share:",
-        help="Share this tool on Facebook. Download the image first and attach it to your post.",
-    )
-    st.link_button(
-        "Share via email",
-        email_share_url(total_cost, saved_result_url),
-        icon=":material/email:",
-        help="Share this tool via email. Download the image first and attach it to your email.",
-    )
-    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the save.
+with share_left:
+    share_intro: str = "Download your summary infographic and share it using the buttons below."
     if saved_result_url is not None:
-        copy_link_button(
-            "Copy link to saved result",
-            saved_result_url,
-            copied_label="Link copied",
-            help="Copy a link to your saved result to share it, or to return to it later.",
-            key="copy-saved-project-link",
+        share_intro += """ In addition, because you have saved your result, please use the "copy link" button to save a
+        link to the result so you may return to it at a later time. This result link will also be included in your
+        LinkedIn, X, Facebook, or email message by default."""
+    st.markdown(share_intro)
+
+    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the
+    # save.
+    if saved_result_url is not None:
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            st.text_input(
+                "Link to saved result",
+                placeholder=saved_result_url,
+                disabled=True,
+                label_visibility="collapsed",
+                key="saved-result-url-display",
+            )
+            st.link_button(
+                "",
+                saved_result_url,
+                icon=":material/open_in_new:",
+                help="Open your shareable result in new tab",
+            )
+            copy_link_button(
+                "Copy link to saved result",
+                saved_result_url,
+                copied_label="Link copied",
+                help="Copy a link to your saved result to share it, or to return to it later.",
+                key="copy-saved-project-link",
+            )
+
+    st.warning(
+        """
+                You may choose to show the total number of hours on your results image. However, for one-person or
+                small teams, this may be used to approximate your salary.
+                """,
+        icon=":material/warning:",
+    )
+
+    # Keyed so the choice persists across reruns; hours are hidden by default.
+    if "share_show_hours" not in st.session_state:
+        st.session_state["share_show_hours"] = False
+    st.container(border=True).toggle("Show estimated hours of labor on the image", key="share_show_hours")
+
+    # Rendered fresh each run from the (persisted) project inputs and computed totals,
+    # so it never needs its own st.session_state entry.
+    social_media_svg: str = create_social_media_svg(
+        country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+        international_collaborators=st.session_state["international_collaborators"],
+        # Only the group name, as the division name would make the title too long for the card. Projects saved before
+        # Field of Research codes were used hold a broad field name instead.
+        project_field=(
+            FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
+            if st.session_state["project_field"] in FIELDS_OF_RESEARCH
+            else st.session_state["project_field"]
+        ),
+        total_cost=total_cost,
+        total_hours=total_hours,
+        phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+        format_currency=format_currency,
+        show_hours=st.session_state["share_show_hours"],
+    ).as_svg()
+
+    # TODO: Add names to our social media share message.
+    # TODO: Move the save button here.
+    # TODO: Add messaging above the share posts.
+
+    with st.container(horizontal=True, horizontal_alignment="left"):
+        st.download_button(
+            "Download your summary infographic image",
+            data=social_media_svg_to_png(social_media_svg),
+            file_name="cost-of-knowledge-estimate.png",
+            mime="image/png",
+            icon=":material/image:",
+            type="primary",
         )
+        st.link_button(
+            "Share on LinkedIn",
+            linkedin_share_url(total_cost, saved_result_url),
+            icon=":material/share:",
+            help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
+        )
+        st.link_button(
+            "Share on X",
+            x_share_url(total_cost, saved_result_url),
+            icon=":material/share:",
+            help="Share this tool on X. Download the image first and attach it to your post.",
+        )
+        st.link_button(
+            "Share on Facebook",
+            facebook_share_url(saved_result_url),
+            icon=":material/share:",
+            help="Share this tool on Facebook. Download the image first and attach it to your post.",
+        )
+        st.link_button(
+            "Share via email",
+            email_share_url(total_cost, saved_result_url),
+            icon=":material/email:",
+            help="Share this tool via email. Download the image first and attach it to your email.",
+        )
+share_right.container(horizontal=True, horizontal_alignment="center").image(social_media_svg, width=540)
+
 
 show_footer()

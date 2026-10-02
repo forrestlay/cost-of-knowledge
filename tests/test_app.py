@@ -186,8 +186,6 @@ def test_session_state_round_trip() -> None:
     at: AppTest = run_app("simplified")
     state: CalculatorState = CalculatorState.from_session_state(AppTestSessionState(at))
     expected: CalculatorState = CalculatorState.default()
-    # The calculator's widgets write an entry for every phase, even when it is 0.
-    expected.simplified_direct_costs = dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0)
     assert CalculatorState.from_json(state.to_json()) == expected
 
 
@@ -234,8 +232,8 @@ def test_adding_researcher_with_role() -> None:
     at.selectbox(key="user_country_select").set_value("au")
     run(at)
     role_select = at.selectbox(key="add-person-role")
-    assert "Assistant Professor (Australia equivalent: Senior Lecturer)" in role_select.options
-    assert role_select.options[-1] == "Enter a salary manually"
+    assert "Senior Lecturer (based on median salary for a US Assistant Professor)" in role_select.options
+    assert role_select.options[-2:] == ["Enter a salary manually", "Enter an hourly rate manually"]
 
     person: Person = add_researcher(at, quantity=3)
     rate: float | None = convert_currency(ROLES["assistant_professor"].hourly_rate_usd * 1.4, "USD", "AUD")
@@ -257,6 +255,18 @@ def test_adding_researcher_with_salary() -> None:
     assert person.role is None
     assert person.hourly_rate == 70
     assert person.quantity == 2
+
+
+def test_adding_researcher_with_hourly_rate() -> None:
+    at: AppTest = run_app()
+    at.selectbox(key="add-person-role").set_value("manual_hourly_rate")
+    run(at)
+    at.number_input(key="add-person-hourly-rate").set_value(50.0)
+    submit_researcher_form(at)
+    person: Person = at.session_state["people"]["1"]
+    # US$50 an hour, plus the default 40% indirect cost rate.
+    assert person.role is None
+    assert person.hourly_rate == 70
 
 
 def test_editing_researcher() -> None:
@@ -432,7 +442,8 @@ def test_adding_editing_and_deleting_direct_cost() -> None:
 def test_field_of_research_select() -> None:
     at: AppTest = run_app("simplified")
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
-    assert field_select.value == "3501"
+    # No field is chosen until the user picks one.
+    assert field_select.value is None
     assert field_select.options[0] == "Agricultural, veterinary and food sciences/Agricultural biotechnology"
 
     # A broad field name saved before Field of Research codes were used stays selected.
@@ -468,7 +479,7 @@ def test_simplified_first_researcher_starts_with_default_hours() -> None:
     assert at.slider(key="simplified-hours-incubation-2").value == 0.0
     assert at.slider(key="simplified-hours-incubation-1").max == 800.0
     # 775.5 hours of research and 23 hours of peer review and journal editorial work, at US$85.
-    assert metric_values(at) == [f"${(775.5 + 23) * 85:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$0 (USD)"]
+    assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3646:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,646 (USD)"]
 
 
 def test_simplified_estimates() -> None:
@@ -479,7 +490,7 @@ def test_simplified_estimates() -> None:
     at.slider(key="simplified-hours-writing-1").set_value(0.0)
     at.number_input(key="simplified-cost-data").set_value(250.0)
     run(at)
-    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 3650:,.0f} (USD)", "123 h", "$3,650 (USD)"]
 
     # The granular estimates are separate, and the mode chosen decides which count.
     at.radio(key="calculator-mode").set_value("granular")
@@ -489,7 +500,7 @@ def test_simplified_estimates() -> None:
     run(at)
     assert at.slider(key="simplified-hours-incubation-1").value == 100.0
     assert at.number_input(key="simplified-cost-data").value == 250.0
-    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 3650:,.0f} (USD)", "123 h", "$3,650 (USD)"]
 
 
 def test_simplified_direct_costs_convert_with_currency() -> None:
@@ -539,7 +550,7 @@ def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:
     submit_researcher_form(at)
     role_rate: str = f"${ROLES['assistant_professor'].hourly_rate_usd * 1.4:,.2f} / hour"
     label: str = at.slider(key="simplified-hours-incubation-1").label
-    assert label == f"Researcher 1 ({ROLES['assistant_professor'].display_name('')}) hours ({role_rate})"
+    assert label == f"Researcher 1 ({ROLES['assistant_professor'].short_display_name('')}) hours ({role_rate})"
     # A researcher with a salary instead of a role has no role in the label.
     assert at.slider(key="simplified-hours-incubation-2").label == "Researcher 2 hours ($70.00 / hour)"
     # The slider in the form to add an activity is labelled the same way.

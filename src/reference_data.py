@@ -57,16 +57,25 @@ class ResearcherRole:
     local_labels: dict[str, str]
 
     def display_name(self, country: str) -> str:
-        """Returns the US label, followed by the role's local name when the country has a different one.
+        """Returns the role's local name followed by the US role its salary is based on, if the country has a
+        different local name, otherwise the US label.
 
         Args:
-            country: Lowercase country code, e.g. "au" gives "Assistant Professor (Australia equivalent: Senior
-                Lecturer)".
+            country: Lowercase country code, e.g. "au" gives "Senior Lecturer (based on median salary for a US
+                Assistant Professor)".
         """
         local_label: str | None = self.local_labels.get(country)
         if local_label is None or local_label == self.us_label:
             return self.us_label
-        return f"{self.us_label} ({COUNTRY_NAMES.get(country, country)} equivalent: {local_label})"
+        return f"{local_label} (based on median salary for a US {self.us_label})"
+
+    def short_display_name(self, country: str) -> str:
+        """Returns only the role's local name when the country has one, otherwise the US label.
+
+        Args:
+            country: Lowercase country code, e.g. "au" gives "Senior Lecturer" for an Assistant Professor.
+        """
+        return self.local_labels.get(country, self.us_label)
 
 
 # Researcher roles in display order, keyed by ResearcherRole.key.

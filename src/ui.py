@@ -17,8 +17,12 @@ limitations under the License.
 
 import html
 from hashlib import sha1
+from typing import TYPE_CHECKING
 
 import streamlit as st
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 TOGGLETIP_BORDER = "color-mix(in srgb, currentColor 25%, transparent)"
 
@@ -35,13 +39,15 @@ def theme_color(option: str, light_default: str, dark_default: str) -> str:
     return str(configured or (dark_default if theme_type == "dark" else light_default))
 
 
-def toggletip(trigger: str, tip: str) -> str:
+def toggletip(trigger: str, tip: str, key: str | None = None) -> str:
     """Inline HTML for a toggletip: clicking `trigger` shows `tip`, clicking outside it (or pressing Esc) hides it.
 
     Uses the native HTML Popover API, so no JavaScript is needed. Embed the result in any
     st.markdown(..., unsafe_allow_html=True) string. `trigger` is trusted HTML, `tip` is escaped.
+
+    Identical tips share an id unless given distinct `key`s, so pass one whenever the same tip appears more than once.
     """
-    tip_id = f"tip-{sha1(tip.encode()).hexdigest()[:8]}"
+    tip_id = f"tip-{sha1((key if key is not None else tip).encode()).hexdigest()[:8]}"
     # Each tip gets its own CSS anchor name so the popover is positioned next to its own trigger.
     return (
         f'<button type="button" class="toggletip-btn" popovertarget="{tip_id}" style="anchor-name: --{tip_id}">'
@@ -83,3 +89,53 @@ def toggletip_styles() -> None:
     </style>
     """
     )
+
+
+# Streamlit's default categorical chart colours for the light and dark themes, which the charts give the phases in the
+# order of RESEARCH_PHASES.
+DEFAULT_CHART_COLORS: dict[str, list[str]] = {
+    "light": ["#0068c9", "#83c9ff", "#ff2b2b", "#ffabab"],
+    "dark": ["#83c9ff", "#0068c9", "#ffabab", "#ff2b2b"],
+}
+# Colour of the researchers' rows, which are not in the charts.
+RESEARCHER_COLOR = "#8f6bc2"
+
+
+def chart_colors() -> list[str]:
+    """Categorical chart colours of the active theme, as the charts show them."""
+    theme_type = "dark" if st.context.theme.type == "dark" else "light"
+    configured = st.get_option(f"theme.{theme_type}.chartCategoricalColors") or st.get_option(
+        "theme.chartCategoricalColors"
+    )
+    return list(configured or DEFAULT_CHART_COLORS[theme_type])
+
+
+def colored_container_key(name: str, unique: str) -> str:
+    """Key of a container coloured by `row_styles`. `name` is "researcher" or a phase key."""
+    return f"row-{name}-{unique}"
+
+
+def row_styles(phases: Sequence[str]) -> None:
+    """Adds the CSS that colours the containers made with `colored_container_key`. Call it once per run, before any
+    are shown.
+
+    Each phase's rows use the colour of the phase in the charts as their border. The background and text are mixes of
+    that colour with the page's white or black, so the text stays readable whatever the chart colour is.
+
+    Args:
+        phases: Phase keys, in the order the charts give them colours.
+    """
+    dark = st.context.theme.type == "dark"
+    background_mix, text_mix = ("black", "white") if dark else ("white", "black")
+    background_share, text_share = (28, 30) if dark else (16, 38)
+    colors = chart_colors()
+    row_colors = {"researcher": RESEARCHER_COLOR} | {phase: colors[i % len(colors)] for i, phase in enumerate(phases)}
+    rules = "\n".join(
+        f'[class*="st-key-row-{name}-"] {{ background-color: color-mix(in srgb, {color} {background_share}%, '
+        f"{background_mix}) !important; border-color: {color} !important; "
+        f"color: color-mix(in srgb, {color} {text_share}%, {text_mix}) !important; }}\n"
+        f'[class*="st-key-row-{name}-"] :is(p, span, label, li) '
+        f"{{ color: color-mix(in srgb, {color} {text_share}%, {text_mix}) !important; }}"
+        for name, color in row_colors.items()
+    )
+    st.html(f"<style>\n{rules}\n</style>")

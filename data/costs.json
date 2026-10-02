@@ -25,13 +25,13 @@
       "name": "Ethics approval",
       "phase": "incubation",
       "default_hours": 60,
-      "description": "Preparing and revising applications to an ethics committee or institutional review board."
+      "description": "Preparing and revising applications to an institutional review board (also known as an ethic committee in some countries). The labor of institutional review board members and related administrative costs are indirect costs and should not be included."
     },
     {
       "name": "Grant applications",
       "phase": "incubation",
       "default_hours": 171,
-      "description": "Writing, revising and submitting applications for funding for the project."
+      "description": "Writing, revising and submitting applications for funding for the project. Include time spent on failed grant applications. If multiple refereed journal publications were derived from a grant application, divide the time spent (including on failed applications) by the number of papers."
     },
     {
       "name": "Other",
@@ -43,7 +43,7 @@
       "name": "Data collection",
       "phase": "data",
       "default_hours": 48.5,
-      "description": "Recruiting participants and gathering data, e.g. through surveys, interviews, experiments or fieldwork."
+      "description": "The carrying out of the research in general. Gathering data, e.g. from databases or through surveys, interviews, clinical studies, experiments or fieldwork. Includes recruiting participants for qualitative and clinical studies."
     },
     {
       "name": "Interview transcription",
@@ -67,16 +67,28 @@
       "name": "Writing and manuscript preparation",
       "phase": "writing",
       "default_hours": 100,
-      "description": "Drafting, revising and formatting the manuscript for submission to a journal."
+      "description": "Drafting, revising and formatting the manuscript for submission to a journal. Includes revisions of a manuscript for resubmission to a journal."
     },
     {
       "name": "Conferencing (labor)",
       "phase": "writing",
       "default_hours": 123,
       "description": "Time spent preparing for, travelling to and presenting the research at conferences."
+    },
+    {
+      "name": "Other",
+      "phase": "writing",
+      "default_hours": 0,
+      "description": "Any other manuscript preparation activity not listed above."
     }
   ],
   "direct_costs": [
+    {
+      "name": "Other",
+      "phase": "incubation",
+      "default_cost": 0,
+      "description": "Any other direct costs of the incubation phase."
+    },
     {
       "name": "Participant incentivization",
       "phase": "data",
@@ -84,16 +96,40 @@
       "description": "Payments, vouchers or gifts given to participants for taking part in the study."
     },
     {
+      "name": "Travel for data collection",
+      "phase": "data",
+      "default_cost": 0,
+      "description": "Costs associated with travel for the purposes of data collection."
+    },
+    {
+      "name": "Digital ranscription services",
+      "phase": "data",
+      "default_cost": 0,
+      "description": "Cost of digital transcription services. If a human transcription service was hired and the hours and hourly rate is known, add the transcriber as a researcher and add transcription as an activity."
+    },
+    {
       "name": "Software",
       "phase": "data",
       "default_cost": 0,
-      "description": "Licences or subscriptions for software used in the research, e.g. for analysis or surveys."
+      "description": "Licences or subscriptions for software acquired specifically for the research, e.g. for analysis or surveys. Generally, software provided by the researcher's institution would be considered an indirect cost and should not be included."
     },
     {
       "name": "Databases",
       "phase": "data",
       "default_cost": 0,
-      "description": "Access fees for databases or datasets used in the research."
+      "description": "Access fees for databases or datasets acquired specifically for the research. Generally, databases provided by the researcher's institution would be considered an indirect cost and should not be included."
+    },
+    {
+      "name": "Equipment",
+      "phase": "data",
+      "default_cost": 0,
+      "description": "Costs of equipment acquired specifically for the research. Generally, equipment provided by the researcher's institution would be considered an indirect cost and should not be included."
+    },
+    {
+      "name": "Other",
+      "phase": "data",
+      "default_cost": 0,
+      "description": "Any other direct costs of the data colleciton and analysis phase."
     },
     {
       "name": "Conferencing (direct costs)",
@@ -106,6 +142,12 @@
       "phase": "writing",
       "default_cost": 0,
       "description": "Professional proofreading, copyediting or language editing of the manuscript."
+    },
+    {
+      "name": "Other",
+      "phase": "writing",
+      "default_cost": 0,
+      "description": "Any other direct costs of the manuscript preparation phase."
     }
   ]
 }

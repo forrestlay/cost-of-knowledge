@@ -94,11 +94,12 @@ def click_calculate(at: AppTest) -> None:
 
 
 def click_save(at: AppTest) -> None:
-    """Enables saving and calculates the cost, hiding the results first if they are already shown."""
+    """Enables saving and calculates the cost. The calculate button only saves the first time it shows the results, so
+    they are hidden first, as test_app's run() shows them already."""
     next(toggle for toggle in at.toggle if toggle.key == SAVE_TOGGLE_KEY).set_value(True)
     run(at)
-    if at.session_state["show_results"]:
-        click_calculate(at)
+    at.session_state["show_results"] = False
+    run(at)
     click_calculate(at)
 
 
@@ -175,6 +176,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     state: CalculatorState = CalculatorState.default()
     state.user_country = "gb"
+    state.project_field = "3501"
     state.international_collaborators = True
     state.peer_review.review_rounds = 2
     state.peer_review.journal_submissions = 3
@@ -193,6 +195,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         "Country": "United Kingdom",
         "International collaboration": True,
         "Field": "Commerce, management, tourism and services/Accounting, auditing and accountability",
+        "Researchers": 0,
         "Peer reviews": 2,
         "Journal submissions": 3,
         "Currency": "GBP",

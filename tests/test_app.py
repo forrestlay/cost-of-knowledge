@@ -234,7 +234,7 @@ def test_adding_researcher_with_role() -> None:
     at.selectbox(key="user_country_select").set_value("au")
     run(at)
     role_select = at.selectbox(key="add-person-role")
-    assert "Assistant Professor (Australia equivalent: Senior Lecturer)" in role_select.options
+    assert "Senior Lecturer (based on median salary for a US Assistant Professor)" in role_select.options
     assert role_select.options[-1] == "Enter a salary manually"
 
     person: Person = add_researcher(at, quantity=3)
@@ -539,7 +539,7 @@ def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:
     submit_researcher_form(at)
     role_rate: str = f"${ROLES['assistant_professor'].hourly_rate_usd * 1.4:,.2f} / hour"
     label: str = at.slider(key="simplified-hours-incubation-1").label
-    assert label == f"Researcher 1 ({ROLES['assistant_professor'].display_name('')}) hours ({role_rate})"
+    assert label == f"Researcher 1 ({ROLES['assistant_professor'].short_display_name('')}) hours ({role_rate})"
     # A researcher with a salary instead of a role has no role in the label.
     assert at.slider(key="simplified-hours-incubation-2").label == "Researcher 2 hours ($70.00 / hour)"
     # The slider in the form to add an activity is labelled the same way.

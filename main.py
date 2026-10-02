@@ -463,7 +463,8 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         st.session_state[quantity_key] = person.quantity
 
     def role_display(option: str, country: str) -> str:
-        """Roles are shown by their US name, followed by their local name in the chosen country if it differs."""
+        """Roles are shown by their local name in the chosen country if it differs, followed by the US role their salary
+        is based on."""
         return "Enter a salary manually" if option == MANUAL_SALARY_OPTION else ROLES[option].display_name(country)
 
     choice: str | None = st.selectbox(

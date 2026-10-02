@@ -955,17 +955,17 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-            :small[<sup>1, 2, 5</sup> Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.]
+            :small[<sup>1, 4</sup> Alam et al. (2026) *The Cost of Knowledge*. Preprint available on Zenodo.]
 
-            :small[<sup>3</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to
-            Innovation. In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+            :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
+            Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
             https://doi.org/10.7208/chicago/9780226805597.003.0002;
-            Salter, A. J., & Martin, B. R. (2001). The economic benefits of publicly funded basic research: A critical
-            review. Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
+            Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
+            review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
 
-            :small[<sup>4</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
-            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
-            5, 133–182. https://doi.org/10.1086/738903]
+            :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
+            Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
+            the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.
@@ -1236,37 +1236,33 @@ st.markdown(
         <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
         journal article from ideation to publication?**</span>
 
-        "Debates about the economics of scholarly publishing typically focus on subscription prices, article
+        Debates about the economics of scholarly publishing typically focus on subscription prices, article
         processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-        incurred in producing the research that makes scholarly publishing possible."{footnote_1} This tool aims to
+        incurred in producing the research that makes scholarly publishing possible. This tool aims to
         make visible the substantial investment underpinning scholarly publishing.
 
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
         **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
-        median time required for preparing a social science article.{footnote_2}
+        median time required for preparing a social science article.{footnote_1}
 
         *The estimated time to complete this tool is 10-15 minutes.*
 
         The results of this tool should not be taken to reflect or quantify the value of research, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
-        substantial economic and social returns{footnote_3}, and with this tool we instead seek to draw attention
+        substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
         """.replace(
         "{footnote_1}",
-        toggletip("<sup>1</sup>", "Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo."),
+        toggletip(
+            "<sup>1</sup>",
+            "For details of these estimates refer to Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
+        ),
     )
     .replace(
         "{footnote_2}",
         toggletip(
             "<sup>2</sup>",
-            "Estimates sourced from Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
-        ),
-    )
-    .replace(
-        "{footnote_3}",
-        toggletip(
-            "<sup>3</sup>",
             "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
             "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
             "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
@@ -1359,12 +1355,12 @@ st.markdown(
     journal subscriptions, database and software licenses, and open access agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
-    rate of 40% sourced from Azoulay et al. (2026){footnote_4}, being an approximate middle ground within
+    rate of 40% sourced from Azoulay et al. (2026){footnote_3}, being an approximate middle ground within
     the range of effective indirect cost recovery rates they observe from a sample of US universities.
     """.replace(
-        "{footnote_4}",
+        "{footnote_3}",
         toggletip(
-            "<sup>4</sup>",
+            "<sup>3</sup>",
             """Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
             Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
             5, 133–182. https://doi.org/10.1086/738903""",
@@ -1486,8 +1482,8 @@ st.markdown(
     .replace(
         "{footnote_alam}",
         toggletip(
-            "<sup>5</sup>",
-            "Estimates sourced from Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
+            "<sup>4</sup>",
+            "For details of these estimates, refer to Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
         ),
     )
     .replace(

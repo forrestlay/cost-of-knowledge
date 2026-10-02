@@ -1823,6 +1823,10 @@ k3.metric(
 )
 
 
+with st.container(border=True):
+    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
+
+
 # Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the plot, or
 # the narrow version (for phones) with its legend listed beneath the plot.
 st.html(
@@ -1855,10 +1859,20 @@ costs_df = costs_dataframe(combined_costs_list)
 
 
 with st.container(key="wide-chart-costs-pie"):
-    st.plotly_chart(costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map), width="stretch")
+    st.plotly_chart(
+        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=colorblind_safe_graphs),
+        width="stretch",
+    )
 with st.container(key="narrow-chart-costs-pie"):
     st.plotly_chart(
-        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, legend_below=True),
+        costs_pie_chart(
+            costs_df,
+            costs_pie_names,
+            phase_color_map,
+            item_color_map,
+            legend_below=True,
+            hatching=colorblind_safe_graphs,
+        ),
         width="stretch",
     )
 
@@ -1877,10 +1891,22 @@ if st.session_state["calculator_mode"] == "granular":
                 the phase or person again to return to the parent view.
                 """)
     with st.container(key="wide-chart-sunburst"):
-        st.plotly_chart(labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code()), width="stretch")
+        st.plotly_chart(
+            labour_sunburst_chart(
+                labour_df, phase_color_map, total_cost, currency_code(), hatching=colorblind_safe_graphs
+            ),
+            width="stretch",
+        )
     with st.container(key="narrow-chart-sunburst"):
         st.plotly_chart(
-            labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(), legend_below=True),
+            labour_sunburst_chart(
+                labour_df,
+                phase_color_map,
+                total_cost,
+                currency_code(),
+                legend_below=True,
+                hatching=colorblind_safe_graphs,
+            ),
             width="stretch",
         )
     st.caption(
@@ -1926,6 +1952,7 @@ for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart
                 currency_code(),
                 currency_prefix(),
                 legend_below=legend_below,
+                hatching=colorblind_safe_graphs,
             ),
             width="stretch",
         )

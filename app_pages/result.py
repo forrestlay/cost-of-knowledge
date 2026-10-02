@@ -193,6 +193,9 @@ k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
 k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
 
+with st.container(border=True):
+    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
+
 
 st.subheader("Total cost breakdown")
 
@@ -203,7 +206,13 @@ costs_chart_selection = st.pills(
 )
 costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
 st.plotly_chart(
-    costs_pie_chart(costs_dataframe(combined_costs_list), costs_pie_names, phase_color_map, item_color_map),
+    costs_pie_chart(
+        costs_dataframe(combined_costs_list),
+        costs_pie_names,
+        phase_color_map,
+        item_color_map,
+        hatching=colorblind_safe_graphs,
+    ),
     width="stretch",
 )
 
@@ -220,7 +229,10 @@ if state.calculator_mode == "granular":
                 the phase or person again to return to the parent view.
                 """)
     st.plotly_chart(
-        labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(country)), width="stretch"
+        labour_sunburst_chart(
+            labour_df, phase_color_map, total_cost, currency_code(country), hatching=colorblind_safe_graphs
+        ),
+        width="stretch",
     )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
@@ -235,6 +247,7 @@ st.plotly_chart(
         phase_color_map,
         currency_code(country),
         currency_prefix(country),
+        hatching=colorblind_safe_graphs,
     ),
     width="stretch",
 )

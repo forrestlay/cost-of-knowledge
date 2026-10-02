@@ -74,7 +74,7 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import toggletip, toggletip_styles
+from src.ui import theme_color, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
     from src.models import Cost
@@ -128,6 +128,14 @@ ACTIVITY_OPTIONS: dict[str, list[str]] = {
 }
 COST_OPTIONS: dict[str, list[str]] = {
     phase: [cost["name"] for cost in _COSTS_DATA["direct_costs"] if cost["phase"] == phase] for phase in RESEARCH_PHASES
+}
+# Description of each phase, keyed by phase key, and of each preset activity and direct cost, keyed by (phase, name).
+PHASE_DESCRIPTIONS: dict[str, str] = {phase: info["description"] for phase, info in _COSTS_DATA["phases"].items()}
+ACTIVITY_DESCRIPTIONS: dict[tuple[str, str], str] = {
+    (activity["phase"], activity["name"]): activity["description"] for activity in _COSTS_DATA["activities"]
+}
+COST_DESCRIPTIONS: dict[tuple[str, str], str] = {
+    (cost["phase"], cost["name"]): cost["description"] for cost in _COSTS_DATA["direct_costs"]
 }
 # Default hours of each preset activity and default cost in USD of each preset direct cost, keyed by (phase, name), as
 # some names (e.g. "Other") appear in more than one phase.
@@ -454,12 +462,21 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         return "Enter a salary manually" if option == MANUAL_SALARY_OPTION else ROLES[option].display_name(country)
 
     choice: str | None = st.selectbox(
-        "Role",
+        "Title or role",
         options=[*ROLES, MANUAL_SALARY_OPTION],
         # Bind the country now, as AppTest calls format_func outside a script run, without st.session_state.
         format_func=lambda option, country=st.session_state["user_country"]: role_display(option, country),
-        placeholder="Choose a role to fill in its median hourly rate based on US data, or enter a salary",
+        placeholder="Choose a title or role to calculate costs based on the median US salary, or enter a salary "
+        "manually",
         key=role_key,
+        help="""To calculate the cost of labor, we calculate an hourly rate based on the salary of each researcher
+        involved in preparing the refereed journal article. If you select a faculty title, the hourly rate is
+        calculated using median 9-month salaries from the AAUP Annual Report on the Economic Status of the
+        Profession, 2025-26. The hourly rate for a postdoctoral researcher is based on the median wage for confirmed
+        postdoctoral commitments of research doctorate recipients in the National Center for
+        Science and Engineering Statistics Survey of Doctorate Recipients 2024. The hourly rate for a research
+        assistant is based on the median hourly wage for a social science research assistant in the US Bureau of
+        Labor Statistics National Wage Data May 2026.""",
     )
     with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
         if choice == MANUAL_SALARY_OPTION:
@@ -470,18 +487,24 @@ def researcher_form(key: str, person: Person | None = None) -> None:
                 f"{format_hourly_rate(role_hourly_rate(choice))}"
             )
         st.number_input(
-            "Number of researchers with this hourly rate",
+            "Number of researchers that share this title or salary",
             min_value=1,
             step=1,
             key=quantity_key,
+            help="""Select the number of researchers that have the same title or role, if you selected a preset role,
+            or have the same salary if you added a salary manually."""
         )
-        submitted: bool = st.form_submit_button(
-            "Add researcher" if person is None else "Save changes",
-            icon=":material/person_add:" if person is None else ":material/save:",
-            type="primary",
-            on_click=save_researcher,
-            args=[key, None if person is None else person.unique_key],
-        )
+        with st.container(horizontal=True, vertical_alignment="center"):
+            submitted: bool = st.form_submit_button(
+                "Add researcher" if person is None else "Save changes",
+                icon=":material/person_add:" if person is None else ":material/save:",
+                type="primary",
+                on_click=save_researcher,
+                args=[key, None if person is None else person.unique_key],
+            )
+            # Only the role sits outside the form, so a form's other inputs cannot be checked before it is submitted.
+            if person is None and choice is not None:
+                st.warning("You haven't added this researcher yet.", icon=":material/warning:")
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and person is not None:
         st.rerun()
@@ -532,33 +555,34 @@ def simplified_phase_inputs(phase: str) -> None:
     Args:
         phase: Key of the phase in RESEARCH_PHASES.
     """
-    if not st.session_state["people"]:
-        st.info("Add a researcher to estimate their hours.")
-    for person in st.session_state["people"].values():
-        # Seed the widget's state rather than passing value=, as reused keys keep the value the browser holds.
-        hours_key: str = f"simplified-hours-{phase}-{person.unique_key}"
-        if hours_key not in st.session_state:
-            st.session_state[hours_key] = float(
-                st.session_state["simplified_hours"].get(phase, {}).get(person.unique_key, 0.0)
+    with st.container(border=True):
+        if not st.session_state["people"]:
+            st.info("Add a researcher to estimate their hours.")
+        for person in st.session_state["people"].values():
+            # Seed the widget's state rather than passing value=, as reused keys keep the value the browser holds.
+            hours_key: str = f"simplified-hours-{phase}-{person.unique_key}"
+            if hours_key not in st.session_state:
+                st.session_state[hours_key] = float(
+                    st.session_state["simplified_hours"].get(phase, {}).get(person.unique_key, 0.0)
+                )
+            st.session_state["simplified_hours"].setdefault(phase, {})[person.unique_key] = st.slider(
+                hours_slider_label(person),
+                min_value=0.0,
+                max_value=float(MAX_RESEARCHER_HOURS),
+                step=0.5,
+                key=hours_key,
             )
-        st.session_state["simplified_hours"].setdefault(phase, {})[person.unique_key] = st.slider(
-            hours_slider_label(person),
+        simplified_cost_key: str = f"simplified-cost-{phase}"
+        if simplified_cost_key not in st.session_state:
+            st.session_state[simplified_cost_key] = float(st.session_state["simplified_direct_costs"].get(phase, 0.0))
+        st.session_state["simplified_direct_costs"][phase] = st.number_input(
+            f"Total direct costs ({currency_code()})",
             min_value=0.0,
-            max_value=float(MAX_RESEARCHER_HOURS),
-            step=0.5,
-            key=hours_key,
+            step=100.0,
+            key=simplified_cost_key,
+            help=f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
+            "equipment and travel.",
         )
-    simplified_cost_key: str = f"simplified-cost-{phase}"
-    if simplified_cost_key not in st.session_state:
-        st.session_state[simplified_cost_key] = float(st.session_state["simplified_direct_costs"].get(phase, 0.0))
-    st.session_state["simplified_direct_costs"][phase] = st.number_input(
-        f"Total direct costs ({currency_code()})",
-        min_value=0.0,
-        step=0.50,
-        key=simplified_cost_key,
-        help=f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
-        "equipment and travel.",
-    )
 
 
 # Keys of the widgets of the form to add an activity or direct cost. The dialog to edit one uses its own keys.
@@ -737,6 +761,9 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
         on_change=None if editing else reset_item_name,
         args=None if editing else [key],
     )
+    phase_description: str | None = PHASE_DESCRIPTIONS.get(st.session_state[phase_key])
+    if phase_description:
+        st.info(phase_description)
     # Offer the phase's presets, keeping any current custom name selectable.
     presets: list[str] = (ACTIVITY_OPTIONS if kind == "activity" else COST_OPTIONS).get(st.session_state[phase_key], [])
     current_name: str | None = st.session_state[name_key]
@@ -750,6 +777,11 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
         on_change=apply_item_default,
         args=[key, kind],
     )
+    item_description: str | None = (ACTIVITY_DESCRIPTIONS if kind == "activity" else COST_DESCRIPTIONS).get(
+        (st.session_state[phase_key], st.session_state[name_key] or "")
+    )
+    if item_description:
+        st.info(item_description)
 
     with st.form(f"{key}-form", clear_on_submit=False, border=False):
         if kind == "activity":
@@ -764,15 +796,21 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
                     key=f"{key}-hours-{person.unique_key}",
                 )
         else:
-            st.number_input(f"Cost ({currency_code()})", min_value=0.0, step=0.50, key=cost_key)
-        submitted: bool = st.form_submit_button(
-            f"Add {ITEM_KINDS[kind].lower()}" if not editing else "Save changes",
-            icon=":material/add:" if not editing else ":material/save:",
-            disabled=kind == "activity" and not people,
-            type="primary",
-            on_click=save_item,
-            args=[key, item_kind, item_id],
-        )
+            st.number_input(f"Cost ({currency_code()})", min_value=0.0, step=100.0, key=cost_key)
+        with st.container(horizontal=True, vertical_alignment="center"):
+            submitted: bool = st.form_submit_button(
+                f"Add {ITEM_KINDS[kind].lower()}" if not editing else "Save changes",
+                icon=":material/add:" if not editing else ":material/save:",
+                disabled=kind == "activity" and not people,
+                type="primary",
+                on_click=save_item,
+                args=[key, item_kind, item_id],
+            )
+            # Only the name sits outside the form, so a form's other inputs cannot be checked before it is submitted.
+            if not editing and st.session_state[name_key]:
+                st.warning(
+                    f"You haven't added this {ITEM_KINDS[kind].lower()} yet.", icon=":material/warning:"
+                )
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and editing:
         st.rerun()
@@ -1132,20 +1170,29 @@ st.markdown(
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
         **best estimate** of the time and costs involved - if you aren't sure, we have provided estimates of the
-        median time required for preparing a social science article from Alam et al. (2026), the publication
-        accompanying this tool.
+        median time required for preparing a social science article.{footnote_2}
+
+        *The estimated time to complete this tool is 10-15 minutes.*
 
         The results of this tool should not be taken to reflect or quantify the value of research, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
-        substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
+        substantial economic and social returns{footnote_3}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
         """.replace(
         "{footnote_1}",
         toggletip("<sup>1</sup>", "Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo."),
-    ).replace(
+    )
+    .replace(
         "{footnote_2}",
         toggletip(
             "<sup>2</sup>",
+            "Estimates sourced from Alam et al. (2026)  The Cost of Knowledge. Preprint available on Zenodo.",
+        ),
+    )
+    .replace(
+        "{footnote_3}",
+        toggletip(
+            "<sup>3</sup>",
             "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
             "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
             "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
@@ -1156,6 +1203,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+st.html(
+    f"""
+    <style>
+    .st-key-help-hint {{
+        background-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 12%, transparent);
+        border-color: color-mix(in srgb, {theme_color("primaryColor", "#ff4b4b", "#ff4b4b")} 30%, transparent);
+    }}
+    </style>
+    """
+)
+with st.container(border=True, key="help-hint"):
+    st.markdown(
+        ":material/help: If you are unsure what is meant by a question, click on this help icon to the right of "
+        "the question to view a more detailed explanation."
+    )
 
 with st.expander("About the data", expanded=False):
     st.markdown("""
@@ -1171,9 +1234,8 @@ with st.expander("About the data", expanded=False):
 
 st.header(":material/article: Your Refereed Journal Article", anchor=ARTICLE_ANCHOR)
 st.markdown("""
-            Please fill in some details about the refereed journal article you will estimate the cost for using this
-            tool. The country primarily associated with this journal article will determine the currency that is
-            displayed in the tool, and any costs already set will be converted based on recent exchange rates.
+            Please fill in some details about a **single refereed journal article** for which you will estimate the cost
+            of.
             """)
 
 with st.container(border=True):
@@ -1183,10 +1245,11 @@ with st.container(border=True):
         format_func=lambda code: COUNTRY_NAMES[code],
         key="user_country_select",
         index=None,
-        placeholder="Choose a country. You may type to search for a country.",
+        placeholder="Type in the box to search for a country.",
         on_change=convert_monetary_values,
-        help="The country chosen will determine the currency used for monetary values in this tool and the results "
-        "calculated. You may clear the textbox and type to search for a country.",
+        help="Type in the box to search for a country. The country chosen will determine the currency used for "
+        "monetary values in this tool and the results calculated. Changing the country will automatically convert "
+        "values already entered in based on recent exchange rates.",
     )
     st.session_state["international_collaborators"] = st.radio(
         "Does your project have international collaborators outside of the primary country?",
@@ -1206,8 +1269,9 @@ with st.container(border=True):
             "Field of research your paper/project is located in",
             field_options,
             index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
-            placeholder="Choose a field of research. You may type to search for a field of research.",
+            placeholder="Type in the box to search for a field of research.",
             format_func=field_of_research_display_name,
+            help="Type in the box to search for a field of research."
         )
         or ""
     )
@@ -1249,7 +1313,6 @@ with st.expander("Optional: Adjust indirect cost rate"):
 # -----------------------------------------------
 
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
-# TODO: People involved in preparing refereed journal publication - make it consistent. Have AI reword.
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
             preparation.
@@ -1347,32 +1410,19 @@ if st.session_state["calculator_mode"] == "granular":
 # TODO: Include buttons to load information about the activities/phases.
 
 st.subheader(RESEARCH_PHASES["incubation"])
-st.markdown("""
-            The incubation phase includes ideation and conception of the research questions, applications for ethics
-            approval from an Institutional Review Board, and applications for grants (both successful and unsucessful).
-            """)
+st.markdown(PHASE_DESCRIPTIONS["incubation"])
 phase_inputs("incubation")
 
 st.subheader(RESEARCH_PHASES["data"])
-st.markdown("""
-            This phase encompasses all activities and direct costs involved in carrying out the research.
-            """)
+st.markdown(PHASE_DESCRIPTIONS["data"])
 phase_inputs("data")
 
 st.subheader(RESEARCH_PHASES["writing"])
-st.markdown("""
-            Encompasses the writing of the manuscript. This should include the presentation of versions of the
-            manuscript to peers, such as at seminars and conferences, as peer feedback is generally crucial for
-            the development of journal articles. Also include the time spent on revising manuscripts for resubmission.
-            """)
+st.markdown(PHASE_DESCRIPTIONS["writing"])
 phase_inputs("writing")
 
 st.subheader(RESEARCH_PHASES["editing"])
-st.markdown("""
-            The cost of peer review and journal editorial work is based on the number of journals the manuscript was
-            submitted to before it was published, and the average number of peer review rounds across the journal
-            submissions.
-            """)
+st.markdown(PHASE_DESCRIPTIONS["editing"])
 
 # Loading a state writes the sliders' values into their widget state, so seed it here rather than
 # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
@@ -1380,26 +1430,27 @@ if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
     st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
-st.session_state["journal_submissions"] = st.slider(
-    "Number of journals submitted to",
-    min_value=1,
-    max_value=20,
-    step=1,
-    key="journal-submissions",
-)
-st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
-st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
+with st.container(border=True):
+    st.session_state["journal_submissions"] = st.slider(
+        "Number of journals submitted to",
+        min_value=1,
+        max_value=20,
+        step=1,
+        key="journal-submissions",
+    )
+    st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
+    st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
 
-st.session_state["review_rounds"] = st.slider(
-    "Average number of review rounds per journal submission",
-    min_value=1,
-    max_value=20,
-    step=1,
-    key="review-rounds",
-    help="We estimate that the first round of review involves 4 hours of work, with subsequent rounds "
-    "involving 2 hours each.",
-)
-st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
+    st.session_state["review_rounds"] = st.slider(
+        "Average number of review rounds per journal submission",
+        min_value=1,
+        max_value=20,
+        step=1,
+        key="review-rounds",
+        help="We estimate that the first round of review involves 4 hours of work, with subsequent rounds "
+        "involving 2 hours each.",
+    )
+    st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
 # Special phase for saving to the database, shown only when a database is configured.
 if DATABASE_TYPE in ("sqlite", "mysql"):

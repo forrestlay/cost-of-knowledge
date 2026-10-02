@@ -1,65 +1,79 @@
 {
-  "description": "Activities and direct costs offered in the calculator's selectboxes, grouped by phase. phase is a research phase key (\"incubation\", \"data\" or \"writing\"). default_hours is a typical number of hours of labor for an activity. default_cost is a typical direct cost in US dollars. tooltip describes what the activity or direct cost covers.",
+  "description": "Phases, activities and direct costs of the calculator. phases maps each research phase key to a description of the phase. Activities and direct costs are offered in the calculator's selectboxes, grouped by phase. phase is a research phase key (\"incubation\", \"data\" or \"writing\"). default_hours is a typical number of hours of labor for an activity. default_cost is a typical direct cost in US dollars. description describes what the activity or direct cost covers.",
+  "phases": {
+    "incubation": {
+      "description": "The incubation phase includes ideation and conception of the research questions, applications for ethics approval from an Institutional Review Board, and applications for grants (both successful and unsucessful)."
+    },
+    "data": {
+      "description": "This phase encompasses all activities and direct costs involved in carrying out the research."
+    },
+    "writing": {
+      "description": "Encompasses the writing of the manuscript. This should include the presentation of versions of the manuscript to peers, such as at seminars and conferences, as peer feedback is generally crucial for the development of journal articles. Also include the time spent on revising manuscripts for resubmission."
+    },
+    "editing": {
+      "description": "The cost of peer review and journal editorial work is based on the number of journals the manuscript was submitted to before it was published, and the average number of peer review rounds across the journal submissions."
+    }
+  },
   "activities": [
     {
       "name": "Ideation and conception",
       "phase": "incubation",
       "default_hours": 55,
-      "tooltip": "Developing the research question, reviewing the literature and designing the study."
+      "description": "Developing the research question, reviewing the literature and designing the study."
     },
     {
       "name": "Ethics approval",
       "phase": "incubation",
       "default_hours": 60,
-      "tooltip": "Preparing and revising applications to an ethics committee or institutional review board."
+      "description": "Preparing and revising applications to an ethics committee or institutional review board."
     },
     {
       "name": "Grant applications",
       "phase": "incubation",
       "default_hours": 171,
-      "tooltip": "Writing, revising and submitting applications for funding for the project."
+      "description": "Writing, revising and submitting applications for funding for the project."
     },
     {
       "name": "Other",
       "phase": "incubation",
       "default_hours": 0,
-      "tooltip": "Any other incubation activity not listed above."
+      "description": "Any other incubation activity not listed above."
     },
     {
       "name": "Data collection",
       "phase": "data",
       "default_hours": 48.5,
-      "tooltip": "Recruiting participants and gathering data, e.g. through surveys, interviews, experiments or fieldwork."
+      "description": "Recruiting participants and gathering data, e.g. through surveys, interviews, experiments or fieldwork."
     },
     {
       "name": "Interview transcription",
       "phase": "data",
       "default_hours": 60.5,
-      "tooltip": "Transcribing recorded interviews or focus groups into text for analysis."
+      "description": "Transcribing recorded interviews or focus groups into text for analysis."
     },
     {
       "name": "Data analysis",
       "phase": "data",
       "default_hours": 157.5,
-      "tooltip": "Cleaning, coding and analysing the data, and interpreting the results."
+      "description": "Cleaning, coding and analysing the data, and interpreting the results."
     },
     {
       "name": "Other",
       "phase": "data",
       "default_hours": 0,
-      "tooltip": "Any other data collection or analysis activity not listed above."
+      "description": "Any other data collection or analysis activity not listed above."
     },
     {
       "name": "Writing and manuscript preparation",
       "phase": "writing",
       "default_hours": 100,
-      "tooltip": "Drafting, revising and formatting the manuscript for submission to a journal."
+      "description": "Drafting, revising and formatting the manuscript for submission to a journal."
     },
     {
       "name": "Conferencing (labor)",
       "phase": "writing",
       "default_hours": 123,
-      "tooltip": "Time spent preparing for, travelling to and presenting the research at conferences."
+      "description": "Time spent preparing for, travelling to and presenting the research at conferences."
     }
   ],
   "direct_costs": [
@@ -67,31 +81,31 @@
       "name": "Participant incentivization",
       "phase": "data",
       "default_cost": 246,
-      "tooltip": "Payments, vouchers or gifts given to participants for taking part in the study."
+      "description": "Payments, vouchers or gifts given to participants for taking part in the study."
     },
     {
       "name": "Software",
       "phase": "data",
       "default_cost": 0,
-      "tooltip": "Licences or subscriptions for software used in the research, e.g. for analysis or surveys."
+      "description": "Licences or subscriptions for software used in the research, e.g. for analysis or surveys."
     },
     {
       "name": "Databases",
       "phase": "data",
       "default_cost": 0,
-      "tooltip": "Access fees for databases or datasets used in the research."
+      "description": "Access fees for databases or datasets used in the research."
     },
     {
       "name": "Conferencing (direct costs)",
       "phase": "writing",
       "default_cost": 3400,
-      "tooltip": "Registration fees, travel and accommodation for presenting the research at conferences."
+      "description": "Registration fees, travel and accommodation for presenting the research at conferences."
     },
     {
       "name": "Proofreading and Editing Services",
       "phase": "writing",
       "default_cost": 0,
-      "tooltip": "Professional proofreading, copyediting or language editing of the manuscript."
+      "description": "Professional proofreading, copyediting or language editing of the manuscript."
     }
   ]
 }

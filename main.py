@@ -1951,9 +1951,35 @@ share_left, share_right = st.columns(2)
 with share_left:
     share_intro: str = "Download your summary infographic and share it using the buttons below."
     if saved_result_url is not None:
-        share_intro += """In addition, because you have saved your result, please use the share buttons or the
-                       "copy link" button to save a link to the result so you may return to it at a later time."""
+        share_intro += """ In addition, because you have saved your result, please use the "copy link" button to save a
+        link to the result so you may return to it at a later time. This result link will also be included in your
+        LinkedIn, X, Facebook, or email message by default."""
     st.markdown(share_intro)
+
+    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the
+    # save.
+    if saved_result_url is not None:
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            st.text_input(
+                "Link to saved result",
+                placeholder=saved_result_url,
+                disabled=True,
+                label_visibility="collapsed",
+                key="saved-result-url-display",
+            )
+            st.link_button(
+                "",
+                saved_result_url,
+                icon=":material/open_in_new:",
+                help="Open your shareable result in new tab",
+            )
+            copy_link_button(
+                "Copy link to saved result",
+                saved_result_url,
+                copied_label="Link copied",
+                help="Copy a link to your saved result to share it, or to return to it later.",
+                key="copy-saved-project-link",
+            )
 
     st.warning(
         """
@@ -1966,7 +1992,7 @@ with share_left:
     # Keyed so the choice persists across reruns; hours are hidden by default.
     if "share_show_hours" not in st.session_state:
         st.session_state["share_show_hours"] = False
-    st.toggle("Show estimated hours of labor on the image", key="share_show_hours")
+    st.container(border=True).toggle("Show estimated hours of labor on the image", key="share_show_hours")
 
     # Rendered fresh each run from the (persisted) project inputs and computed totals,
     # so it never needs its own st.session_state entry.
@@ -1993,7 +2019,7 @@ with share_left:
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.download_button(
-            "Download image",
+            "Download your summary infographic image",
             data=social_media_svg_to_png(social_media_svg),
             file_name="cost-of-knowledge-estimate.png",
             mime="image/png",
@@ -2024,17 +2050,6 @@ with share_left:
             icon=":material/email:",
             help="Share this tool via email. Download the image first and attach it to your email.",
         )
-        # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the
-        # save.
-        if saved_result_url is not None:
-            copy_link_button(
-                "Copy link to saved result",
-                saved_result_url,
-                copied_label="Link copied",
-                help="Copy a link to your saved result to share it, or to return to it later.",
-                key="copy-saved-project-link",
-            )
-
 share_right.container(horizontal=True, horizontal_alignment="center").image(social_media_svg, width=540)
 
 

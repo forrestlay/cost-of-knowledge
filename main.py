@@ -992,6 +992,29 @@ def load_alam_defaults() -> None:
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
+def reset_activities_and_costs() -> None:
+    """Removes every activity and direct cost added in the granular calculator, keeping the project and people. The
+    activities of peer review and journal editorial work are left alone, as they are set by their sliders.
+    """
+    st.session_state["activity_list"] = [
+        activity for activity in st.session_state["activity_list"] if not isinstance(activity, Activity)
+    ]
+    st.session_state["cost_list"] = []
+
+
+@st.dialog("Reset activities and direct costs")
+def confirm_reset() -> None:
+    """Asks for confirmation before removing every activity and direct cost."""
+    st.write("This will remove all of the activities and direct costs you have added. This cannot be undone.")
+    confirm_column, cancel_column = st.columns(2)
+    if confirm_column.button("Reset", key="confirm-reset", type="primary", icon=":material/delete:", width="stretch"):
+        reset_activities_and_costs()
+        st.toast("Removed all activities and direct costs.", icon=":material/check_circle:")
+        st.rerun()
+    if cancel_column.button("Cancel", key="cancel-reset", width="stretch"):
+        st.rerun()
+
+
 # -----------------------------------------------
 # Visualisation pane
 # -----------------------------------------------
@@ -1446,19 +1469,28 @@ st.markdown(
             The process has been divided between four distinct phases: **incubation**, **data collection and
             analysis**, **manuscript preparation**, and **peer review and journal editorial work**. Provide your
             best estimate of the hours and {direct costs} involved in each phase of preparing your refereed journal
-            article. If you would like a starting point, the default estimates are the conservative estimates for a
-            social sciences journal article{footnote_alam}.
+            article. {starting_point}
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
             per person).
             """.replace(
+        "{starting_point}",
+        (
+            "If you would like a starting point, you can click the button below to load default estimates, which "
+            if st.session_state["calculator_mode"] == "granular"
+            else "If you would like a starting point, the default estimates "
+        )
+        + "are the conservative estimates for a social sciences journal article{footnote_alam}.",
+    )
+    .replace(
         "{footnote_alam}",
         toggletip(
             "<sup>5</sup>",
             "Estimates sourced from Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
         ),
-    ).replace(
+    )
+    .replace(
         "{direct costs}",
         toggletip(
             "direct costs",
@@ -1474,7 +1506,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 if st.session_state["calculator_mode"] == "granular":
-    st.button(
+    defaults_column, reset_column, _ = st.columns([1, 1, 2])
+    defaults_column.button(
         "Load defaults from Alam et al. 2026",
         key="load-alam-defaults",
         icon=":material/download:",
@@ -1482,7 +1515,21 @@ if st.session_state["calculator_mode"] == "granular":
         on_click=load_alam_defaults,
         disabled=not st.session_state["people"],
         help=None if st.session_state["people"] else "Add a researcher to assign the activities to first.",
+        width="stretch",
     )
+    has_items: bool = bool(
+        st.session_state["cost_list"]
+        or any(isinstance(activity, Activity) for activity in st.session_state["activity_list"])
+    )
+    if reset_column.button(
+        "Reset all activities and costs",
+        key="reset-activities-and-costs",
+        icon=":material/restart_alt:",
+        disabled=not has_items,
+        help=None if has_items else "There are no activities or direct costs to remove.",
+        width="stretch",
+    ):
+        confirm_reset()
     # Keeps the add form in view while the list of phases scrolls. Sticky positioning only works if the form's column
     # stretches to the height of the list, and is only applied when the columns sit side by side (wide screens).
     st.html(
@@ -1532,8 +1579,9 @@ with phases_column:
     st.markdown(PHASE_DESCRIPTIONS["writing"])
     phase_inputs("writing")
 
-    st.subheader(RESEARCH_PHASES["editing"])
-    st.markdown(PHASE_DESCRIPTIONS["editing"])
+# The editing phase sits below the columns, so it takes the full width in the granular calculator.
+st.subheader(RESEARCH_PHASES["editing"])
+st.markdown(PHASE_DESCRIPTIONS["editing"])
 
 # Loading a state writes the sliders' values into their widget state, so seed it here rather than
 # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
@@ -1541,7 +1589,7 @@ if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
     st.session_state["journal-submissions"] = st.session_state["journal_submissions"]
-with phases_column.container(border=True):
+with st.container(border=True):
     st.session_state["journal_submissions"] = st.slider(
         "Number of journals submitted to",
         min_value=1,
@@ -1763,10 +1811,8 @@ share_left, share_right = st.columns(2)
 with share_left:
     share_intro: str = "Download your summary infographic and share it using the buttons below."
     if saved_result_url is not None:
-        share_intro += (
-            """In addition, because you have saved your result, please use the share buttons or the "copy link" button
+        share_intro += """In addition, because you have saved your result, please use the share buttons or the "copy link" button
             to save a link to the result so you may return to it at a later time."""
-        )
     st.markdown(share_intro)
 
     st.markdown("""

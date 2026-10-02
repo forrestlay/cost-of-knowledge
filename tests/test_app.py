@@ -432,7 +432,8 @@ def test_adding_editing_and_deleting_direct_cost() -> None:
 def test_field_of_research_select() -> None:
     at: AppTest = run_app("simplified")
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
-    assert field_select.value == "3501"
+    # No field is chosen until the user picks one.
+    assert field_select.value is None
     assert field_select.options[0] == "Agricultural, veterinary and food sciences/Agricultural biotechnology"
 
     # A broad field name saved before Field of Research codes were used stays selected.

@@ -1741,8 +1741,8 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         abbreviated version will not display details of the hours of labor performed by each researcher, as this may
         potentially be used to calculate an approximation of a researcher's salary.
 
-        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining this
-        data, and to potential use of this data by SPARC for future research. Please refer to
+        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining the
+        data you enter into this tool, and to potential use of this data by SPARC for future research. Please refer to
         [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for details about how your data will be
         handled.
 

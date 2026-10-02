@@ -35,13 +35,15 @@ def theme_color(option: str, light_default: str, dark_default: str) -> str:
     return str(configured or (dark_default if theme_type == "dark" else light_default))
 
 
-def toggletip(trigger: str, tip: str) -> str:
+def toggletip(trigger: str, tip: str, key: str | None = None) -> str:
     """Inline HTML for a toggletip: clicking `trigger` shows `tip`, clicking outside it (or pressing Esc) hides it.
 
     Uses the native HTML Popover API, so no JavaScript is needed. Embed the result in any
     st.markdown(..., unsafe_allow_html=True) string. `trigger` is trusted HTML, `tip` is escaped.
+
+    Identical tips share an id unless given distinct `key`s, so pass one whenever the same tip appears more than once.
     """
-    tip_id = f"tip-{sha1(tip.encode()).hexdigest()[:8]}"
+    tip_id = f"tip-{sha1((key if key is not None else tip).encode()).hexdigest()[:8]}"
     # Each tip gets its own CSS anchor name so the popover is positioned next to its own trigger.
     return (
         f'<button type="button" class="toggletip-btn" popovertarget="{tip_id}" style="anchor-name: --{tip_id}">'

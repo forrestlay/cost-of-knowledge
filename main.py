@@ -956,7 +956,8 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-            :small[<sup>1, 4</sup> Alam et al. (2026) *The Cost of Knowledge*. Preprint available on Zenodo.]
+            :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026) The Cost of Knowledge.
+            Preprint available on Zenodo.]
 
             :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
             Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
@@ -1257,10 +1258,11 @@ st.markdown(
         "{footnote_1}",
         toggletip(
             "<sup>1</sup>",
-            "For details of these estimates refer to Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
+            """For more details about these estimates, see Alam et al. (2026) The Cost of Knowledge. Preprint
+            available on Zenodo.""",
+            key="footnote-1",
         ),
-    )
-    .replace(
+    ).replace(
         "{footnote_2}",
         toggletip(
             "<sup>2</sup>",
@@ -1484,7 +1486,9 @@ st.markdown(
         "{footnote_alam}",
         toggletip(
             "<sup>4</sup>",
-            "For details of these estimates, refer to Alam et al. (2026) The Cost of Knowledge. Preprint available on Zenodo.",
+            """For more details about these estimates, see Alam et al. (2026) The Cost of Knowledge. Preprint
+            available on Zenodo.""",
+            key="footnote-4",
         ),
     )
     .replace(
@@ -1839,8 +1843,8 @@ share_left, share_right = st.columns(2)
 with share_left:
     share_intro: str = "Download your summary infographic and share it using the buttons below."
     if saved_result_url is not None:
-        share_intro += """In addition, because you have saved your result, please use the share buttons or the "copy link" button
-            to save a link to the result so you may return to it at a later time."""
+        share_intro += """In addition, because you have saved your result, please use the share buttons or the
+                       "copy link" button to save a link to the result so you may return to it at a later time."""
     st.markdown(share_intro)
 
     st.markdown("""
@@ -1909,7 +1913,8 @@ with share_left:
             icon=":material/email:",
             help="Share this tool via email. Download the image first and attach it to your email.",
         )
-        # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the save.
+        # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the
+        # save.
         if saved_result_url is not None:
             copy_link_button(
                 "Copy link to saved result",

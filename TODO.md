@@ -2,7 +2,7 @@
 
 - [X] Replace project name in image share with "My (field) paper is..."
 - [X] Change names to "Researcher 1", etc.
-- [ ] Include language that currency conversions are anchored to US benchmarks.
+- [X] Include language that currency conversions are anchored to US benchmarks.
 - [X] Don't prefill numbers into the calculator; instead add a button to let users prefill the paper's numbers instead. Start with a blank slate.
 - [X] Include our estimates in the text explaining inputs, not prefilled.
 - [ ] Perhaps include commentary for each graph explaining what we find on average, we assume X for hour count.
@@ -13,7 +13,7 @@
 - [X] Give people option to fill in hours for a phase as a whole instead of individual activities.
 - [X] Add a toggle to allow users to choose the median/average hours for an activity and then users can adjust above or below. Add information to explain why the median/average was chosen.
 - [X] Tooltips for information about estimates.
-- [ ] Give users question about funding/cost of papers - how much publishers contribute vs public funding?
+- [X] Give users question about funding/cost of papers - how much publishers contribute vs public funding?
 - [X] Pie chart too small on phone.
 - [X] Add a separate page that allows people to share their result without revealing the hours, potentially through a more limited set of graphs.
 - [X] Move the save to database button to the bottom above the share to social media buttons.
@@ -26,7 +26,7 @@
   - [X] Move the calculator inputs to above the graphs.
   - [X] ! Shrink down to four phases instead of activities and direct costs.
 - [ ] Need a call to action for sharing.
-- [ ] Add an indicator variable for when users used the prefill.
+- [X] Add an indicator variable for when users used the prefill.
 - [X] Move the number of journals submitted above the number of review rounds. Change the minimum back to 1. Explain what is meant by review rounds.
 - [X] Remove the (US) from the role titles. Replace with the country equivalent instead of showing side by side.
 - [X] Make clear that default hours are prefilled for activities.
@@ -37,7 +37,7 @@
 - [X] Add quantity to role for larger teams.
 - [X] Start with a question "As a researcher, do you want to know how much your paper costs from ideation to acceptance?" Punch up wording.
 - [X] Include versioning in the data collected.
-- [ ] Estimate of "Once accepted, provide an estimate of how much it costs the publisher to publish your journal article."
+- [X] Estimate of "Once accepted, provide an estimate of how much it costs the publisher to publish your journal article."
 - [X] Link to Sparc privacy policy
 - [X] Checkbox to opt in to saving data, messaging around future research purposes.
 - [ ] Data stored behind login wall.

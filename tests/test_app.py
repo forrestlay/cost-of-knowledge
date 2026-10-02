@@ -186,8 +186,6 @@ def test_session_state_round_trip() -> None:
     at: AppTest = run_app("simplified")
     state: CalculatorState = CalculatorState.from_session_state(AppTestSessionState(at))
     expected: CalculatorState = CalculatorState.default()
-    # The calculator's widgets write an entry for every phase, even when it is 0.
-    expected.simplified_direct_costs = dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0)
     assert CalculatorState.from_json(state.to_json()) == expected
 
 
@@ -469,7 +467,7 @@ def test_simplified_first_researcher_starts_with_default_hours() -> None:
     assert at.slider(key="simplified-hours-incubation-2").value == 0.0
     assert at.slider(key="simplified-hours-incubation-1").max == 800.0
     # 775.5 hours of research and 23 hours of peer review and journal editorial work, at US$85.
-    assert metric_values(at) == [f"${(775.5 + 23) * 85:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$0 (USD)"]
+    assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3646:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,646 (USD)"]
 
 
 def test_simplified_estimates() -> None:
@@ -480,7 +478,7 @@ def test_simplified_estimates() -> None:
     at.slider(key="simplified-hours-writing-1").set_value(0.0)
     at.number_input(key="simplified-cost-data").set_value(250.0)
     run(at)
-    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 3650:,.0f} (USD)", "123 h", "$3,650 (USD)"]
 
     # The granular estimates are separate, and the mode chosen decides which count.
     at.radio(key="calculator-mode").set_value("granular")
@@ -490,7 +488,7 @@ def test_simplified_estimates() -> None:
     run(at)
     assert at.slider(key="simplified-hours-incubation-1").value == 100.0
     assert at.number_input(key="simplified-cost-data").value == 250.0
-    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 3650:,.0f} (USD)", "123 h", "$3,650 (USD)"]
 
 
 def test_simplified_direct_costs_convert_with_currency() -> None:

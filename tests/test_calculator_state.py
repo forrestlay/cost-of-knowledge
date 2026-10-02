@@ -35,11 +35,12 @@ def test_default_totals() -> None:
     state: CalculatorState = CalculatorState.default()
     # Peer review and journal editorial work only count once a researcher has been added.
     assert state.total_hours() == 0
-    assert state.total_cost() == 0
+    # The default simplified direct costs count from the start: US$246 for data collection and US$3,400 for writing.
+    assert state.total_cost() == 3646
     state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 85)
     # Three review rounds of one journal submission is 8 hours, and journal editorial work is 15, at US$85.
     assert state.total_hours() == 23
-    assert state.total_cost() == pytest.approx(23 * 85)
+    assert state.total_cost() == pytest.approx(23 * 85 + 3646)
     del state.people["1"]
     assert state.people == {}
     assert [activity for activity in state.activities if isinstance(activity, Activity)] == []

@@ -44,6 +44,7 @@ from src.calculator_state import (
     CalculatorState,
     compute_costs,
     compute_hours,
+    default_phase_costs,
     default_phase_hours,
 )
 from src.currency_rates import convert_currency
@@ -994,6 +995,37 @@ def load_alam_defaults() -> None:
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
+def reset_simplified_defaults() -> None:
+    """Callback for the simplified calculator's reset button. Sets the hours and direct costs back to the estimates
+    from Alam et al. (2026): the first researcher gets the default hours of each phase and everyone else has none.
+
+    The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
+    rate: float = 1.0 if usd_to_currency is None else usd_to_currency
+    first_person: Person | None = next(iter(st.session_state["people"].values()), None)
+    default_hours: dict[str, float] = default_phase_hours()
+    for phase, cost in default_phase_costs().items():
+        for person in st.session_state["people"].values():
+            hours: float = default_hours[phase] if person is first_person else 0.0
+            set_simplified_hours(phase, person.unique_key, hours)
+        st.session_state["simplified_direct_costs"][phase] = round(cost * rate, 2)
+        st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
+    st.toast("Reset the hours and costs to the defaults.", icon=":material/check_circle:")
+
+
+def clear_simplified_estimates() -> None:
+    """Callback for the simplified calculator's clear button. Sets every researcher's hours and the direct costs of each
+    phase to 0.
+    """
+    for phase in OVERALL_TOTAL_PHASES:
+        for person in st.session_state["people"].values():
+            set_simplified_hours(phase, person.unique_key, 0.0)
+        st.session_state["simplified_direct_costs"][phase] = 0.0
+        st.session_state[f"simplified-cost-{phase}"] = 0.0
+    st.toast("Set all hours and costs to zero.", icon=":material/check_circle:")
+
+
 def reset_activities_and_costs() -> None:
     """Removes every activity and direct cost added in the granular calculator, keeping the project and people. The
     activities of peer review and journal editorial work are left alone, as they are set by their sliders.
@@ -1506,6 +1538,24 @@ st.markdown(
     ),
     unsafe_allow_html=True,
 )
+if st.session_state["calculator_mode"] == "simplified":
+    reset_defaults_column, clear_column, _ = st.columns([1, 1, 2])
+    reset_defaults_column.button(
+        "Reset hours and costs to defaults",
+        key="reset-simplified-defaults",
+        icon=":material/restart_alt:",
+        on_click=reset_simplified_defaults,
+        disabled=not st.session_state["people"],
+        help=None if st.session_state["people"] else "Add a researcher to assign the hours to first.",
+        width="stretch",
+    )
+    clear_column.button(
+        "Set all hours and costs to zero",
+        key="clear-simplified-estimates",
+        icon=":material/delete_sweep:",
+        on_click=clear_simplified_estimates,
+        width="stretch",
+    )
 if st.session_state["calculator_mode"] == "granular":
     defaults_column, reset_column, _ = st.columns([1, 1, 2])
     defaults_column.button(

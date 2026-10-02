@@ -101,6 +101,16 @@ def default_phase_hours() -> dict[str, float]:
     return hours
 
 
+def default_phase_costs() -> dict[str, float]:
+    """Returns the total direct costs in USD of each phase in OVERALL_TOTAL_PHASES in the default estimates from Alam et
+    al. (2026).
+    """
+    costs: dict[str, float] = dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0)
+    for direct_cost in _DEFAULT_COSTS["direct_costs"]:
+        costs[direct_cost["phase"]] += float(direct_cost["cost"])
+    return costs
+
+
 def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
     """Calculates the total cost of activities and direct costs in the given list.
 
@@ -193,7 +203,7 @@ class CalculatorState:
     @classmethod
     def default(cls) -> CalculatorState:
         """Returns the calculator's starting state, with no researchers, one journal submission with three rounds of
-        peer review, and no direct costs.
+        peer review, no granular direct costs, and the default simplified direct costs of each phase (in USD).
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
         peer_reviewer: Person = Person(
@@ -220,6 +230,7 @@ class CalculatorState:
             journal_editor=journal_editor,
             activities=activities,
             direct_costs=[],
+            simplified_direct_costs=default_phase_costs(),
         )
 
     def effective_activities(self) -> list[BaseActivity]:

@@ -157,6 +157,23 @@ def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> N
     assert copy_link["url"].endswith(f"?project_id={public_id}")
 
 
+class FakeUser:
+    """Stands in for st.user."""
+
+    def __init__(self, sub: str | None = None) -> None:
+        self.sub: str | None = sub
+        self.is_logged_in: bool = sub is not None
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return {"sub": self.sub, "iss": "https://issuer", "email": f"{self.sub}@example.org", "name": self.sub}.get(
+            key, default
+        )
+
+
+def log_in(monkeypatch: pytest.MonkeyPatch, sub: str | None) -> None:
+    monkeypatch.setattr(st, "user", FakeUser(sub))
+
+
 def run_results_page(at: AppTest) -> None:
     """Runs the app and switches to the results page, clearing its cached results from any earlier test."""
     st.cache_data.clear()
@@ -184,6 +201,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     with closing(database.connect()) as conn:
         public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
 
+    log_in(monkeypatch, "owner")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run_results_page(at)
     # The calculator's widgets are not rendered on the results page.
@@ -194,6 +212,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     assert pd.isna(row.pop("Loaded Alam et al. defaults"))
     assert row == {
         "Link": f"./result?project_id={public_id}",
+        "Details": ":material/visibility: Load",
         "Saved": row["Saved"],
         "Country": "United Kingdom",
         "International collaboration": True,
@@ -208,6 +227,45 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         **{label: round(summary["phase_costs"][label]) for label in RESEARCH_PHASES.values()},
         "Total": round(summary["total_cost"]),
     }
+
+
+def test_results_page_requires_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    log_in(monkeypatch, None)
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_results_page(at)
+    assert at.info[0].value.startswith("Log in")
+    assert not at.dataframe
+
+
+def test_results_page_authorisation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    # The first user is authorised, and sees the users table.
+    log_in(monkeypatch, "owner")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run_results_page(at)
+    assert at.info[0].value.startswith("No results")
+
+    # A later user is not authorised and sees nothing else.
+    log_in(monkeypatch, "guest")
+    run_results_page(at)
+    assert at.warning[0].value.startswith("You are logged in")
+    assert not at.dataframe
+
+    # The owner authorises the guest.
+    log_in(monkeypatch, "owner")
+    run_results_page(at)
+    # AppTest cannot click the buttons of a dataframe's button columns, so authorise through the database.
+    with closing(database.connect()) as conn:
+        sql_store.authorise_admin_user(conn, sql_store.admin_user_id("https://issuer", "guest"))
+    run(at)
+    with closing(database.connect()) as conn:
+        assert [user["is_authorised"] for user in sql_store.list_admin_users(conn)] == [True, True]
+
+    log_in(monkeypatch, "guest")
+    run_results_page(at)
+    assert at.info[0].value.startswith("No results")
+    assert not at.warning
 
 
 def capture_mysql_connect(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
@@ -294,7 +352,6 @@ def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> 
     before: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
     assert len(before) == len(share_labels)
     assert not [url for url in before if "project_id" in unquote(url)]
-
 
     click_save(at)
     public_id: str = at.session_state["database_public_id"]

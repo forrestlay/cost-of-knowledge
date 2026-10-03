@@ -34,6 +34,7 @@ TABLES: tuple[str, ...] = (
     "direct_costs",
     "people",
     "projects",
+    "admin_users",
 )
 
 
@@ -197,3 +198,58 @@ def test_delete_project_cascades(conn: Connection) -> None:
         assert count_rows(conn, table) == 0
     with pytest.raises(KeyError):
         sql_store.load_project(conn, public_id)
+
+
+def test_first_admin_login_is_authorised_owner(conn: Connection) -> None:
+    first: dict[str, Any] = sql_store.record_admin_login(conn, "iss#1", "a@example.org", "A")
+    second: dict[str, Any] = sql_store.record_admin_login(conn, "iss#2", "b@example.org", "B")
+    assert (first["is_owner"], first["is_authorised"]) == (True, True)
+    assert (second["is_owner"], second["is_authorised"]) == (False, False)
+    assert [user["user_id"] for user in sql_store.list_admin_users(conn)] == ["iss#1", "iss#2"]
+
+
+def test_admin_login_again_keeps_authorisation(conn: Connection) -> None:
+    sql_store.record_admin_login(conn, "iss#1", "a@example.org", "A")
+    sql_store.record_admin_login(conn, "iss#2", "b@example.org", "B")
+    again: dict[str, Any] = sql_store.record_admin_login(conn, "iss#1", "new@example.org", "A2")
+    assert (again["email"], again["name"], again["is_owner"], again["is_authorised"]) == (
+        "new@example.org",
+        "A2",
+        True,
+        True,
+    )
+    assert len(sql_store.list_admin_users(conn)) == 2
+
+
+def test_authorise_admin_user(conn: Connection) -> None:
+    sql_store.record_admin_login(conn, "iss#1", None, None)
+    sql_store.record_admin_login(conn, "iss#2", None, None)
+    sql_store.authorise_admin_user(conn, "iss#2")
+    sql_store.authorise_admin_user(conn, "iss#2")
+    second: dict[str, Any] = sql_store.record_admin_login(conn, "iss#2", None, None)
+    assert (second["is_owner"], second["is_authorised"]) == (False, True)
+    assert second["authorised_at"] is not None
+    with pytest.raises(KeyError):
+        sql_store.authorise_admin_user(conn, "iss#3")
+
+
+def test_set_admin_owner(conn: Connection) -> None:
+    sql_store.record_admin_login(conn, "iss#1", None, None)
+    sql_store.record_admin_login(conn, "iss#2", None, None)
+    sql_store.set_admin_owner(conn, "iss#2")
+    first, second = sql_store.list_admin_users(conn)[::-1]
+    assert (first["user_id"], first["is_owner"], first["is_authorised"]) == ("iss#1", False, True)
+    assert (second["user_id"], second["is_owner"], second["is_authorised"]) == ("iss#2", True, True)
+    with pytest.raises(KeyError):
+        sql_store.set_admin_owner(conn, "iss#3")
+
+
+def test_delete_admin_user(conn: Connection) -> None:
+    sql_store.record_admin_login(conn, "iss#1", None, None)
+    sql_store.record_admin_login(conn, "iss#2", None, None)
+    with pytest.raises(ValueError, match="owner"):
+        sql_store.delete_admin_user(conn, "iss#1")
+    sql_store.delete_admin_user(conn, "iss#2")
+    assert [user["user_id"] for user in sql_store.list_admin_users(conn)] == ["iss#1"]
+    with pytest.raises(KeyError):
+        sql_store.delete_admin_user(conn, "iss#2")

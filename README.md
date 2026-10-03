@@ -23,17 +23,35 @@ app locally, use `uv run streamlit run ./main.py` in the terminal.
 
 This tool can be deployed as a Docker image, run `docker build -t streamlit` to build the image.
 
-This tool uses the [exchangeratesapi.io API](https://exchangeratesapi.io) to fetch the latest currency exchange rates
-daily. Pass an API key as an `EXCHANGE_RATES_API_KEY` environment variable to enable this.
+Configuration is read from environment variables. The database and
+[OIDC authentication settings](https://docs.streamlit.io/develop/concepts/connections/authentication) may also be set in
+`.streamlit/secrets.toml`.
 
-Calculator inputs can be saved to a database by setting `DATABASE_TYPE` in `.streamlit/secrets.toml` or as an
-environment variable. It may be `none` (the default, saving is disabled), `sqlite` or `mysql`. When a database is set, a
-"Save to database" button is shown at the end of the page.
+| Variable                 | Required                | Description                                                                                                                                         |
+|--------------------------|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `EXCHANGE_RATES_API_KEY` | No                      | API key for [exchangeratesapi.io](https://exchangeratesapi.io), used to fetch the latest currency exchange rates daily.                             |
+| `DATABASE_TYPE`          | No                      | `none` (the default, saving is disabled), `sqlite` or `mysql`. When a database is set, a "Save to database" button is shown at the end of the page. |
+| `DATABASE_URL`           | When `mysql`            | Database to connect to, in the form `mysql://host[:port]/database`. The database must already exist; its tables are created on first use.           |
+| `DATABASE_USERNAME`      | When `mysql`            | Username for the MySQL database.                                                                                                                    |
+| `DATABASE_PASSWORD`      | When `mysql`            | Password for the MySQL database.                                                                                                                    |
+| `AUTH_REDIRECT_URI`      | For OIDC authentication | The redirect URL for OIDC authentication. Should be the `BASE_URL/oauth2callback`.                                                                  |
+| `COOKIE_SECRET`          | For OIDC authentication | A strong, randomly generated string. Needed for OIDC authentication.                                                                                |
+| `GOOGLE_CLIENT_ID`       | Google authentication   | Google OIDC login client ID.                                                                                                                        |
+| `GOOGLE_CLIENT_SECRET`   | Google authentication   | Google OIDC login client secret.                                                                                                                    |
+| `GOOGLE_METADATA_URL`    | Google authentication   | Google OIDC login metadata url.                                                                                                                     |
+| `MSFT_CLIENT_ID`         | Microsoft auth          | Microsoft OIDC login client ID.                                                                                                                     |
+| `MSFT_CLIENT_SECRET`     | Microsoft auth          | Microsoft OIDC login client secret.                                                                                                                 |
+| `MSFT_METADATA_URL`      | Microsoft auth          | Microsoft OIDC login metadata url.                                                                                                                  |
 
-- `sqlite` creates the database at `data/cost_of_knowledge.db`.
-- `mysql` connects to the database set by `DATABASE_URL`, in the form `mysql://host[:port]/database`, with the
-  `DATABASE_USERNAME` and `DATABASE_PASSWORD` settings, which are also read from `.streamlit/secrets.toml` or environment
-  variables. The database must already exist, and its tables are created on first use.
+With `sqlite`, the database is created at `data/cost_of_knowledge.db`.
+
+## Admin
+
+To view the admin page, go to the `BASE_URL/admin` and login with a Google or Microsoft account. OIDC authentication
+must be enabled by setting the relevant environment variables or setting the variables in `.streamlit/secrets.toml`.
+The first account to login will have admin access and can authorise other users who login to access the admin page.
+
+The admin page displays all data collected by the tool where the user has consented.
 
 ## Attributions
 

@@ -1,5 +1,8 @@
 """Page listing every result saved to the database, at BASE-URL/admin. It is not linked to from the calculator.
 
+Users must log in with st.login. The first user to log in is authorised automatically and can then authorise the
+users who log in after them, in the section at the bottom of the page.
+
 Copyright 2026 Nurul Alam, Ben Lay
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +20,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import os
 from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
@@ -34,8 +38,26 @@ from src.reference_data import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from src.calculator_state import CalculatorState
     from src.models import Cost
+
+# The login providers configured in the [auth] section of secrets.toml, and their button labels.
+LOGIN_PROVIDERS: dict[str, str] = {"google": "Google", "microsoft": "Microsoft"}
+
+# Environment variables for the [auth] section of secrets.toml, which st.login reads. Each maps to its path in that
+# section, e.g. GOOGLE_CLIENT_ID is [auth.google] client_id.
+AUTH_ENVIRONMENT_VARIABLES: dict[str, tuple[str, ...]] = {
+    "AUTH_REDIRECT_URI": ("redirect_uri",),
+    "COOKIE_SECRET": ("cookie_secret",),
+    "GOOGLE_CLIENT_ID": ("google", "client_id"),
+    "GOOGLE_CLIENT_SECRET": ("google", "client_secret"),
+    "GOOGLE_METADATA_URL": ("google", "server_metadata_url"),
+    "MSFT_CLIENT_ID": ("microsoft", "client_id"),
+    "MSFT_CLIENT_SECRET": ("microsoft", "client_secret"),
+    "MSFT_METADATA_URL": ("microsoft", "server_metadata_url"),
+}
 
 # url_path of this page, set in main.py.
 ADMIN_URL_PATH: str = "admin"
@@ -117,6 +139,146 @@ def load_results() -> pd.DataFrame:
     ).astype({"Loaded Alam et al. defaults": "boolean"})
 
 
+def inject_auth_secrets() -> None:
+    """Adds the authentication settings that are set as environment variables to st.secrets, for st.login to use.
+
+    st.login reads only the [auth] section of secrets.toml. Settings that are already in st.secrets take precedence over
+    environment variables, and variables that are not set or are empty are ignored.
+    """
+    environment_auth: dict[str, Any] = {}
+    for variable, path in AUTH_ENVIRONMENT_VARIABLES.items():
+        value: str | None = os.environ.get(variable)
+        if not value:
+            continue
+        section: dict[str, Any] = environment_auth
+        for key in path[:-1]:
+            section = section.setdefault(key, {})
+        section[path[-1]] = value
+    if not environment_auth:
+        return
+
+    # merge_programmatic_secrets replaces whole top-level keys, so the existing [auth] section is merged in first.
+    existing_auth: dict[str, Any] = (
+        dict(st.secrets.to_dict().get("auth", {})) if st.secrets.load_if_toml_exists() else {}
+    )
+    merged_auth: dict[str, Any] = {**environment_auth, **existing_auth}
+    for provider in ("google", "microsoft"):
+        if provider in environment_auth and provider in existing_auth:
+            merged_auth[provider] = {**environment_auth[provider], **existing_auth[provider]}
+    if merged_auth != existing_auth:
+        st.secrets.merge_programmatic_secrets({"auth": merged_auth})
+
+
+def user_claim(name: str) -> str | None:
+    """Returns a claim of the logged-in user's login as a string, or None if the provider did not give it."""
+    value: object = st.user.get(name)
+    return value if isinstance(value, str) else None
+
+
+def manage_user(click_key: str) -> None:
+    """Runs the action of a button clicked in the users table, as the on_click callback of its button column.
+
+    Args:
+        click_key: The key of the button column, which holds the clicked row and button label in st.session_state.
+    """
+    click = st.session_state[click_key]
+    user_id: str = st.session_state.admin_user_ids[click.row]
+    action: Callable[[sql_store.Connection, str], None]
+    # The label is the text of the button, which may include its icon, e.g. ":material/key: Set owner".
+    if "Authorise" in click.label:
+        action, description = sql_store.authorise_admin_user, "authorise"
+    elif "Set owner" in click.label:
+        action, description = sql_store.set_admin_owner, "make owner of"
+    elif "Reject" in click.label or "Delete" in click.label:
+        action, description = sql_store.delete_admin_user, "remove"
+    else:
+        return
+    try:
+        with closing(database.connect()) as conn:
+            action(conn, user_id)
+    except (KeyError, ValueError, *database.DATABASE_ERRORS) as error:
+        st.session_state.admin_authorise_error = f"Could not {description} the user: {error}"
+
+
+def load_result() -> None:
+    """Loads the result of the clicked row into the details section, as the on_click callback of the Details column."""
+    selected_id: str = st.session_state.admin_public_ids[st.session_state.admin_load_click.row]
+    if selected_id != st.session_state.admin_selected_id:
+        st.session_state.admin_selected_id = selected_id
+        st.session_state.admin_show_json = False
+
+
+def show_authorisation_section(current_user: dict[str, Any]) -> None:
+    """Shows the users who have logged in and, to the owner, buttons to authorise, reject, delete or make owner."""
+    st.divider()
+    st.subheader("Authorised users")
+    if not current_user["is_owner"]:
+        st.caption("Only the owner, who is the first user to log in, can authorise and manage other users.")
+    if "admin_authorise_error" in st.session_state:
+        st.error(st.session_state.pop("admin_authorise_error"), icon=":material/error:")
+    try:
+        with closing(database.connect()) as conn:
+            users: list[dict[str, Any]] = sql_store.list_admin_users(conn)
+    except database.DATABASE_ERRORS as error:
+        st.error(f"Could not load the users from the database: {error}", icon=":material/error:")
+        return
+
+    # The row of a button click indexes into the users shown, so keep their ids for the click's callback.
+    st.session_state.admin_user_ids = [user["user_id"] for user in users]
+    is_owner: bool = current_user["is_owner"]
+    columns: list[str] = ["Name", "Email", "Owner", "Authorised", "First login", "Last login"]
+    column_config: dict[str, Any] = {
+        "Owner": st.column_config.CheckboxColumn("Owner"),
+        "Authorised": st.column_config.CheckboxColumn("Authorised"),
+        "First login": st.column_config.DatetimeColumn("First login", format="YYYY-MM-DD HH:mm"),
+        "Last login": st.column_config.DatetimeColumn("Last login", format="YYYY-MM-DD HH:mm"),
+    }
+    if is_owner:
+        # The owner has no buttons, as the owner can be neither authorised, rejected nor deleted. The owner can only be
+        # replaced by setting another user as owner.
+        columns += ["Access", "Remove"]
+        column_config["Access"] = st.column_config.ButtonColumn(
+            "Access",
+            help="Authorise a user who is waiting, or make an authorised user the owner in place of you.",
+            on_click=manage_user,
+            args=("admin_access_click",),
+            key="admin_access_click",
+        )
+        column_config["Remove"] = st.column_config.ButtonColumn(
+            "Remove",
+            help="Reject a user who is waiting, or delete an authorised user.",
+            on_click=manage_user,
+            args=("admin_remove_click",),
+            key="admin_remove_click",
+        )
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Name": user["name"],
+                    "Email": user["email"],
+                    "Owner": user["is_owner"],
+                    "Authorised": user["is_authorised"],
+                    "First login": pd.to_datetime(user["first_login_at"]),
+                    "Last login": pd.to_datetime(user["last_login_at"]),
+                    "Access": None
+                    if user["is_owner"]
+                    else (":material/key: Set owner" if user["is_authorised"] else ":material/check: Authorise"),
+                    "Remove": None
+                    if user["is_owner"]
+                    else (":material/delete: Delete" if user["is_authorised"] else ":material/close: Reject"),
+                }
+                for user in users
+            ],
+            columns=columns,
+        ),
+        hide_index=True,
+        column_config=column_config,
+    )
+
+
+inject_auth_secrets()
+
 st.set_page_config(page_title="Saved results", layout="wide")
 
 st.title("Saved results")
@@ -124,6 +286,36 @@ st.title("Saved results")
 if database.get_database_type() == "none":
     st.info("No database is configured, so there are no saved results.", icon=":material/info:")
     st.stop()
+
+if not st.user.is_logged_in:
+    st.info("Log in to view the saved results.", icon=":material/lock:")
+    with st.container(horizontal=True):
+        for provider, label in LOGIN_PROVIDERS.items():
+            st.button(f"Log in with {label}", icon=":material/login:", on_click=st.login, args=(provider,))
+    st.stop()
+
+try:
+    with closing(database.connect()) as conn:
+        current_user: dict[str, Any] = sql_store.record_admin_login(
+            conn,
+            sql_store.admin_user_id(user_claim("iss"), user_claim("sub") or ""),
+            user_claim("email"),
+            user_claim("name"),
+        )
+except database.DATABASE_ERRORS as error:
+    st.error(f"Could not check your access in the database: {error}", icon=":material/error:")
+    st.stop()
+
+if not current_user["is_authorised"]:
+    st.warning(
+        "You are logged in, but you have not been authorised to view the saved results. Ask the first user who"
+        " logged in to authorise you on this page, then refresh.",
+        icon=":material/lock:",
+    )
+    st.button("Log out", icon=":material/logout:", on_click=st.logout)
+    st.stop()
+
+st.button("Log out", icon=":material/logout:", on_click=st.logout)
 
 with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
     st.caption("Every result saved from the calculator. Costs are in the currency of each result's country.")
@@ -136,10 +328,12 @@ try:
     states: dict[str, CalculatorState] = {str(project["public_id"]): state for project, state in load_saved()}
 except database.DATABASE_ERRORS as error:
     st.error(f"Could not load the saved results from the database: {error}", icon=":material/error:")
+    show_authorisation_section(current_user)
     st.stop()
 
 if results.empty:
     st.info("No results have been saved yet.", icon=":material/info:")
+    show_authorisation_section(current_user)
     st.stop()
 
 public_ids: list[str] = results.pop("public_id").astype(str).tolist()
@@ -150,6 +344,10 @@ results.insert(
     "Link",
     calculator_url() + f"{RESULT_URL_PATH}?{database.PROJECT_ID_QUERY_PARAM}=" + pd.Series(public_ids),
 )
+# The button to load each result into the details section, after the link.
+results.insert(1, "Details", ":material/visibility: Load")
+# The row of a button click indexes into the results shown, so keep their ids for the click's callback.
+st.session_state.admin_public_ids = public_ids
 
 # The public id of the result shown in the details section, kept across reruns.
 if "admin_selected_id" not in st.session_state:
@@ -157,18 +355,22 @@ if "admin_selected_id" not in st.session_state:
 if "admin_show_json" not in st.session_state:
     st.session_state.admin_show_json = False
 
-table_event = st.dataframe(
+st.dataframe(
     results,
     hide_index=True,
-    key="admin_results_table",
-    on_select="rerun",
-    selection_mode="single-row",
     column_config={
         "Link": st.column_config.LinkColumn(
             "Link",
             help="Open this result's page.",
             display_text=f"{database.PROJECT_ID_QUERY_PARAM}=(.*)$",
             pinned=True,
+        ),
+        "Details": st.column_config.ButtonColumn(
+            "Details",
+            help="Load this result into the details section below.",
+            pinned=True,
+            on_click=load_result,
+            key="admin_load_click",
         ),
         "Saved": st.column_config.DatetimeColumn("Saved", format="YYYY-MM-DD HH:mm"),
         "International collaboration": st.column_config.CheckboxColumn("International collaboration"),
@@ -187,18 +389,11 @@ table_event = st.dataframe(
     },
 )
 
-# Selecting a row loads that result into the details section. Clearing the selection keeps the loaded result.
-selected_rows: list[int] = table_event.selection.rows
-if selected_rows:
-    selected_id: str = public_ids[selected_rows[0]]
-    if selected_id != st.session_state.admin_selected_id:
-        st.session_state.admin_selected_id = selected_id
-        st.session_state.admin_show_json = False
-
 st.subheader("Result details")
 
 if st.session_state.admin_selected_id not in states:
-    st.caption("Select a result in the table above (tick the box at the start of its row) to see its details.")
+    st.caption('Click "Load" on a result in the table above to see its details.')
+    show_authorisation_section(current_user)
     st.stop()
 
 state: CalculatorState = states[st.session_state.admin_selected_id]
@@ -306,3 +501,5 @@ if st.button("Hide raw JSON" if st.session_state.admin_show_json else "Show raw 
 
 if st.session_state.admin_show_json:
     st.json(state.to_dict())
+
+show_authorisation_section(current_user)

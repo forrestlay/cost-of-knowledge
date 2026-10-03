@@ -40,5 +40,5 @@
 - [X] Estimate of "Once accepted, provide an estimate of how much it costs the publisher to publish your journal article."
 - [X] Link to Sparc privacy policy
 - [X] Checkbox to opt in to saving data, messaging around future research purposes.
-- [ ] Data stored behind login wall.
+- [X] Data stored behind login wall.
 - [X] Remove "you" from Researcher 1 and make text more general instead of personalised.

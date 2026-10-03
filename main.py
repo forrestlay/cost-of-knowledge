@@ -1564,7 +1564,7 @@ with st.expander("Optional: Adjust indirect cost rate"):
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
-            preparation.
+            preparation. Begin with the primary investigator, if any.
             """)
 
 with st.container(border=True):

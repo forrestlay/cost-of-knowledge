@@ -166,7 +166,8 @@ def test_editing_people_keeps_loaded_activities() -> None:
     )
     assert at.session_state["cost_list"][0].name == "Participant incentivization"
     assert at.button(key="item-activity-1-edit")
-    assert not at.warning
+    # The share section always shows a notice about hours on the results image; no other warning should appear.
+    assert not [w for w in at.warning if "total number of hours" not in w.value]
 
 
 def test_load_alam_defaults_keeps_country_and_rates() -> None:

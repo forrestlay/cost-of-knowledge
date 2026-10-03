@@ -1047,7 +1047,7 @@ def show_footer() -> None:
             Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
             the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
-            :small[<sup>5</sup>Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
+            :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
             services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
 
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
@@ -1634,6 +1634,8 @@ if st.session_state["calculator_mode"] == "simplified":
         key="clear-simplified-estimates",
         icon=":material/delete_sweep:",
         on_click=clear_simplified_estimates,
+        disabled=not st.session_state["people"],
+        help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
         width="stretch",
     )
 if st.session_state["calculator_mode"] == "granular":

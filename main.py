@@ -1207,7 +1207,8 @@ def confirm_reset() -> None:
 def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
-        f"Using the Cost of Knowledge Calculator, I estimated that my research publication cost "
+        f"Using the University of Sydney and SPARC Cost of Knowledge Calculator, I estimated that my research "
+        "publication cost "
         f"{format_currency(total_cost)}."
     )
 
@@ -1223,12 +1224,18 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
         return COST_OF_KNOWLEDGE_URL, "Estimate your own Cost of Knowledge"
     return saved_url, "See my result and estimate your own Cost of Knowledge"
 
+def share_footer() -> str:
+    """Footer text for the social media and email post."""
+    return (
+        "Cost of Knowledge Calculator by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+    )
+
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
 def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}"
+    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}\n\n{share_footer()}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
@@ -1253,7 +1260,7 @@ def email_share_url(total_cost: float, saved_url: str | None) -> str:
     url, call_to_action = share_link(saved_url)
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}"
+    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}\r\n\r\n{share_footer()}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 

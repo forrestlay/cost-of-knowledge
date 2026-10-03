@@ -141,6 +141,10 @@ COST_OPTIONS: dict[str, list[str]] = {
 }
 # Description of each phase, keyed by phase key, and of each preset activity and direct cost, keyed by (phase, name).
 PHASE_DESCRIPTIONS: dict[str, str] = {phase: info["description"] for phase, info in _COSTS_DATA["phases"].items()}
+# Help text for the direct costs of each phase that has a direct_cost_desc in costs.json.
+PHASE_DIRECT_COST_DESCRIPTIONS: dict[str, str] = {
+    phase: info["direct_cost_desc"] for phase, info in _COSTS_DATA["phases"].items() if info.get("direct_cost_desc")
+}
 ACTIVITY_DESCRIPTIONS: dict[tuple[str, str], str] = {
     (activity["phase"], activity["name"]): activity["description"] for activity in _COSTS_DATA["activities"]
 }
@@ -642,8 +646,11 @@ def simplified_phase_inputs(phase: str) -> None:
             min_value=0.0,
             step=100.0,
             key=simplified_cost_key,
-            help=f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
-            "equipment and travel.",
+            help=PHASE_DIRECT_COST_DESCRIPTIONS.get(
+                phase,
+                f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
+                "equipment and travel.",
+            ),
         )
 
 
@@ -965,8 +972,8 @@ def item_row(
             )
 
 
-def granular_phase_items(phase: str) -> None:
-    """Lists the activities and direct costs added to a phase in the granular calculator.
+def detailed_phase_items(phase: str) -> None:
+    """Lists the activities and direct costs added to a phase in the detailed calculator.
 
     Args:
         phase: Key of the phase in RESEARCH_PHASES.
@@ -1010,7 +1017,7 @@ def phase_inputs(phase: str) -> None:
     if st.session_state["calculator_mode"] == "simplified":
         simplified_phase_inputs(phase)
     else:
-        granular_phase_items(phase)
+        detailed_phase_items(phase)
 
 
 def save_to_database() -> None:
@@ -1021,7 +1028,7 @@ def save_to_database() -> None:
     deleted in the meantime, a new project is saved. The public id of the project and its inputs are kept in
     st.session_state["database_public_id"] and st.session_state["database_saved_inputs"], so they persist across
     script reruns. Whether the user loaded the Alam et al. defaults (st.session_state["loaded_alam_defaults"]) is saved
-    with it, for granular projects.
+    with it, for detailed projects.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     inputs: dict[str, Any] = saved_inputs(state)
@@ -1167,7 +1174,7 @@ def clear_simplified_estimates() -> None:
 
 
 def reset_activities_and_costs() -> None:
-    """Removes every activity and direct cost added in the granular calculator, keeping the project and people. The
+    """Removes every activity and direct cost added in the detailed calculator, keeping the project and people. The
     activities of peer review and journal editorial work are left alone, as they are set by their sliders.
 
     Also sets st.session_state["loaded_alam_defaults"] back to False, as the loaded defaults have been removed.
@@ -1346,7 +1353,7 @@ def copy_link_button(label: str, url: str, copied_label: str, help: str, key: st
 if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
 
-# Whether the user has loaded the defaults from Alam et al. (2026) in the granular calculator. Set by
+# Whether the user has loaded the defaults from Alam et al. (2026) in the detailed calculator. Set by
 # load_alam_defaults and saved with the result.
 if "loaded_alam_defaults" not in st.session_state:
     st.session_state["loaded_alam_defaults"] = False
@@ -1425,11 +1432,11 @@ st.markdown(
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
         **best estimate** of the time and costs involved - if you aren't sure, we have provided conservative estimates
-        of the time required to prepare a social science journal article for publication.{footnote_1}
+        of the time required to prepare a single author social science journal article for publication.{footnote_1}
 
         *The estimated time to complete this tool is 10-15 minutes.*
 
-        The results of this tool should not be taken to reflect or quantify the value of research, only the costs
+        **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
         substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
@@ -1498,6 +1505,8 @@ with st.container(border=True):
         index=int(st.session_state["international_collaborators"]),
         format_func=lambda answer: "Yes" if answer else "No",
         horizontal=True,
+        help="This will be reflected on a summary infographic generated by this tool. This has no effect on the cost "
+        "calculation."
     )
     # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
     # used selectable, so loading it does not fail.
@@ -1657,10 +1666,10 @@ st.markdown(
         "{starting_point}",
         (
             "If you would like a starting point, you can click the button below to load default estimates, which "
-            if st.session_state["calculator_mode"] == "granular"
+            if st.session_state["calculator_mode"] == "detailed"
             else "If you would like a starting point, the default estimates "
         )
-        + "are the conservative estimates for a social sciences journal article{footnote_alam}.",
+        + "are the conservative estimates for a single author social sciences journal article{footnote_alam}.",
     )
     .replace(
         "{footnote_alam}",
@@ -1706,7 +1715,7 @@ if st.session_state["calculator_mode"] == "simplified":
         help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
         width="stretch",
     )
-if st.session_state["calculator_mode"] == "granular":
+if st.session_state["calculator_mode"] == "detailed":
     defaults_column, reset_column, _ = st.columns([1, 1, 2])
     defaults_column.button(
         "Load defaults from Alam et al. 2026",
@@ -1756,8 +1765,8 @@ if st.session_state["calculator_mode"] == "granular":
         """
     )
 
-# Granular calculator: the add form sits beside the phases, otherwise the phases take the full width.
-if st.session_state["calculator_mode"] == "granular":
+# Detailed calculator: the add form sits beside the phases, otherwise the phases take the full width.
+if st.session_state["calculator_mode"] == "detailed":
     form_column, phases_column = st.columns([1, 2], gap="large")
     with form_column, st.container(border=True, key=ADD_ITEM_STICKY_KEY):
         st.markdown("**Add an activity or direct cost**")
@@ -1780,7 +1789,7 @@ with phases_column:
     st.markdown(PHASE_DESCRIPTIONS["writing"])
     phase_inputs("writing")
 
-# The editing phase sits below the columns, so it takes the full width in the granular calculator.
+# The editing phase sits below the columns, so it takes the full width in the detailed calculator.
 st.subheader(RESEARCH_PHASES["editing"])
 st.markdown(PHASE_DESCRIPTIONS["editing"])
 
@@ -2040,8 +2049,8 @@ if st.session_state["include_publishing_costs"]:
 labour_df = labour_dataframe(results_activities)
 
 
-# The sunburst breaks costs down by activity, so it is only shown for the granular calculator.
-if st.session_state["calculator_mode"] == "granular":
+# The sunburst breaks costs down by activity, so it is only shown for the detailed calculator.
+if st.session_state["calculator_mode"] == "detailed":
     st.markdown("""
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.

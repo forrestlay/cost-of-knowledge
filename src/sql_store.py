@@ -59,11 +59,11 @@ CREATE TABLE IF NOT EXISTS projects (
     international_collaborators INTEGER NOT NULL,
     project_field TEXT NOT NULL,
     indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
-    -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables count
+    -- 'simplified' or 'detailed': whether the activities and direct_costs tables or the simplified_* tables count
     -- towards the totals.
-    calculator_mode TEXT NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
-    -- 1 if the user loaded the default estimates from Alam et al. (2026) in the granular calculator, otherwise 0. NULL
-    -- for simplified projects, as the button is only offered in the granular calculator.
+    calculator_mode TEXT NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'detailed')),
+    -- 1 if the user loaded the default estimates from Alam et al. (2026) in the detailed calculator, otherwise 0. NULL
+    -- for simplified projects, as the button is only offered in the detailed calculator.
     loaded_alam_defaults INTEGER CHECK (loaded_alam_defaults IN (0, 1)),
     -- The user's estimate of the cost of publishing their journal article, in the currency of user_country.
     publishing_costs NUMERIC NOT NULL,
@@ -170,11 +170,11 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         international_collaborators INTEGER NOT NULL,
         project_field TEXT NOT NULL,
         indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
-        -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables
+        -- 'simplified' or 'detailed': whether the activities and direct_costs tables or the simplified_* tables
         -- count towards the totals.
-        calculator_mode VARCHAR(16) NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
-        -- 1 if the user loaded the default estimates from Alam et al. (2026) in the granular calculator, otherwise 0.
-        -- NULL for simplified projects, as the button is only offered in the granular calculator.
+        calculator_mode VARCHAR(16) NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'detailed')),
+        -- 1 if the user loaded the default estimates from Alam et al. (2026) in the detailed calculator, otherwise 0.
+        -- NULL for simplified projects, as the button is only offered in the detailed calculator.
         loaded_alam_defaults BOOLEAN,
         -- The user's estimate of the cost of publishing their journal article, in the currency of user_country.
         publishing_costs DOUBLE NOT NULL,
@@ -368,7 +368,7 @@ def _transaction(conn: Connection) -> Iterator[Cursor]:
 def _project_values(state: CalculatorState, loaded_alam_defaults: bool) -> dict[str, Any]:
     """Values of a projects row for the given state, excluding id and timestamps.
 
-    loaded_alam_defaults is recorded only for granular projects, and is NULL otherwise.
+    loaded_alam_defaults is recorded only for detailed projects, and is NULL otherwise.
     """
     data: dict[str, Any] = state.to_dict()
     return {
@@ -376,7 +376,7 @@ def _project_values(state: CalculatorState, loaded_alam_defaults: bool) -> dict[
         **data["project"],
         "international_collaborators": int(data["project"]["international_collaborators"]),
         "include_publishing_costs": int(data["project"]["include_publishing_costs"]),
-        "loaded_alam_defaults": int(loaded_alam_defaults) if state.calculator_mode == "granular" else None,
+        "loaded_alam_defaults": int(loaded_alam_defaults) if state.calculator_mode == "detailed" else None,
         "total_cost": data["summary"]["total_cost"],
         "total_hours": data["summary"]["total_hours"],
     }
@@ -458,7 +458,7 @@ def save_project(conn: Connection, state: CalculatorState, version: int, loaded_
         state: Calculator state to save.
         version: Version of the form that the project is saved under.
         loaded_alam_defaults: Whether the user loaded the default estimates from Alam et al. (2026). Only stored for
-            projects in granular mode.
+            projects in detailed mode.
     """
     values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     public_id: str = generate_public_id()

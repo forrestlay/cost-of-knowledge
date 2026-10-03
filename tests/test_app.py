@@ -61,8 +61,8 @@ def run(at: AppTest) -> None:
     assert not at.exception
 
 
-def run_app(mode: str = "granular") -> AppTest:
-    """Runs the app in the given calculator mode. Most tests exercise the granular calculator, so it is the default."""
+def run_app(mode: str = "detailed") -> AppTest:
+    """Runs the app in the given calculator mode. Most tests exercise the detailed calculator, so it is the default."""
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
     if mode != at.radio(key="calculator-mode").value:
@@ -493,8 +493,8 @@ def test_simplified_estimates() -> None:
     run(at)
     assert metric_values(at) == [f"${(100 + 23) * 85 + 3650 + 454.63:,.0f} (USD)", "123 h", "$3,650 (USD)"]
 
-    # The granular estimates are separate, and the mode chosen decides which count.
-    at.radio(key="calculator-mode").set_value("granular")
+    # The detailed estimates are separate, and the mode chosen decides which count.
+    at.radio(key="calculator-mode").set_value("detailed")
     run(at)
     assert metric_values(at) == ["$2,410 (USD)", "23 h", "$0 (USD)"]
     at.radio(key="calculator-mode").set_value("simplified")
@@ -530,14 +530,14 @@ def test_deleting_researcher_moves_simplified_hours() -> None:
     assert at.slider(key="simplified-hours-data-2").value == 800.0
 
 
-def test_sunburst_only_shown_in_granular_mode() -> None:
+def test_sunburst_only_shown_in_detailed_mode() -> None:
     # AppTest cannot read Plotly charts, so look for the caption shown beneath the sunburst.
     def sunburst_caption_shown(at: AppTest) -> bool:
         return any(caption.value.startswith("Percentages are calculated") for caption in at.caption)
 
     at: AppTest = run_app("simplified")
     assert not sunburst_caption_shown(at)
-    at.radio(key="calculator-mode").set_value("granular")
+    at.radio(key="calculator-mode").set_value("detailed")
     run(at)
     assert sunburst_caption_shown(at)
 
@@ -555,6 +555,6 @@ def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:
     # A researcher with a salary instead of a role has no role in the label.
     assert at.slider(key="simplified-hours-incubation-2").label == "Researcher 2 hours ($70.00 / hour)"
     # The slider in the form to add an activity is labelled the same way.
-    granular: AppTest = run_app("granular")
-    add_researcher(granular, "assistant_professor")
-    assert granular.slider(key="add-item-hours-1").label == label
+    detailed: AppTest = run_app("detailed")
+    add_researcher(detailed, "assistant_professor")
+    assert detailed.slider(key="add-item-hours-1").label == label

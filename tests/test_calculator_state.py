@@ -75,7 +75,7 @@ def test_with_default_costs_totals() -> None:
     assert state.total_cost() == pytest.approx(798.5 * 85 + 3646 + 454.63)
 
 
-def test_simplified_totals_ignore_granular_estimates() -> None:
+def test_simplified_totals_ignore_detailed_estimates() -> None:
     state: CalculatorState = default_with_researcher().with_default_costs()
     state.calculator_mode = "simplified"
     state.simplified_hours = {"incubation": {"1": 100.0}}

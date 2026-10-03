@@ -171,7 +171,7 @@ st.header("The Cost of This Refereed Journal Article")
 
 st.markdown(
     """
-        These results should not be taken to reflect or quantify the value of research, only the costs
+        **These results should not be taken to reflect or quantify the value of research**, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
         substantial economic and social returns{footnote_1}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
@@ -227,8 +227,8 @@ st.subheader("Labor activity breakdown")
 # Without the hours, which must not reach the browser.
 labour_df = labour_dataframe(results_activities, include_hours=False)
 
-# The sunburst breaks costs down by activity, so it is only shown for the granular calculator.
-if state.calculator_mode == "granular":
+# The sunburst breaks costs down by activity, so it is only shown for the detailed calculator.
+if state.calculator_mode == "detailed":
     st.markdown("""
                 Click on the phases and people in the chart below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.

@@ -565,7 +565,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
             )
             # Only the role sits outside the form, so a form's other inputs cannot be checked before it is submitted.
             if person is None and choice is not None:
-                st.warning("You haven't added this researcher yet.", icon=":material/warning:")
+                st.badge("You haven't added this researcher yet.", icon=":material/warning:", color="orange")
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and person is not None:
         st.rerun()
@@ -667,6 +667,32 @@ def find_direct_cost(unique_key: int) -> DirectCost | None:
     return next((cost for cost in st.session_state["cost_list"] if cost.unique_key == unique_key), None)
 
 
+def find_duplicate_item(kind: str, phase: str, name: str | None) -> int | None:
+    """Returns the group_key of the activity, or the unique_key of the direct cost, already in the list with the given
+    phase and name. None if there is none.
+
+    Args:
+        kind: "activity" or "direct_cost".
+        phase: Key of the phase in RESEARCH_PHASES.
+        name: Name of the activity or direct cost.
+    """
+    if not name:
+        return None
+    if kind == "activity":
+        return next(
+            (
+                activity.group_key
+                for activity in st.session_state["activity_list"]
+                if isinstance(activity, Activity) and activity.phase == phase and activity.name == name
+            ),
+            None,
+        )
+    return next(
+        (cost.unique_key for cost in st.session_state["cost_list"] if cost.phase == phase and cost.name == name),
+        None,
+    )
+
+
 def reset_item_name(key: str) -> None:
     """Callback for the item form's kind and phase inputs. Clears the name, as the presets to choose from change."""
     st.session_state[f"{key}-name"] = None
@@ -708,6 +734,12 @@ def save_item(key: str, item_kind: str | None = None, item_id: int | None = None
     if not name:
         st.toast(f"Choose or enter a name for the {ITEM_KINDS[kind].lower()} first.", icon=":material/error:")
         return
+
+    # Adding an item that is already in the list overwrites it.
+    overwriting: bool = False
+    if adding:
+        item_id = find_duplicate_item(kind, phase, name)
+        overwriting = item_id is not None
 
     if kind == "activity":
         hours: dict[str, float] = {
@@ -759,7 +791,10 @@ def save_item(key: str, item_kind: str | None = None, item_id: int | None = None
         st.session_state[f"{key}-cost"] = 0.0
         for person_key in st.session_state["people"]:
             st.session_state[f"{key}-hours-{person_key}"] = 0.0
-        st.toast(f"Added {ITEM_KINDS[kind].lower()} {name!r}.", icon=":material/check_circle:")
+        st.toast(
+            f"{'Overwrote' if overwriting else 'Added'} {ITEM_KINDS[kind].lower()} {name!r}.",
+            icon=":material/check_circle:",
+        )
     st.session_state[f"{key}-saved"] = True
 
 
@@ -870,7 +905,18 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
             )
             # Only the name sits outside the form, so a form's other inputs cannot be checked before it is submitted.
             if not editing and st.session_state[name_key]:
-                st.warning(f"You haven't added this {ITEM_KINDS[kind].lower()} yet.", icon=":material/warning:")
+                if find_duplicate_item(kind, st.session_state[phase_key], st.session_state[name_key]) is not None:
+                    st.badge(
+                        f"This {ITEM_KINDS[kind].lower()} has already been added and will be overwritten.",
+                        icon=":material/warning:",
+                        color="orange",
+                    )
+                else:
+                    st.badge(
+                        f"You haven't added this {ITEM_KINDS[kind].lower()} yet.",
+                        icon=":material/warning:",
+                        color="orange",
+                    )
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and editing:
         st.rerun()

@@ -28,6 +28,7 @@ limitations under the License.
 import json
 import logging
 from contextlib import closing
+from inspect import cleandoc
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote, urlsplit
@@ -1142,6 +1143,17 @@ def reset_simplified_defaults() -> None:
     st.toast("Reset the hours and costs to the defaults.", icon=":material/check_circle:")
 
 
+def reset_publishing_costs() -> None:
+    """Callback for the publishing costs reset button. Sets the cost of publishing back to the default.
+
+    The default is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
+    rate: float = 1.0 if usd_to_currency is None else usd_to_currency
+    st.session_state["publishing-costs"] = round(DEFAULT_PUBLISHING_COSTS * rate, 2)
+    st.session_state["publishing_costs"] = st.session_state["publishing-costs"]
+
+
 def clear_simplified_estimates() -> None:
     """Callback for the simplified calculator's clear button. Sets every researcher's hours and the direct costs of each
     phase to 0.
@@ -1406,10 +1418,9 @@ st.markdown(
         <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
         journal article from ideation to publication?**</span>
 
-        Debates about the economics of scholarly publishing typically focus on subscription prices, article
-        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-        incurred in producing the research that makes scholarly publishing possible. This tool aims to
-        make visible the substantial investment underpinning scholarly publishing.
+        Discussions about the economics of scholarly publishing often focus on subscription fees, article processing
+        charges, publisher revenues, and profit margins. Less attention is given to the costs of producing the research
+        that makes scholarly publishing possible. This tool makes those investments visible.
 
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
@@ -1509,10 +1520,10 @@ with st.container(border=True):
 st.subheader("Indirect Costs")
 st.markdown(
     """
-    These are costs that you do not incur directly as a researcher, but would still be considered part of
-    the cost of preparing and publishing a refereed journal article. These indirect costs include
-    **university/institution administrative costs, infrastructure costs including laboratories and equipment,
-    journal subscriptions, database and software licenses, and open access agreements**.
+    These are costs that researchers do not usually pay directly, but that still contribute to the overall cost of
+    preparing and publishing a peer-reviewed journal article. They include **university administrative support,
+    research infrastructure (such as laboratories and equipment), journal subscriptions, database and software
+    licences, and open access publishing agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
     rate of 40% sourced from Azoulay et al. (2026){footnote_3}, being an approximate middle ground within
@@ -1623,10 +1634,21 @@ st.session_state["calculator_mode"] = st.radio(
 
 st.markdown(
     """
-            The process has been divided between four distinct phases: **incubation**, **data collection and
-            analysis**, **manuscript preparation**, and **peer review and journal editorial work**. Provide your
-            best estimate of the hours and {direct costs} involved in each phase of preparing your refereed journal
-            article. {starting_point}
+            To estimate the full cost of producing your journal article, the process is divided into five phases:
+
+            - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
+              applying for researchfunding (whether successful or not).
+            - **Data Collection and Analysis**: Gathering data, conducting fieldwork or experiments, cleaning data,
+              and carrying out analyses.
+            - **Manuscript Preparation**: Writing, revising, formatting, and preparing the article for submission.
+            - **Peer Review and Journal Editorial Work**: Responding to reviewer comments, making revisions,
+              resubmitting the manuscript, and completing publication-related tasks.
+            - **Publishing**: The publication and dissemination of the journal article, generally performed by the
+              journal publisher. Includes handling article submissions, formatting an article for publication, and
+              dissemination of the journal article via the journal website and through indexing services.
+
+            Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
+            refereed journal article. {starting_point}
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
@@ -1800,38 +1822,29 @@ with st.container(border=True):
 # The publishing phase also requires a special full width section
 st.subheader(RESEARCH_PHASES["publishing"])
 st.markdown(
-    """To account for the costs of publication and dissemination of a refereed journal article that are
-    generally borne by the journal publisher, this tool relies on the findings of Grossman & Brembs (2001){footnote_5}.
-    They identify activities such as submission handling, plagiarism checks, manuscript formatting, copyediting and
-    typesetting, web hosting, and indexing service submission which are handled by publishers.
-    """.replace(
+    cleandoc(
+        """The publication and dissemination of the journal article, generally performed by the journal publisher.
+        Includes handling article submissions, formatting an article for dissemination, and dissemination of the journal
+        article via the journal website and through indexing services.
+
+        The default value provided here corresponds to the cost per refereed journal article for a full service journal
+        publisher with in-house staff that relies on volunteer editors and peer reviewers, and publishes 100 journal
+        articles a year with a 50% rejection rate (Grossman & Brembs, 2021, p. 6).{footnote_5} For a lower bound
+        estimate, arXiv, a nonprofit open access repository, has reported operating costs of $19 per manuscript
+        (Alam et al., 2026, p. 8).
+
+        - A publisher that publishes more articles per year in its journal or outsources some of the above activities
+          will bear lower costs per journal article.
+        - A publisher that uses in-house editors will bear higher costs.
+        - A journal with a high rejection rate will bear higher costs per journal article.
+
+        Provide your best estimation of the cost of scholarly publishing for your refereed journal article, using
+        the default value as a benchmark. If you are unsure, you may disable the inclusion of this cost.
+        """
+    ).replace(
         "{footnote_5}",
         toggletip(
             "<sup>5</sup>",
-            """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
-            F1000Research. https://doi.org/10.12688/f1000research.27468.2""",
-        ),
-    ),
-    unsafe_allow_html=True,
-)
-st.markdown(
-    """
-    The default value provided here corresponds to the cost per refereed journal article for a full service journal
-    publisher with in-house staff that relies on volunteer editors and peer reviewers, and publishes 100 journal
-    articles a year with a 50% rejection rate (Grossman & Brembs, 2021, p. 6). A publisher that publishes more articles
-    per year in its journal or outsources some of the above activities will bear lower costs per journal article, while
-    a publisher that does not rely on volunteer editors will bear higher costs. A journal with a high rejection rate
-    will bear higher costs per journal article.
-
-    arXiv, a nonprofit open access repository, has reported operating costs of $19 per manuscript (Alam et al., 2026,
-    p. 8).
-
-    Provide your best estimation of the cost of scholarly publishing for your refereed journal article, using
-    the default value as a benchmark. If you are unsure, you may disable the inclusion of this cost.
-    """.replace(
-        "{footnote_6}",
-        toggletip(
-            "<sup>6</sup>",
             """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
             F1000Research. https://doi.org/10.12688/f1000research.27468.2""",
         ),
@@ -1859,6 +1872,12 @@ with st.container(border=True):
         help=f"The default value of US${DEFAULT_PUBLISHING_COSTS:,.2f} is the cost per refereed journal article "
         "for a full service journal publisher with in-house staff using volunteer editors "
         "(Grossmann & Brembs, 2021, p. 6).",
+    )
+    st.button(
+        "Reset to default",
+        key="reset-publishing-costs",
+        icon=":material/restart_alt:",
+        on_click=reset_publishing_costs,
     )
 
 st.subheader("Calculate the cost and share your results", anchor=CALCULATE_ANCHOR)

@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 import streamlit as st
 
 from src import database, sql_store
-from src.calculator_state import compute_costs
+from src.calculator_state import PUBLISHING_PHASE, compute_costs
 from src.figures import (
     build_color_map,
     costs_dataframe,
@@ -171,7 +171,7 @@ st.header("The Cost of This Refereed Journal Article")
 
 st.markdown(
     """
-        These results should not be taken to reflect or quantify the value of research, only the costs
+        **These results should not be taken to reflect or quantify the value of research**, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
         substantial economic and social returns{footnote_1}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
@@ -191,7 +191,12 @@ st.markdown(
 
 k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
-k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
+k2.metric(
+    "Estimated direct costs",
+    format_currency(
+        compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE]), country
+    ),
+)
 
 with st.container(border=True):
     colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
@@ -222,8 +227,8 @@ st.subheader("Labor activity breakdown")
 # Without the hours, which must not reach the browser.
 labour_df = labour_dataframe(results_activities, include_hours=False)
 
-# The sunburst breaks costs down by activity, so it is only shown for the granular calculator.
-if state.calculator_mode == "granular":
+# The sunburst breaks costs down by activity, so it is only shown for the detailed calculator.
+if state.calculator_mode == "detailed":
     st.markdown("""
                 Click on the phases and people in the chart below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.

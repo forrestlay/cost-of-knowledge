@@ -28,6 +28,7 @@ limitations under the License.
 import json
 import logging
 from contextlib import closing
+from inspect import cleandoc
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote, urlsplit
@@ -39,8 +40,10 @@ from src import database, reference_data, sql_store
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
+    DEFAULT_PUBLISHING_COSTS,
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
+    PUBLISHING_PHASE,
     CalculatorState,
     compute_costs,
     compute_hours,
@@ -114,6 +117,7 @@ CALCULATOR_ANCHOR: str = "calculator"
 FORM_VERSION: int = 1
 RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
 SHARE_ANCHOR: str = "share-your-result"
+CALCULATE_ANCHOR: str = "calculate-and-share"
 # Contents links to sections that are only shown once the cost has been calculated.
 RESULTS_ANCHORS: tuple[str, ...] = (RESULTS_HEADER_ANCHOR, SHARE_ANCHOR)
 TABLE_OF_CONTENTS: list[tuple[str, str]] = [
@@ -137,6 +141,10 @@ COST_OPTIONS: dict[str, list[str]] = {
 }
 # Description of each phase, keyed by phase key, and of each preset activity and direct cost, keyed by (phase, name).
 PHASE_DESCRIPTIONS: dict[str, str] = {phase: info["description"] for phase, info in _COSTS_DATA["phases"].items()}
+# Help text for the direct costs of each phase that has a direct_cost_desc in costs.json.
+PHASE_DIRECT_COST_DESCRIPTIONS: dict[str, str] = {
+    phase: info["direct_cost_desc"] for phase, info in _COSTS_DATA["phases"].items() if info.get("direct_cost_desc")
+}
 ACTIVITY_DESCRIPTIONS: dict[tuple[str, str], str] = {
     (activity["phase"], activity["name"]): activity["description"] for activity in _COSTS_DATA["activities"]
 }
@@ -184,10 +192,12 @@ def format_currency(x: float) -> str:
 def saved_inputs(state: CalculatorState) -> dict[str, Any]:
     """Returns the inputs of a state that saving compares to decide whether it has changed since it was last saved.
 
-    Leaves out the summary, which is derived.
+    Leaves out the summary, which is derived. Includes whether the Alam et al. defaults were loaded, so that a change in
+    that alone is saved.
     """
     data: dict[str, Any] = state.to_dict()
     del data["summary"]
+    data["loaded_alam_defaults"] = st.session_state.get("loaded_alam_defaults", False)
     return data
 
 
@@ -236,6 +246,8 @@ def convert_monetary_values():
     for phase, simplified_cost in st.session_state["simplified_direct_costs"].items():
         st.session_state["simplified_direct_costs"][phase] = convert(simplified_cost)
         st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
+    st.session_state["publishing_costs"] = convert(st.session_state["publishing_costs"])
+    st.session_state["publishing-costs"] = st.session_state["publishing_costs"]
 
     st.toast(f"Costs converted from {from_code} to {to_code}.", icon=":material/currency_exchange:")
 
@@ -558,7 +570,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
             )
             # Only the role sits outside the form, so a form's other inputs cannot be checked before it is submitted.
             if person is None and choice is not None:
-                st.warning("You haven't added this researcher yet.", icon=":material/warning:")
+                st.badge("You haven't added this researcher yet.", icon=":material/warning:", color="orange")
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and person is not None:
         st.rerun()
@@ -634,8 +646,11 @@ def simplified_phase_inputs(phase: str) -> None:
             min_value=0.0,
             step=100.0,
             key=simplified_cost_key,
-            help=f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
-            "equipment and travel.",
+            help=PHASE_DIRECT_COST_DESCRIPTIONS.get(
+                phase,
+                f"The total direct costs of the {RESEARCH_PHASES[phase].lower()} phase, such as participant payments, "
+                "equipment and travel.",
+            ),
         )
 
 
@@ -658,6 +673,32 @@ def find_activity(group_key: int) -> list[Activity]:
 def find_direct_cost(unique_key: int) -> DirectCost | None:
     """Returns the direct cost with the given unique_key, or None if there is none."""
     return next((cost for cost in st.session_state["cost_list"] if cost.unique_key == unique_key), None)
+
+
+def find_duplicate_item(kind: str, phase: str, name: str | None) -> int | None:
+    """Returns the group_key of the activity, or the unique_key of the direct cost, already in the list with the given
+    phase and name. None if there is none.
+
+    Args:
+        kind: "activity" or "direct_cost".
+        phase: Key of the phase in RESEARCH_PHASES.
+        name: Name of the activity or direct cost.
+    """
+    if not name:
+        return None
+    if kind == "activity":
+        return next(
+            (
+                activity.group_key
+                for activity in st.session_state["activity_list"]
+                if isinstance(activity, Activity) and activity.phase == phase and activity.name == name
+            ),
+            None,
+        )
+    return next(
+        (cost.unique_key for cost in st.session_state["cost_list"] if cost.phase == phase and cost.name == name),
+        None,
+    )
 
 
 def reset_item_name(key: str) -> None:
@@ -701,6 +742,12 @@ def save_item(key: str, item_kind: str | None = None, item_id: int | None = None
     if not name:
         st.toast(f"Choose or enter a name for the {ITEM_KINDS[kind].lower()} first.", icon=":material/error:")
         return
+
+    # Adding an item that is already in the list overwrites it.
+    overwriting: bool = False
+    if adding:
+        item_id = find_duplicate_item(kind, phase, name)
+        overwriting = item_id is not None
 
     if kind == "activity":
         hours: dict[str, float] = {
@@ -752,7 +799,10 @@ def save_item(key: str, item_kind: str | None = None, item_id: int | None = None
         st.session_state[f"{key}-cost"] = 0.0
         for person_key in st.session_state["people"]:
             st.session_state[f"{key}-hours-{person_key}"] = 0.0
-        st.toast(f"Added {ITEM_KINDS[kind].lower()} {name!r}.", icon=":material/check_circle:")
+        st.toast(
+            f"{'Overwrote' if overwriting else 'Added'} {ITEM_KINDS[kind].lower()} {name!r}.",
+            icon=":material/check_circle:",
+        )
     st.session_state[f"{key}-saved"] = True
 
 
@@ -863,7 +913,18 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
             )
             # Only the name sits outside the form, so a form's other inputs cannot be checked before it is submitted.
             if not editing and st.session_state[name_key]:
-                st.warning(f"You haven't added this {ITEM_KINDS[kind].lower()} yet.", icon=":material/warning:")
+                if find_duplicate_item(kind, st.session_state[phase_key], st.session_state[name_key]) is not None:
+                    st.badge(
+                        f"This {ITEM_KINDS[kind].lower()} has already been added and will be overwritten.",
+                        icon=":material/warning:",
+                        color="orange",
+                    )
+                else:
+                    st.badge(
+                        f"You haven't added this {ITEM_KINDS[kind].lower()} yet.",
+                        icon=":material/warning:",
+                        color="orange",
+                    )
     # Closes the edit dialog by rerunning the whole script, unless the changes were not valid.
     if submitted and st.session_state.pop(f"{key}-saved", False) and editing:
         st.rerun()
@@ -911,8 +972,8 @@ def item_row(
             )
 
 
-def granular_phase_items(phase: str) -> None:
-    """Lists the activities and direct costs added to a phase in the granular calculator.
+def detailed_phase_items(phase: str) -> None:
+    """Lists the activities and direct costs added to a phase in the detailed calculator.
 
     Args:
         phase: Key of the phase in RESEARCH_PHASES.
@@ -956,7 +1017,7 @@ def phase_inputs(phase: str) -> None:
     if st.session_state["calculator_mode"] == "simplified":
         simplified_phase_inputs(phase)
     else:
-        granular_phase_items(phase)
+        detailed_phase_items(phase)
 
 
 def save_to_database() -> None:
@@ -966,10 +1027,12 @@ def save_to_database() -> None:
     public id and any shared links stay the same, and saving again without changes does nothing. If the project was
     deleted in the meantime, a new project is saved. The public id of the project and its inputs are kept in
     st.session_state["database_public_id"] and st.session_state["database_saved_inputs"], so they persist across
-    script reruns.
+    script reruns. Whether the user loaded the Alam et al. defaults (st.session_state["loaded_alam_defaults"]) is saved
+    with it, for detailed projects.
     """
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     inputs: dict[str, Any] = saved_inputs(state)
+    loaded_alam_defaults: bool = st.session_state.get("loaded_alam_defaults", False)
     public_id: str | None = st.session_state.get("database_public_id")
     if public_id is not None and inputs == st.session_state.get("database_saved_inputs"):
         st.toast("No changes since your result was last saved.", icon=":material/check_circle:")
@@ -979,9 +1042,9 @@ def save_to_database() -> None:
             try:
                 if public_id is None:
                     raise KeyError(public_id)
-                sql_store.update_project(conn, public_id, state, FORM_VERSION)
+                sql_store.update_project(conn, public_id, state, FORM_VERSION, loaded_alam_defaults)
             except KeyError:
-                public_id = sql_store.save_project(conn, state, FORM_VERSION)
+                public_id = sql_store.save_project(conn, state, FORM_VERSION, loaded_alam_defaults)
     except database.DATABASE_ERRORS as error:
         st.toast(f"Could not save to the database: {error}", icon=":material/error:")
         return
@@ -1038,6 +1101,9 @@ def show_footer() -> None:
             Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
             the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
+            :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
+            services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
+
             :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
             Lay, Loh, and Tanima.
             :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
@@ -1054,12 +1120,14 @@ def load_alam_defaults() -> None:
     the estimates from Alam et al. (2026), keeping the project and people.
 
     The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    Records in st.session_state["loaded_alam_defaults"] that the defaults were loaded, so that saving stores it.
     """
     usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
     state: CalculatorState = CalculatorState.from_session_state(st.session_state)
     state.with_default_costs(1.0 if usd_to_currency is None else usd_to_currency).apply_to_session_state(
         st.session_state
     )
+    st.session_state["loaded_alam_defaults"] = True
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
@@ -1082,6 +1150,17 @@ def reset_simplified_defaults() -> None:
     st.toast("Reset the hours and costs to the defaults.", icon=":material/check_circle:")
 
 
+def reset_publishing_costs() -> None:
+    """Callback for the publishing costs reset button. Sets the cost of publishing back to the default.
+
+    The default is converted from USD to the user's currency, or left in USD if no exchange rate is available.
+    """
+    usd_to_currency: float | None = convert_currency(1, "USD", currency_code())
+    rate: float = 1.0 if usd_to_currency is None else usd_to_currency
+    st.session_state["publishing-costs"] = round(DEFAULT_PUBLISHING_COSTS * rate, 2)
+    st.session_state["publishing_costs"] = st.session_state["publishing-costs"]
+
+
 def clear_simplified_estimates() -> None:
     """Callback for the simplified calculator's clear button. Sets every researcher's hours and the direct costs of each
     phase to 0.
@@ -1095,13 +1174,16 @@ def clear_simplified_estimates() -> None:
 
 
 def reset_activities_and_costs() -> None:
-    """Removes every activity and direct cost added in the granular calculator, keeping the project and people. The
+    """Removes every activity and direct cost added in the detailed calculator, keeping the project and people. The
     activities of peer review and journal editorial work are left alone, as they are set by their sliders.
+
+    Also sets st.session_state["loaded_alam_defaults"] back to False, as the loaded defaults have been removed.
     """
     st.session_state["activity_list"] = [
         activity for activity in st.session_state["activity_list"] if not isinstance(activity, Activity)
     ]
     st.session_state["cost_list"] = []
+    st.session_state["loaded_alam_defaults"] = False
 
 
 @st.dialog("Reset activities and direct costs")
@@ -1125,7 +1207,8 @@ def confirm_reset() -> None:
 def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
-        f"Using the Cost of Knowledge Calculator, I estimated that my research publication cost "
+        f"Using the University of Sydney and SPARC Cost of Knowledge Calculator, I estimated that my research "
+        "publication cost "
         f"{format_currency(total_cost)}."
     )
 
@@ -1141,12 +1224,18 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
         return COST_OF_KNOWLEDGE_URL, "Estimate your own Cost of Knowledge"
     return saved_url, "See my result and estimate your own Cost of Knowledge"
 
+def share_footer() -> str:
+    """Footer text for the social media and email post."""
+    return (
+        "Cost of Knowledge Calculator by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+    )
+
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
 def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}"
+    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}\n\n{share_footer()}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
@@ -1171,7 +1260,7 @@ def email_share_url(total_cost: float, saved_url: str | None) -> str:
     url, call_to_action = share_link(saved_url)
     subject: str = "The Cost of Knowledge of my research publication"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}"
+    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}\r\n\r\n{share_footer()}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 
@@ -1271,6 +1360,11 @@ def copy_link_button(label: str, url: str, copied_label: str, help: str, key: st
 if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
 
+# Whether the user has loaded the defaults from Alam et al. (2026) in the detailed calculator. Set by
+# load_alam_defaults and saved with the result.
+if "loaded_alam_defaults" not in st.session_state:
+    st.session_state["loaded_alam_defaults"] = False
+
 
 # Streamlit drops a widget's session state when the widget is not rendered in a run (e.g. on another page), so reseed
 # the indirect cost rate slider's state rather than letting it fall back to its minimum.
@@ -1338,19 +1432,19 @@ st.markdown(
         <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
         journal article from ideation to publication?**</span>
 
-        Debates about the economics of scholarly publishing typically focus on subscription prices, article
-        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-        incurred in producing the research that makes scholarly publishing possible. This tool aims to
-        make visible the substantial investment underpinning scholarly publishing.
+        Discussions about the economics of scholarly publishing often focus on subscription fees, article processing
+        charges, publisher revenues, and profit margins. Less attention is given to the costs of producing the research
+        that makes scholarly publishing possible. This tool makes those investments visible.
 
         Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
         your refereed journal articles (including the cost of academic labor and institutional resources). Use your
         **best estimate** of the time and costs involved - if you aren't sure, we have provided conservative estimates
-        of the time required to prepare a social science journal article for publication.{footnote_1}
+        of the time required to prepare a single author social science journal article for publication.{footnote_1}
 
-        *The estimated time to complete this tool is 10-15 minutes.*
+        *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
+        again.*
 
-        The results of this tool should not be taken to reflect or quantify the value of research, only the costs
+        **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides
         substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
         to the resources required for scholarly publishing.
@@ -1419,6 +1513,8 @@ with st.container(border=True):
         index=int(st.session_state["international_collaborators"]),
         format_func=lambda answer: "Yes" if answer else "No",
         horizontal=True,
+        help="This will be reflected on a summary infographic generated by this tool. This has no effect on the cost "
+        "calculation."
     )
     # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
     # used selectable, so loading it does not fail.
@@ -1441,10 +1537,10 @@ with st.container(border=True):
 st.subheader("Indirect Costs")
 st.markdown(
     """
-    These are costs that you do not incur directly as a researcher, but would still be considered part of
-    the cost of preparing and publishing a refereed journal article. These indirect costs include
-    **university/institution administrative costs, infrastructure costs including laboratories and equipment,
-    journal subscriptions, database and software licenses, and open access agreements**.
+    These are costs that researchers do not usually pay directly, but that still contribute to the overall cost of
+    preparing and publishing a peer-reviewed journal article. They include **university administrative support,
+    research infrastructure (such as laboratories and equipment), journal subscriptions, database and software
+    licences, and open access publishing agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
     rate of 40% sourced from Azoulay et al. (2026){footnote_3}, being an approximate middle ground within
@@ -1485,7 +1581,7 @@ with st.expander("Optional: Adjust indirect cost rate"):
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
-            preparation.
+            preparation. Begin with the primary investigator, if any.
             """)
 
 with st.container(border=True):
@@ -1555,10 +1651,21 @@ st.session_state["calculator_mode"] = st.radio(
 
 st.markdown(
     """
-            The process has been divided between four distinct phases: **incubation**, **data collection and
-            analysis**, **manuscript preparation**, and **peer review and journal editorial work**. Provide your
-            best estimate of the hours and {direct costs} involved in each phase of preparing your refereed journal
-            article. {starting_point}
+            To estimate the full cost of producing your journal article, the process is divided into five phases:
+
+            - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
+              applying for researchfunding (whether successful or not).
+            - **Data Collection and Analysis**: Gathering data, conducting fieldwork or experiments, cleaning data,
+              and carrying out analyses.
+            - **Manuscript Preparation**: Writing, revising, formatting, and preparing the article for submission.
+            - **Peer Review and Journal Editorial Work**: Responding to reviewer comments, making revisions,
+              resubmitting the manuscript, and completing publication-related tasks.
+            - **Publishing**: The publication and dissemination of the journal article, generally performed by the
+              journal publisher. Includes handling article submissions, formatting an article for publication, and
+              dissemination of the journal article via the journal website and through indexing services.
+
+            Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
+            refereed journal article. {starting_point}
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
@@ -1567,10 +1674,10 @@ st.markdown(
         "{starting_point}",
         (
             "If you would like a starting point, you can click the button below to load default estimates, which "
-            if st.session_state["calculator_mode"] == "granular"
+            if st.session_state["calculator_mode"] == "detailed"
             else "If you would like a starting point, the default estimates "
         )
-        + "are the conservative estimates for a social sciences journal article{footnote_alam}.",
+        + "are the conservative estimates for a single author social sciences journal article{footnote_alam}.",
     )
     .replace(
         "{footnote_alam}",
@@ -1612,9 +1719,11 @@ if st.session_state["calculator_mode"] == "simplified":
         key="clear-simplified-estimates",
         icon=":material/delete_sweep:",
         on_click=clear_simplified_estimates,
+        disabled=not st.session_state["people"],
+        help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
         width="stretch",
     )
-if st.session_state["calculator_mode"] == "granular":
+if st.session_state["calculator_mode"] == "detailed":
     defaults_column, reset_column, _ = st.columns([1, 1, 2])
     defaults_column.button(
         "Load defaults from Alam et al. 2026",
@@ -1664,8 +1773,8 @@ if st.session_state["calculator_mode"] == "granular":
         """
     )
 
-# Granular calculator: the add form sits beside the phases, otherwise the phases take the full width.
-if st.session_state["calculator_mode"] == "granular":
+# Detailed calculator: the add form sits beside the phases, otherwise the phases take the full width.
+if st.session_state["calculator_mode"] == "detailed":
     form_column, phases_column = st.columns([1, 2], gap="large")
     with form_column, st.container(border=True, key=ADD_ITEM_STICKY_KEY):
         st.markdown("**Add an activity or direct cost**")
@@ -1688,7 +1797,7 @@ with phases_column:
     st.markdown(PHASE_DESCRIPTIONS["writing"])
     phase_inputs("writing")
 
-# The editing phase sits below the columns, so it takes the full width in the granular calculator.
+# The editing phase sits below the columns, so it takes the full width in the detailed calculator.
 st.subheader(RESEARCH_PHASES["editing"])
 st.markdown(PHASE_DESCRIPTIONS["editing"])
 
@@ -1727,7 +1836,68 @@ with st.container(border=True):
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
-st.subheader("Calculate the cost and share your results")
+# The publishing phase also requires a special full width section
+st.subheader(RESEARCH_PHASES["publishing"])
+st.markdown(
+    cleandoc(
+        """The publication and dissemination of the journal article, generally performed by the journal publisher.
+        Includes handling article submissions, formatting an article for dissemination, and dissemination of the journal
+        article via the journal website and through indexing services.
+
+        The default value provided here corresponds to the cost per refereed journal article for a full service journal
+        publisher with in-house staff that relies on volunteer editors and peer reviewers, and publishes 100 journal
+        articles a year with a 50% rejection rate (Grossman & Brembs, 2021, p. 6).{footnote_5} For a lower bound
+        estimate, arXiv, a nonprofit open access repository, has reported operating costs of $19 per manuscript
+        (Alam et al., 2026, p. 8).
+
+        - A publisher that publishes more articles per year in its journal or outsources some of the above activities
+          will bear lower costs per journal article.
+        - A publisher that uses in-house editors will bear higher costs.
+        - A journal with a high rejection rate will bear higher costs per journal article.
+
+        Provide your best estimation of the cost of scholarly publishing for your refereed journal article, using
+        the default value as a benchmark. If you are unsure, you may disable the inclusion of this cost.
+        """
+    ).replace(
+        "{footnote_5}",
+        toggletip(
+            "<sup>5</sup>",
+            """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
+            F1000Research. https://doi.org/10.12688/f1000research.27468.2""",
+        ),
+    ),
+    unsafe_allow_html=True,
+)
+
+if "include-publishing-costs" not in st.session_state:
+    st.session_state["include-publishing-costs"] = st.session_state["include_publishing_costs"]
+if "publishing-costs" not in st.session_state:
+    st.session_state["publishing-costs"] = float(st.session_state["publishing_costs"])
+
+with st.container(border=True):
+    st.session_state["include_publishing_costs"] = st.toggle(
+        "Include the cost of publishing in the total cost",
+        key="include-publishing-costs",
+    )
+    st.session_state["publishing_costs"] = st.slider(
+        f"Cost of publishing a refereed journal article ({currency_code()})",
+        min_value=0.0,
+        # Converting to another currency or loading a saved result can give a value above the usual maximum.
+        max_value=max(1600.0, float(st.session_state["publishing-costs"])),
+        step=1.0,
+        key="publishing-costs",
+        help=f"The default value of US${DEFAULT_PUBLISHING_COSTS:,.2f} is the cost per refereed journal article "
+        "for a full service journal publisher with in-house staff using volunteer editors "
+        "(Grossmann & Brembs, 2021, p. 6).",
+    )
+    st.button(
+        "Reset to default",
+        key="reset-publishing-costs",
+        icon=":material/restart_alt:",
+        on_click=reset_publishing_costs,
+    )
+
+st.subheader("Calculate the cost and share your results", anchor=CALCULATE_ANCHOR)
 
 # Final step: calculating the cost shows the results and share sections, and optionally saves the result.
 if "show_results" not in st.session_state:
@@ -1819,7 +1989,8 @@ k1.metric("Estimated total cost", format_currency(total_cost))
 k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
 k3.metric(
     "Estimated direct costs",
-    format_currency(compute_costs(results_direct_costs)),
+    # The publishing costs are borne by the publisher, not the researchers, so they are not a direct cost here.
+    format_currency(compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE])),
 )
 
 
@@ -1879,13 +2050,15 @@ with st.container(key="narrow-chart-costs-pie"):
 
 # Labour cost bar chart
 st.subheader("Labor activity breakdown")
+if st.session_state["include_publishing_costs"]:
+    st.caption("Labor associated with publishing and dissemination of the refereed journal article is not included.")
 
 
 labour_df = labour_dataframe(results_activities)
 
 
-# The sunburst breaks costs down by activity, so it is only shown for the granular calculator.
-if st.session_state["calculator_mode"] == "granular":
+# The sunburst breaks costs down by activity, so it is only shown for the detailed calculator.
+if st.session_state["calculator_mode"] == "detailed":
     st.markdown("""
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.
@@ -1981,6 +2154,10 @@ with share_left:
         share_intro += """ In addition, because you have saved your result, please use the "copy link" button to save a
         link to the result so you may return to it at a later time. This result link will also be included in your
         LinkedIn, X, Facebook, or email message by default."""
+    else:
+        share_intro += f""" If you would like to save your result to share an abbreviated version of the above graphs,
+        please return to the "[Calculate the cost and share your results](#{CALCULATE_ANCHOR})" section and opt-in to
+        save your result."""
     st.markdown(share_intro)
 
     # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the

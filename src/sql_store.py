@@ -5,7 +5,10 @@ tables. save_project creates a new row and update_project overwrites a saved pro
 the version of the form (main.FORM_VERSION) that it was saved under. Rows are built from CalculatorState.to_dict() and
 loaded back through CalculatorState.from_dict(), so the dict format remains the single definition of what is serialised.
 
-No names are stored. Databases created by older versions are not migrated and must be reset.
+No names are stored for projects. Databases created by older versions are not migrated and must be reset.
+
+The admin_users table records everyone who has logged in to the admin page. The first user to log in is the owner and is
+authorised automatically. Every later user must be authorised by the owner before they can use the admin page.
 
 Functions take either a sqlite3 connection or a PyMySQL connection. Queries are written with "?" placeholders, which
 are rewritten to PyMySQL's "%s" placeholders when needed.
@@ -56,9 +59,16 @@ CREATE TABLE IF NOT EXISTS projects (
     international_collaborators INTEGER NOT NULL,
     project_field TEXT NOT NULL,
     indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
-    -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables count
+    -- 'simplified' or 'detailed': whether the activities and direct_costs tables or the simplified_* tables count
     -- towards the totals.
-    calculator_mode TEXT NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
+    calculator_mode TEXT NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'detailed')),
+    -- 1 if the user loaded the default estimates from Alam et al. (2026) in the detailed calculator, otherwise 0. NULL
+    -- for simplified projects, as the button is only offered in the detailed calculator.
+    loaded_alam_defaults INTEGER CHECK (loaded_alam_defaults IN (0, 1)),
+    -- The user's estimate of the cost of publishing their journal article, in the currency of user_country.
+    publishing_costs NUMERIC NOT NULL,
+    -- 1 if publishing_costs count towards total_cost, otherwise 0.
+    include_publishing_costs INTEGER NOT NULL DEFAULT 0 CHECK (include_publishing_costs IN (0, 1)),
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
@@ -128,6 +138,20 @@ CREATE TABLE IF NOT EXISTS simplified_direct_costs (
     cost NUMERIC NOT NULL,
     PRIMARY KEY (project_id, phase)
 );
+
+-- Users who have logged in to the admin page.
+CREATE TABLE IF NOT EXISTS admin_users (
+    -- Identifies the user at their login provider, from admin_user_id.
+    user_id VARCHAR(255) PRIMARY KEY,
+    email TEXT,
+    name TEXT,
+    -- 1 for the first user to log in, who authorises the others. The owner is always authorised.
+    is_owner INTEGER NOT NULL DEFAULT 0 CHECK (is_owner IN (0, 1)),
+    is_authorised INTEGER NOT NULL DEFAULT 0 CHECK (is_authorised IN (0, 1)),
+    first_login_at TEXT NOT NULL,
+    last_login_at TEXT NOT NULL,
+    authorised_at TEXT
+);
 """
 
 # The tables of SCHEMA for MySQL, one statement each. MySQL ignores foreign keys declared inline on a column, needs
@@ -146,9 +170,16 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         international_collaborators INTEGER NOT NULL,
         project_field TEXT NOT NULL,
         indirect_cost_percentage INTEGER NOT NULL DEFAULT 40,
-        -- 'simplified' or 'granular': whether the activities and direct_costs tables or the simplified_* tables
+        -- 'simplified' or 'detailed': whether the activities and direct_costs tables or the simplified_* tables
         -- count towards the totals.
-        calculator_mode VARCHAR(16) NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'granular')),
+        calculator_mode VARCHAR(16) NOT NULL DEFAULT 'simplified' CHECK (calculator_mode IN ('simplified', 'detailed')),
+        -- 1 if the user loaded the default estimates from Alam et al. (2026) in the detailed calculator, otherwise 0.
+        -- NULL for simplified projects, as the button is only offered in the detailed calculator.
+        loaded_alam_defaults BOOLEAN,
+        -- The user's estimate of the cost of publishing their journal article, in the currency of user_country.
+        publishing_costs DOUBLE NOT NULL,
+        -- 1 if publishing_costs count towards total_cost, otherwise 0.
+        include_publishing_costs BOOLEAN NOT NULL DEFAULT 0,
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
@@ -225,6 +256,20 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         cost DOUBLE NOT NULL,
         PRIMARY KEY (project_id, phase),
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS admin_users (
+        -- Identifies the user at their login provider, from admin_user_id.
+        user_id VARCHAR(255) PRIMARY KEY,
+        email TEXT,
+        name TEXT,
+        -- 1 for the first user to log in, who authorises the others. The owner is always authorised.
+        is_owner BOOLEAN NOT NULL DEFAULT 0,
+        is_authorised BOOLEAN NOT NULL DEFAULT 0,
+        first_login_at VARCHAR(32) NOT NULL,
+        last_login_at VARCHAR(32) NOT NULL,
+        authorised_at VARCHAR(32)
     )
     """,
 )
@@ -320,13 +365,18 @@ def _transaction(conn: Connection) -> Iterator[Cursor]:
         raise
 
 
-def _project_values(state: CalculatorState) -> dict[str, Any]:
-    """Values of a projects row for the given state, excluding id and timestamps."""
+def _project_values(state: CalculatorState, loaded_alam_defaults: bool) -> dict[str, Any]:
+    """Values of a projects row for the given state, excluding id and timestamps.
+
+    loaded_alam_defaults is recorded only for detailed projects, and is NULL otherwise.
+    """
     data: dict[str, Any] = state.to_dict()
     return {
         "schema_version": data["schema_version"],
         **data["project"],
         "international_collaborators": int(data["project"]["international_collaborators"]),
+        "include_publishing_costs": int(data["project"]["include_publishing_costs"]),
+        "loaded_alam_defaults": int(loaded_alam_defaults) if state.calculator_mode == "detailed" else None,
         "total_cost": data["summary"]["total_cost"],
         "total_hours": data["summary"]["total_hours"],
     }
@@ -400,15 +450,17 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     )
 
 
-def save_project(conn: Connection, state: CalculatorState, version: int) -> str:
+def save_project(conn: Connection, state: CalculatorState, version: int, loaded_alam_defaults: bool = False) -> str:
     """Saves a calculator state as a new project and returns its public id.
 
     Args:
         conn: Connection to the database.
         state: Calculator state to save.
         version: Version of the form that the project is saved under.
+        loaded_alam_defaults: Whether the user loaded the default estimates from Alam et al. (2026). Only stored for
+            projects in detailed mode.
     """
-    values: dict[str, Any] = {**_project_values(state), "version": version}
+    values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     public_id: str = generate_public_id()
     timestamp: str = _now()
     with _transaction(conn) as cursor:
@@ -425,13 +477,15 @@ def save_project(conn: Connection, state: CalculatorState, version: int) -> str:
     return public_id
 
 
-def update_project(conn: Connection, public_id: str, state: CalculatorState, version: int) -> None:
-    """Replaces a saved project's data, and its form version, with the given calculator state and version.
+def update_project(
+    conn: Connection, public_id: str, state: CalculatorState, version: int, loaded_alam_defaults: bool = False
+) -> None:
+    """Replaces a saved project's data, form version and loaded_alam_defaults flag with the given values.
 
     Raises:
         KeyError: If no project with that public id exists.
     """
-    values: dict[str, Any] = {**_project_values(state), "version": version}
+    values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     with _transaction(conn) as cursor:
         # Checked with a SELECT, as MySQL's rowcount for an UPDATE counts only the rows whose values changed.
         cursor.execute(_sql(conn, "SELECT id FROM projects WHERE public_id = ?"), (public_id,))
@@ -490,6 +544,8 @@ def _state_from_rows(
                 "project_field": project["project_field"],
                 "indirect_cost_percentage": project["indirect_cost_percentage"],
                 "calculator_mode": project["calculator_mode"],
+                "publishing_costs": project["publishing_costs"],
+                "include_publishing_costs": bool(project["include_publishing_costs"]),
             },
             "people": people["team"],
             "peer_reviewer": people["peer_reviewer"][0],
@@ -592,3 +648,111 @@ def delete_project(conn: Connection, public_id: str) -> None:
     """Deletes a saved project along with its people, activities, direct costs and simplified estimates."""
     with _transaction(conn) as cursor:
         cursor.execute(_sql(conn, "DELETE FROM projects WHERE public_id = ?"), (public_id,))
+
+
+def admin_user_id(issuer: str | None, subject: str) -> str:
+    """Returns the admin_users key of a user, from the issuer and subject claims of their login."""
+    return f"{issuer or ''}#{subject}"
+
+
+def record_admin_login(conn: Connection, user_id: str, email: str | None, name: str | None) -> dict[str, Any]:
+    """Records a login to the admin page and returns the user's admin_users row.
+
+    A user logging in for the first time is added as unauthorised, unless nobody has logged in before, in which case
+    they become the authorised owner. Later logins update the user's email, name and last login time.
+    """
+    timestamp: str = _now()
+    with _transaction(conn) as cursor:
+        cursor.execute(_sql(conn, "SELECT 1 FROM admin_users WHERE user_id = ?"), (user_id,))
+        if cursor.fetchone() is None:
+            # Decided in the INSERT itself, so the owner is whoever's row is first inserted into an empty table.
+            cursor.execute(
+                _sql(
+                    conn,
+                    "INSERT INTO admin_users (user_id, email, name, is_owner, is_authorised, first_login_at,"
+                    " last_login_at, authorised_at)"
+                    " SELECT ?, ?, ?, counts.is_first, counts.is_first, ?, ?, CASE WHEN counts.is_first = 1 THEN ? END"
+                    " FROM (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS is_first FROM admin_users) AS counts",
+                ),
+                (user_id, email, name, timestamp, timestamp, timestamp),
+            )
+        else:
+            cursor.execute(
+                _sql(conn, "UPDATE admin_users SET email = ?, name = ?, last_login_at = ? WHERE user_id = ?"),
+                (email, name, timestamp, user_id),
+            )
+        cursor.execute(_sql(conn, "SELECT * FROM admin_users WHERE user_id = ?"), (user_id,))
+        return _admin_user_row(_fetch_dicts(cursor)[0])
+
+
+def _admin_user_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Returns an admin_users row with its flag columns as bools."""
+    return {**row, "is_owner": bool(row["is_owner"]), "is_authorised": bool(row["is_authorised"])}
+
+
+def list_admin_users(conn: Connection) -> list[dict[str, Any]]:
+    """Lists everyone who has logged in to the admin page, the owner first and then in order of first login."""
+    with closing(conn.cursor()) as cursor:
+        cursor.execute("SELECT * FROM admin_users ORDER BY is_owner DESC, first_login_at, user_id")
+        return [_admin_user_row(row) for row in _fetch_dicts(cursor)]
+
+
+def authorise_admin_user(conn: Connection, user_id: str) -> None:
+    """Authorises a user who has logged in to the admin page. Does nothing for a user who is already authorised.
+
+    Raises:
+        KeyError: If no user with that id has logged in.
+    """
+    with _transaction(conn) as cursor:
+        # Checked with a SELECT, as MySQL's rowcount for an UPDATE counts only the rows whose values changed.
+        cursor.execute(_sql(conn, "SELECT is_authorised FROM admin_users WHERE user_id = ?"), (user_id,))
+        row: tuple[Any, ...] | None = cursor.fetchone()
+        if row is None:
+            raise KeyError(f"No admin user with id {user_id!r}.")
+        if not row[0]:
+            cursor.execute(
+                _sql(conn, "UPDATE admin_users SET is_authorised = 1, authorised_at = ? WHERE user_id = ?"),
+                (_now(), user_id),
+            )
+
+
+def set_admin_owner(conn: Connection, user_id: str) -> None:
+    """Makes a user the owner, who authorises the others, in place of the current owner. The new owner is authorised.
+
+    The previous owner stays authorised as an ordinary user.
+
+    Raises:
+        KeyError: If no user with that id has logged in.
+    """
+    with _transaction(conn) as cursor:
+        cursor.execute(_sql(conn, "SELECT 1 FROM admin_users WHERE user_id = ?"), (user_id,))
+        if cursor.fetchone() is None:
+            raise KeyError(f"No admin user with id {user_id!r}.")
+        cursor.execute("UPDATE admin_users SET is_owner = 0 WHERE is_owner = 1")
+        cursor.execute(
+            _sql(
+                conn,
+                "UPDATE admin_users SET is_owner = 1, is_authorised = 1,"
+                " authorised_at = COALESCE(authorised_at, ?) WHERE user_id = ?",
+            ),
+            (_now(), user_id),
+        )
+
+
+def delete_admin_user(conn: Connection, user_id: str) -> None:
+    """Deletes a user, rejecting them if they are not yet authorised or removing their access if they are.
+
+    A deleted user who logs in again is recorded as a new, unauthorised user.
+
+    Raises:
+        KeyError: If no user with that id has logged in.
+        ValueError: If the user is the owner, who cannot be deleted.
+    """
+    with _transaction(conn) as cursor:
+        cursor.execute(_sql(conn, "SELECT is_owner FROM admin_users WHERE user_id = ?"), (user_id,))
+        row: tuple[Any, ...] | None = cursor.fetchone()
+        if row is None:
+            raise KeyError(f"No admin user with id {user_id!r}.")
+        if row[0]:
+            raise ValueError("The owner cannot be deleted.")
+        cursor.execute(_sql(conn, "DELETE FROM admin_users WHERE user_id = ?"), (user_id,))

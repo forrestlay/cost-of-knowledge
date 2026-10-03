@@ -68,9 +68,11 @@ class Person:
 
     @property
     def label(self) -> str:
-        """Display name of this person, e.g. "Researcher 1" or "Peer reviewer"."""
+        """Display name of this person, e.g. "Researcher 1", "Researcher Set 1" (quantity of 2 or more) or "Peer
+        reviewer"."""
         if self.person_type == PersonType.RESEARCH_TEAM:
-            return f"Researcher {self.unique_key}"
+            prefix: str = "Researcher Set" if self.quantity >= 2 else "Researcher"
+            return f"{prefix} {self.unique_key}"
         return self.unique_key
 
     @classmethod

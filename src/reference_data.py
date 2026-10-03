@@ -136,6 +136,7 @@ RESEARCH_PHASES: dict[str, str] = {
     "data": "Data collection and analysis",
     "writing": "Manuscript preparation",
     "editing": "Peer review and journal editorial work",
+    "publishing": "Publishing",
 }
 
 

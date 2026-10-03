@@ -1434,7 +1434,8 @@ st.markdown(
         **best estimate** of the time and costs involved - if you aren't sure, we have provided conservative estimates
         of the time required to prepare a single author social science journal article for publication.{footnote_1}
 
-        *The estimated time to complete this tool is 10-15 minutes.*
+        *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
+        again.*
 
         **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
         involved in preparing a refereed journal article. Prior literature has established that research provides

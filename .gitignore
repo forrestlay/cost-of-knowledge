@@ -43,6 +43,7 @@ MANIFEST
 
 # Streamlit secrets
 .streamlit/secrets.toml
+.streamlit/database_ca.pem
 
 # Daily exchange rates cache, created by currencyrates.py
 data/exchange_rates.json

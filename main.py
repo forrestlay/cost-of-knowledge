@@ -279,15 +279,6 @@ def set_simplified_hours(phase: str, person_key: str, hours: float) -> None:
     st.session_state[f"simplified-hours-{phase}-{person_key}"] = hours
 
 
-def add_default_simplified_hours(person: Person) -> None:
-    """Gives a researcher the default hours of each phase in the simplified calculator, from data/default_costs.json.
-
-    Used for the first researcher only, so the calculator starts with the estimates from Alam et al. (2026).
-    """
-    for phase, hours in default_phase_hours().items():
-        set_simplified_hours(phase, person.unique_key, hours)
-
-
 def delete_person(key: str):
     """Deletes a research team member. Their activities and simplified hours are reassigned to the first remaining
     team member, or deleted if there are none left.
@@ -480,11 +471,8 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
         hourly_rate = role_hourly_rate(choice)
 
     if person is None:
-        first_researcher: bool = not people
         person = Person(next_person_key(), PersonType.RESEARCH_TEAM, hourly_rate, role, quantity)
         people[person.unique_key] = person
-        if first_researcher:
-            add_default_simplified_hours(person)
         # The form clears itself, but not the role selectbox above it.
         st.session_state[f"{key}-role"] = None
         st.toast(f"Added {person.label}.", icon=":material/check_circle:")
@@ -1138,9 +1126,10 @@ def load_alam_defaults() -> None:
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
-def reset_simplified_defaults() -> None:
-    """Callback for the simplified calculator's reset button. Sets the hours and direct costs back to the estimates
-    from Alam et al. (2026): the first researcher gets the default hours of each phase and everyone else has none.
+def load_simplified_defaults() -> None:
+    """Callback for the simplified calculator's "Load defaults from Alam et al. (2026)" button. Sets the hours and
+    direct costs to the estimates from Alam et al. (2026): the first researcher gets the default hours of each phase
+    and everyone else has none.
 
     The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
     """
@@ -1154,7 +1143,7 @@ def reset_simplified_defaults() -> None:
             set_simplified_hours(phase, person.unique_key, hours)
         st.session_state["simplified_direct_costs"][phase] = round(cost * rate, 2)
         st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
-    st.toast("Reset the hours and costs to the defaults.", icon=":material/check_circle:")
+    st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
 def reset_publishing_costs() -> None:
@@ -1178,6 +1167,34 @@ def clear_simplified_estimates() -> None:
         st.session_state["simplified_direct_costs"][phase] = 0.0
         st.session_state[f"simplified-cost-{phase}"] = 0.0
     st.toast("Set all hours and costs to zero.", icon=":material/check_circle:")
+
+
+def clear_people() -> None:
+    """Deletes every research team member, along with their activities and simplified hours."""
+    for key in list(st.session_state["people"]):
+        delete_person(key)
+    st.toast("Removed all researchers.", icon=":material/check_circle:")
+
+
+@st.dialog("Clear all researchers")
+def confirm_clear_people() -> None:
+    """Asks for confirmation before deleting every researcher."""
+    st.write(
+        "This will delete all of the researchers you have added, along with their activities and simplified hours. "
+        "This cannot be undone."
+    )
+    confirm_column, cancel_column = st.columns(2)
+    if confirm_column.button(
+        "Clear researchers",
+        key="confirm-clear-people",
+        type="primary",
+        icon=":material/delete:",
+        on_click=clear_people,
+        width="stretch",
+    ):
+        st.rerun()
+    if cancel_column.button("Cancel", key="cancel-clear-people", width="stretch"):
+        st.rerun()
 
 
 def reset_activities_and_costs() -> None:
@@ -1594,6 +1611,15 @@ with st.container(border=True):
     st.markdown("**Add a researcher**")
     researcher_form(ADD_PERSON_FORM_KEY)
 
+if st.button(
+    "Clear all researchers",
+    key="clear-people",
+    icon=":material/delete_sweep:",
+    disabled=not st.session_state["people"],
+    help=None if st.session_state["people"] else "There are no researchers to clear.",
+):
+    confirm_clear_people()
+
 if not st.session_state["people"]:
     st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
 row_styles(list(RESEARCH_PHASES))
@@ -1671,21 +1697,14 @@ st.markdown(
               by the journal publisher.
 
             Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
-            refereed journal article. {starting_point}
+            refereed journal article. If you would like a starting point, you can click the button below to load default
+            estimates, which are the conservative estimates for a single author social sciences journal
+            article{footnote_alam}.
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
             per person).
             """.replace(
-        "{starting_point}",
-        (
-            "If you would like a starting point, you can click the button below to load default estimates, which "
-            if st.session_state["calculator_mode"] == "detailed"
-            else "If you would like a starting point, the default estimates "
-        )
-        + "are the conservative estimates for a single author social sciences journal article{footnote_alam}.",
-    )
-    .replace(
         "{footnote_alam}",
         toggletip(
             "<sup>4</sup>",
@@ -1693,8 +1712,7 @@ st.markdown(
             available on Zenodo.""",
             key="footnote-4",
         ),
-    )
-    .replace(
+    ).replace(
         "{direct costs}",
         toggletip(
             "direct costs",
@@ -1712,12 +1730,17 @@ st.markdown(
 if st.session_state["calculator_mode"] == "simplified":
     reset_defaults_column, clear_column, _ = st.columns([1, 1, 2])
     reset_defaults_column.button(
-        "Reset hours and costs to defaults",
-        key="reset-simplified-defaults",
-        icon=":material/restart_alt:",
-        on_click=reset_simplified_defaults,
+        "Load defaults from Alam et al. (2026)",
+        key="load-simplified-defaults",
+        icon=":material/download:",
+        type="primary",
+        on_click=load_simplified_defaults,
         disabled=not st.session_state["people"],
-        help=None if st.session_state["people"] else "Add a researcher to assign the hours to first.",
+        help=(
+            "Loads the default hours for Researcher 1 only, as it assumes a single author."
+            if st.session_state["people"]
+            else "Add a researcher to assign the hours to first."
+        ),
         width="stretch",
     )
     clear_column.button(
@@ -1732,7 +1755,7 @@ if st.session_state["calculator_mode"] == "simplified":
 if st.session_state["calculator_mode"] == "detailed":
     defaults_column, reset_column, _ = st.columns([1, 1, 2])
     defaults_column.button(
-        "Load defaults from Alam et al. 2026",
+        "Load defaults from Alam et al. (2026)",
         key="load-alam-defaults",
         icon=":material/download:",
         type="primary",
@@ -1841,7 +1864,7 @@ with st.container(border=True):
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
 # The publishing phase also requires a special full width section
-st.subheader(f"{RESEARCH_PHASES["publishing"]} (optional)")
+st.subheader(f"{RESEARCH_PHASES['publishing']} (optional)")
 st.markdown(
     cleandoc(
         """

@@ -21,11 +21,9 @@ app locally, use `uv run streamlit run ./main.py` in the terminal.
 
 ## Deploying the tool
 
-This tool can be deployed as a Docker image, run `docker build -t streamlit` to build the image.
-
-Configuration is read from environment variables. The database and
+Configuration is read from environment variables listed below. The database and
 [OIDC authentication settings](https://docs.streamlit.io/develop/concepts/connections/authentication) may also be set in
-`.streamlit/secrets.toml`.
+`.streamlit/secrets.toml`, refer to the linked Streamlit documentation for the format of secrets.toml.
 
 | Variable                 | Required                | Description                                                                                                                                         |
 |--------------------------|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -46,6 +44,66 @@ Configuration is read from environment variables. The database and
 | `ADMIN_OWNER_EMAIL`      | Recommended for admin   | Email address allowed to become the admin owner. Without it, the first account to log in becomes the owner.                                         |
 
 With `sqlite`, the database is created at `data/cost_of_knowledge.db`.
+
+### Running the Docker image
+
+```shell
+docker run -d \
+  --name cost-of-knowledge \
+  -p 8501:8501 \
+  -v "$(pwd)/.streamlit:/app/.streamlit:ro" \
+  -e EXCHANGE_RATES_API_KEY=your_api_key \
+  ghcr.io/forrestlay/paper-cost-simulator:latest
+```
+
+In PowerShell, replace `$(pwd)` with `${PWD}`, and use a backtick (`` ` ``) instead of `\` for line continuation.
+
+To use `sqlite` for saving, also set `-e DATABASE_TYPE=sqlite` and mount a volume at `/app/data` so the database
+persists when the container is recreated, e.g. `-v costofknowledge/data:/app/data`.
+
+The app is then available at <http://localhost:8501>.
+
+To provide a `secrets.toml`, create a `.streamlit` directory on the host containing a `secrets.toml` file, and mount it
+at `/app/.streamlit`. Mounting it read-only (`:ro`) is recommended. Streamlit reads `secrets.toml` from this directory
+at startup.
+
+```text
+.streamlit/
+└── secrets.toml
+```
+
+### Docker Compose
+
+Create a `compose.yaml`:
+
+```yaml
+services:
+  cost-of-knowledge:
+    image: ghcr.io/forrestlay/cost-of-knowledge:latest
+    ports:
+      - "8501:8501"
+    environment:
+      EXCHANGE_RATES_API_KEY: your_api_key
+      DATABASE_TYPE: sqlite
+    volumes:
+      # Directory containing secrets.toml
+      - ./costofknowledge/.streamlit:/app/.streamlit:ro
+      # Persist the sqlite database
+      - cost-of-knowledge-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cost-of-knowledge-data:
+```
+
+Then start the service with `docker compose up -d`, and stop it with `docker compose down`.
+
+Environment variables can be omitted when the equivalent settings are provided in `secrets.toml`. Do not commit
+`secrets.toml` or API keys to version control.
+
+### Manual Docker build
+
+To manually build a Docker image for deployment, run `docker build -t streamlit`.
 
 ## Admin
 
@@ -76,7 +134,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,

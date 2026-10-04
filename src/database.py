@@ -5,6 +5,8 @@ the DATABASE_TYPE environment variable. It may be "none" (the default, saving is
 
 A MySQL database is set by DATABASE_URL, in the form mysql://host[:port]/database, with the DATABASE_USERNAME and
 DATABASE_PASSWORD settings, each also read from Streamlit secrets or failing that from environment variables.
+An optional DATABASE_SSL_CA setting holds the contents of the CA certificate (PEM) used to encrypt the connection and
+verify the server. If it is not set, .streamlit/database_ca.pem is used when that file exists.
 
 Copyright 2026 Nurul Alam, Ben Lay
 
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import ssl
 from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast, get_args
@@ -47,6 +50,7 @@ DATABASE_USERNAME_SECRET: str = "DATABASE_USERNAME"
 DATABASE_PASSWORD_SECRET: str = "DATABASE_PASSWORD"
 DATABASE_SSL_CA_SECRET: str = "DATABASE_SSL_CA"
 SQLITE_DATABASE_FILE: Path = Path(__file__).parent.parent / "data" / "cost_of_knowledge.db"
+DEFAULT_SSL_CA_FILE: Path = Path(__file__).parent.parent / ".streamlit" / "database_ca.pem"
 MYSQL_DEFAULT_PORT: int = 3306
 
 # Query parameter of the calculator holding the public id of a project saved to the database, e.g.
@@ -64,6 +68,19 @@ def _get_setting(name: str) -> str | None:
     except StreamlitSecretNotFoundError:
         value = None
     return str(value) if value else os.environ.get(name) or None
+
+
+def _get_ssl_ca() -> str | None:
+    """Returns the PEM contents of the CA certificate used to verify the MySQL server, or None if there is none.
+
+    The contents of DATABASE_SSL_CA are used if set, otherwise the contents of .streamlit/database_ca.pem if it exists.
+    """
+    contents: str | None = _get_setting(DATABASE_SSL_CA_SECRET)
+    if contents:
+        return contents.strip()
+    if DEFAULT_SSL_CA_FILE.is_file():
+        return DEFAULT_SSL_CA_FILE.read_text(encoding="utf-8").strip() or None
+    return None
 
 
 def get_database_type() -> DatabaseType:
@@ -104,12 +121,10 @@ def _mysql_connect() -> pymysql.connections.Connection:
     password: str = _get_setting(DATABASE_PASSWORD_SECRET) or unquote(parts.password or "")
 
     options: dict[str, object] = {}
-    ssl_ca: str | None = _get_setting(DATABASE_SSL_CA_SECRET)
+    ssl_ca: str | None = _get_ssl_ca()
     if ssl_ca:
-        # Encrypts the connection and verifies the server against this CA certificate file.
-        options["ssl_ca"] = ssl_ca
-        options["ssl_verify_cert"] = True
-        options["ssl_verify_identity"] = True
+        # Encrypts the connection and verifies the server and its hostname against this CA certificate only.
+        options["ssl"] = ssl.create_default_context(cadata=ssl_ca)
 
     return pymysql.connect(
         host=parts.hostname,

@@ -32,7 +32,7 @@ Configuration is read from environment variables listed below. The database and
 | `DATABASE_URL`           | When `mysql`            | Database to connect to, in the form `mysql://host[:port]/database`. The database must already exist; its tables are created on first use.           |
 | `DATABASE_USERNAME`      | When `mysql`            | Username for the MySQL database.                                                                                                                    |
 | `DATABASE_PASSWORD`      | When `mysql`            | Password for the MySQL database.                                                                                                                    |
-| `DATABASE_SSL_CA`        | No                      | Path to a CA certificate file. When set, the MySQL connection is encrypted and the server's certificate is verified.                                |
+| `DATABASE_SSL_CA`        | No                      | Contents of the CA certificate (PEM), not a file path. Encrypts and verifies the MySQL connection. See below.                                       |
 | `AUTH_REDIRECT_URI`      | For OIDC authentication | The redirect URL for OIDC authentication. Should be the `BASE_URL/oauth2callback`.                                                                  |
 | `COOKIE_SECRET`          | For OIDC authentication | A strong, randomly generated string. Needed for OIDC authentication.                                                                                |
 | `GOOGLE_CLIENT_ID`       | Google authentication   | Google OIDC login client ID.                                                                                                                        |
@@ -44,6 +44,23 @@ Configuration is read from environment variables listed below. The database and
 | `ADMIN_OWNER_EMAIL`      | Recommended for admin   | Email address allowed to become the admin owner. Without it, the first account to log in becomes the owner.                                         |
 
 With `sqlite`, the database is created at `data/cost_of_knowledge.db`.
+
+### MySQL SSL certificate
+
+`DATABASE_SSL_CA` is the certificate itself (the full `-----BEGIN CERTIFICATE-----` ... `-----END CERTIFICATE-----`
+text). In `secrets.toml`, use a multi-line string:
+
+```toml
+DATABASE_SSL_CA = """
+-----BEGIN CERTIFICATE-----
+...
+-----END CERTIFICATE-----
+"""
+```
+
+If `DATABASE_SSL_CA` is not set, the app looks for the certificate in `.streamlit/database_ca.pem` and uses it if the
+file exists. If neither is present, the MySQL connection is not encrypted. When a certificate is used, the server's
+certificate and hostname are verified against it.
 
 ### Running the Docker image
 

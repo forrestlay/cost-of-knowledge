@@ -5,6 +5,7 @@
 /.pytest_cache
 /.ruff_cache
 /.streamlit/secrets.toml
+/.streamlit/database_ca.pem
 /diagram
 /data/cost_of_knowledge.db
 /data/cost_of_knowledge.db-journal

@@ -221,7 +221,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         "Peer reviews": 2,
         "Journal submissions": 3,
         "Calculator mode": "Simplified",
-        "Include publishing costs": True,
+        "Include publishing costs": False,
         "Publishing cost estimate": round(state.publishing_costs),
         "Currency": "GBP",
         **{label: round(summary["phase_costs"][label]) for label in RESEARCH_PHASES.values()},

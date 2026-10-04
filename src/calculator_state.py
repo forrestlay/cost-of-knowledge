@@ -201,7 +201,7 @@ class CalculatorState:
     simplified_hours: dict[str, dict[str, float]] = field(default_factory=dict)
     simplified_direct_costs: dict[str, float] = field(default_factory=dict)
     publishing_costs: float = DEFAULT_PUBLISHING_COSTS
-    include_publishing_costs: bool = True
+    include_publishing_costs: bool = False
 
     @property
     def peer_review(self) -> PeerReview:

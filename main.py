@@ -1666,9 +1666,9 @@ st.markdown(
             - **Manuscript Preparation**: Writing, revising, formatting, and preparing the article for submission.
             - **Peer Review and Journal Editorial Work**: Responding to reviewer comments, making revisions,
               resubmitting the manuscript, and completing publication-related tasks.
-            - **Publishing**: The publication and dissemination of the journal article, generally performed by the
-              journal publisher. Includes handling article submissions, formatting an article for publication, and
-              dissemination of the journal article via the journal website and through indexing services.
+            - **Publishing (optional)**: The publication and dissemination of the journal article, generally performed
+              by the journal publisher. Includes handling article submissions, formatting an article for publication,
+              and dissemination of the journal article via the journal website and through indexing services.
 
             Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
             refereed journal article. {starting_point}
@@ -1843,26 +1843,19 @@ with st.container(border=True):
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
 # The publishing phase also requires a special full width section
-st.subheader(RESEARCH_PHASES["publishing"])
+st.subheader(f"{RESEARCH_PHASES["publishing"]} (optional)")
 st.markdown(
     cleandoc(
-        """The publication and dissemination of the journal article, generally performed by the journal publisher.
-        Includes handling article submissions, formatting an article for dissemination, and dissemination of the journal
-        article via the journal website and through indexing services.
+        """
+        Now that you've calculated the costs from ideation to acceptance, what do you think it costs the publisher to
+        go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
+        journal article for a full service journal publisher with in-house staff that relies on volunteer editors and
+        peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs, 2021,
+        p. 6).{footnote_5}
 
-        The default value provided here corresponds to the cost per refereed journal article for a full service journal
-        publisher with in-house staff that relies on volunteer editors and peer reviewers, and publishes 100 journal
-        articles a year with a 50% rejection rate (Grossman & Brembs, 2021, p. 6).{footnote_5} For a lower bound
-        estimate, arXiv, a nonprofit open access repository, has reported operating costs of $19 per manuscript
-        (Alam et al., 2026, p. 8).
-
-        - A publisher that publishes more articles per year in its journal or outsources some of the above activities
-          will bear lower costs per journal article.
-        - A publisher that uses in-house editors will bear higher costs.
-        - A journal with a high rejection rate will bear higher costs per journal article.
-
-        Provide your best estimation of the cost of scholarly publishing for your refereed journal article, using
-        the default value as a benchmark. If you are unsure, you may disable the inclusion of this cost.
+        By default, this cost is not included in the total cost calculated by this tool as it focuses on the costs
+        of producing the research that make scholarly publishing possible. However, you may choose to include these
+        costs in the results.
         """
     ).replace(
         "{footnote_5}",

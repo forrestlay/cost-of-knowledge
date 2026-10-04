@@ -1788,8 +1788,6 @@ if st.session_state["calculator_mode"] == "detailed":
 else:
     phases_column = st.container()
 
-# TODO: Include buttons to load information about the activities/phases.
-
 phases_column.subheader(RESEARCH_PHASES["incubation"])
 phases_column.markdown(PHASE_DESCRIPTIONS["incubation"])
 with phases_column:
@@ -2216,10 +2214,6 @@ with share_left:
         format_currency=format_currency,
         show_hours=st.session_state["share_show_hours"],
     ).as_svg()
-
-    # TODO: Add names to our social media share message.
-    # TODO: Move the save button here.
-    # TODO: Add messaging above the share posts.
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.download_button(

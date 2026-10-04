@@ -30,6 +30,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import math
 import secrets
 import sqlite3
 from contextlib import closing, contextmanager
@@ -295,6 +296,72 @@ _ACTIVITY_COLUMNS: tuple[str, ...] = (
 )
 
 
+# Tables holding a project's child rows, in the order they are deleted. Activities and simplified hours reference
+# people, so they come first. Table names are interpolated into queries, so only names from here may be used.
+_CHILD_TABLES: tuple[str, ...] = ("activities", "simplified_hours", "simplified_direct_costs", "direct_costs", "people")
+_SELECTABLE_TABLES: frozenset[str] = frozenset((*_CHILD_TABLES, "projects", "admin_users"))
+
+# Limits on a saved project, so anonymous saves cannot fill the database or slow the admin page.
+MAX_TEXT_LENGTH: int = 200
+MAX_PEOPLE: int = 100
+MAX_ACTIVITIES: int = 500
+MAX_DIRECT_COSTS: int = 500
+MAX_HOURS: float = 1_000_000
+MAX_COST: float = 1_000_000_000_000
+
+
+def _check_table(table: str) -> str:
+    """Returns the table name if it is a known table, as names are interpolated into queries rather than bound."""
+    if table not in _SELECTABLE_TABLES:
+        raise ValueError(f"Unknown table {table!r}.")
+    return table
+
+
+def validate_state(state: CalculatorState) -> None:
+    """Checks that a state is small and sane enough to save.
+
+    Raises:
+        ValueError: If a list is too long, a text is too long, or a number is negative, not finite or implausibly large.
+    """
+    data: dict[str, Any] = state.to_dict()
+    for name, limit in (("people", MAX_PEOPLE), ("activities", MAX_ACTIVITIES), ("direct_costs", MAX_DIRECT_COSTS)):
+        if len(data[name]) > limit:
+            raise ValueError(f"Too many {name.replace('_', ' ')}, the limit is {limit}.")
+    for table in ("simplified_hours", "simplified_direct_costs"):
+        if len(data[table]) > MAX_PEOPLE * 4:
+            raise ValueError(f"Too many {table.replace('_', ' ')}.")
+
+    def check_text(value: Any) -> None:
+        if isinstance(value, str) and len(value) > MAX_TEXT_LENGTH:
+            raise ValueError(f"Text is too long, the limit is {MAX_TEXT_LENGTH} characters.")
+
+    def check_number(value: Any, limit: float) -> None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return
+        if not math.isfinite(value) or value < 0 or value > limit:
+            raise ValueError(f"Number {value!r} is outside the allowed range.")
+
+    people: list[dict[str, Any]] = [*data["people"], data["peer_reviewer"], data["journal_editor"]]
+    for person in people:
+        check_text(person["unique_key"])
+        check_number(person["hourly_rate"], MAX_COST)
+        check_number(person["quantity"], MAX_PEOPLE)
+    for item in (*data["activities"], *data["direct_costs"]):
+        for value in item.values():
+            check_text(value)
+        for column in ("hours", "initial_round_hours", "subsequent_round_hours", "hours_per_submission"):
+            check_number(item.get(column), MAX_HOURS)
+        check_number(item.get("cost"), MAX_COST)
+    for hours in data["simplified_hours"]:
+        check_number(hours["hours"], MAX_HOURS)
+    for cost in data["simplified_direct_costs"]:
+        check_number(cost["cost"], MAX_COST)
+    for column in ("user_country", "project_field"):
+        check_text(data["project"][column])
+    check_number(data["project"]["publishing_costs"], MAX_COST)
+    check_number(data["project"]["indirect_cost_percentage"], 1000)
+
+
 def connect(database: str) -> sqlite3.Connection:
     """Opens a SQLite database with foreign keys enforced and creates the schema if needed.
 
@@ -331,7 +398,12 @@ def _now() -> str:
 
 
 def _sql(conn: Connection, query: str) -> str:
-    """Rewrites a query's "?" placeholders to the placeholder style of the connection's driver."""
+    """Rewrites a query's "?" placeholders to the placeholder style of the connection's driver.
+
+    Every "?" is replaced, so a query must not contain a literal "?" or "%" in its text. Pass such values as parameters.
+    """
+    if "%" in query:
+        raise ValueError("Queries must not contain a literal '%', pass it as a parameter.")
     return query if isinstance(conn, sqlite3.Connection) else query.replace("?", "%s")
 
 
@@ -460,6 +532,7 @@ def save_project(conn: Connection, state: CalculatorState, version: int, loaded_
         loaded_alam_defaults: Whether the user loaded the default estimates from Alam et al. (2026). Only stored for
             projects in detailed mode.
     """
+    validate_state(state)
     values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     public_id: str = generate_public_id()
     timestamp: str = _now()
@@ -485,6 +558,7 @@ def update_project(
     Raises:
         KeyError: If no project with that public id exists.
     """
+    validate_state(state)
     values: dict[str, Any] = {**_project_values(state, loaded_alam_defaults), "version": version}
     with _transaction(conn) as cursor:
         # Checked with a SELECT, as MySQL's rowcount for an UPDATE counts only the rows whose values changed.
@@ -501,8 +575,8 @@ def update_project(
             (_now(), *values.values(), project_id),
         )
         # Activities and simplified hours reference people, so remove them first.
-        for table in ("activities", "simplified_hours", "simplified_direct_costs", "direct_costs", "people"):
-            cursor.execute(_sql(conn, f"DELETE FROM {table} WHERE project_id = ?"), (project_id,))
+        for table in _CHILD_TABLES:
+            cursor.execute(_sql(conn, f"DELETE FROM {_check_table(table)} WHERE project_id = ?"), (project_id,))
         _insert_children(conn, cursor, project_id, state)
 
 
@@ -578,7 +652,8 @@ def load_project(conn: Connection, public_id: str) -> CalculatorState:
 
         def select_children(table: str) -> list[dict[str, Any]]:
             cursor.execute(
-                _sql(conn, f"SELECT * FROM {table} WHERE project_id = ? ORDER BY position"), (project["id"],)
+                _sql(conn, f"SELECT * FROM {_check_table(table)} WHERE project_id = ? ORDER BY position"),
+                (project["id"],),
             )
             return _fetch_dicts(cursor)
 
@@ -592,21 +667,61 @@ def load_project(conn: Connection, public_id: str) -> CalculatorState:
         )
 
 
-def load_projects(conn: Connection) -> list[tuple[dict[str, Any], CalculatorState]]:
-    """Loads every saved project, most recently created first.
+def count_projects(conn: Connection) -> int:
+    """Returns the number of saved projects."""
+    with closing(conn.cursor()) as cursor:
+        cursor.execute("SELECT COUNT(*) FROM projects")
+        return int(cursor.fetchone()[0])
+
+
+def load_projects(
+    conn: Connection, limit: int | None = None, offset: int = 0
+) -> list[tuple[dict[str, Any], CalculatorState]]:
+    """Loads saved projects, most recently created first.
 
     Reads each table once rather than once per project, so it stays quick for a remote database with many projects.
+    Pass limit and offset to load one page of projects, so the cost does not grow with the number of saved projects.
+
+    Args:
+        conn: Connection to the database.
+        limit: Maximum number of projects to load, or None to load every project.
+        offset: Number of the most recent projects to skip. Only used with limit.
 
     Returns:
         A list of (projects row, calculator state) pairs. The projects row holds the project's public_id, created_at
         and updated_at among its other columns.
+
+    Raises:
+        ValueError: If limit is below 1 or offset is negative.
     """
+    if limit is not None and (limit < 1 or offset < 0):
+        raise ValueError("limit must be at least 1 and offset must not be negative.")
     with closing(conn.cursor()) as cursor:
-        cursor.execute("SELECT * FROM projects ORDER BY created_at DESC, id DESC")
+        if limit is None:
+            cursor.execute("SELECT * FROM projects ORDER BY created_at DESC, id DESC")
+        else:
+            cursor.execute(
+                _sql(conn, "SELECT * FROM projects ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"),
+                (int(limit), int(offset)),
+            )
         projects: list[dict[str, Any]] = _fetch_dicts(cursor)
+        if not projects:
+            return []
+        project_ids: list[int] = [project["id"] for project in projects]
 
         def select_children(table: str) -> dict[int, list[dict[str, Any]]]:
-            cursor.execute(f"SELECT * FROM {table} ORDER BY project_id, position")
+            if limit is None:
+                cursor.execute(f"SELECT * FROM {_check_table(table)} ORDER BY project_id, position")
+            else:
+                placeholders: str = ", ".join("?" for _ in project_ids)
+                cursor.execute(
+                    _sql(
+                        conn,
+                        f"SELECT * FROM {_check_table(table)} WHERE project_id IN ({placeholders})"
+                        " ORDER BY project_id, position",
+                    ),
+                    project_ids,
+                )
             rows_by_project: dict[int, list[dict[str, Any]]] = {}
             for row in _fetch_dicts(cursor):
                 rows_by_project.setdefault(row["project_id"], []).append(row)
@@ -655,13 +770,35 @@ def admin_user_id(issuer: str | None, subject: str) -> str:
     return f"{issuer or ''}#{subject}"
 
 
-def record_admin_login(conn: Connection, user_id: str, email: str | None, name: str | None) -> dict[str, Any]:
+def is_admin_owner(conn: Connection, user_id: str) -> bool:
+    """Returns whether the user is the authorised owner of the admin page."""
+    with closing(conn.cursor()) as cursor:
+        cursor.execute(
+            _sql(conn, "SELECT 1 FROM admin_users WHERE user_id = ? AND is_owner = 1 AND is_authorised = 1"), (user_id,)
+        )
+        return cursor.fetchone() is not None
+
+
+def record_admin_login(
+    conn: Connection,
+    user_id: str,
+    email: str | None,
+    name: str | None,
+    owner_email: str | None = None,
+    email_verified: bool = True,
+) -> dict[str, Any]:
     """Records a login to the admin page and returns the user's admin_users row.
 
-    A user logging in for the first time is added as unauthorised, unless nobody has logged in before, in which case
+    A user logging in for the first time is added as unauthorised, unless there is no owner yet, in which case
     they become the authorised owner. Later logins update the user's email, name and last login time.
+
+    If owner_email is given, only a user with that verified email can become the first owner. Others are added as
+    unauthorised, and the first owner must still be that user.
     """
     timestamp: str = _now()
+    may_own: bool = owner_email is None or (
+        email_verified and email is not None and email.strip().lower() == owner_email.strip().lower()
+    )
     with _transaction(conn) as cursor:
         cursor.execute(_sql(conn, "SELECT 1 FROM admin_users WHERE user_id = ?"), (user_id,))
         if cursor.fetchone() is None:
@@ -672,9 +809,10 @@ def record_admin_login(conn: Connection, user_id: str, email: str | None, name: 
                     "INSERT INTO admin_users (user_id, email, name, is_owner, is_authorised, first_login_at,"
                     " last_login_at, authorised_at)"
                     " SELECT ?, ?, ?, counts.is_first, counts.is_first, ?, ?, CASE WHEN counts.is_first = 1 THEN ? END"
-                    " FROM (SELECT CASE WHEN COUNT(*) = 0 THEN 1 ELSE 0 END AS is_first FROM admin_users) AS counts",
+                    " FROM (SELECT CASE WHEN COALESCE(SUM(is_owner), 0) = 0 AND ? = 1 THEN 1 ELSE 0 END AS is_first"
+                    " FROM admin_users) AS counts",
                 ),
-                (user_id, email, name, timestamp, timestamp, timestamp),
+                (user_id, email, name, timestamp, timestamp, timestamp, int(may_own)),
             )
         else:
             cursor.execute(

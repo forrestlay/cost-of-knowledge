@@ -45,6 +45,7 @@ DATABASE_TYPE_SECRET: str = "DATABASE_TYPE"
 DATABASE_URL_SECRET: str = "DATABASE_URL"
 DATABASE_USERNAME_SECRET: str = "DATABASE_USERNAME"
 DATABASE_PASSWORD_SECRET: str = "DATABASE_PASSWORD"
+DATABASE_SSL_CA_SECRET: str = "DATABASE_SSL_CA"
 SQLITE_DATABASE_FILE: Path = Path(__file__).parent.parent / "data" / "cost_of_knowledge.db"
 MYSQL_DEFAULT_PORT: int = 3306
 
@@ -102,6 +103,14 @@ def _mysql_connect() -> pymysql.connections.Connection:
         raise ValueError(f"{DATABASE_USERNAME_SECRET} must be set when {DATABASE_TYPE_SECRET} is mysql.")
     password: str = _get_setting(DATABASE_PASSWORD_SECRET) or unquote(parts.password or "")
 
+    options: dict[str, object] = {}
+    ssl_ca: str | None = _get_setting(DATABASE_SSL_CA_SECRET)
+    if ssl_ca:
+        # Encrypts the connection and verifies the server against this CA certificate file.
+        options["ssl_ca"] = ssl_ca
+        options["ssl_verify_cert"] = True
+        options["ssl_verify_identity"] = True
+
     return pymysql.connect(
         host=parts.hostname,
         port=parts.port or MYSQL_DEFAULT_PORT,
@@ -110,6 +119,7 @@ def _mysql_connect() -> pymysql.connections.Connection:
         database=database_name,
         charset="utf8mb4",
         connect_timeout=10,
+        **options,
     )
 
 

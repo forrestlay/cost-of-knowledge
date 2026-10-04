@@ -736,6 +736,7 @@ def save_item(key: str, item_kind: str | None = None, item_id: int | None = None
     if not name:
         st.toast(f"Choose or enter a name for the {ITEM_KINDS[kind].lower()} first.", icon=":material/error:")
         return
+    name = name.strip()[: sql_store.MAX_TEXT_LENGTH]
 
     # Adding an item that is already in the list overwrites it.
     overwriting: bool = False
@@ -1040,8 +1041,13 @@ def save_to_database() -> None:
                 sql_store.update_project(conn, public_id, state, FORM_VERSION, loaded_alam_defaults)
             except KeyError:
                 public_id = sql_store.save_project(conn, state, FORM_VERSION, loaded_alam_defaults)
-    except database.DATABASE_ERRORS as error:
-        st.toast(f"Could not save to the database: {error}", icon=":material/error:")
+    except ValueError as error:
+        # Raised by sql_store.validate_state, whose messages are safe to show.
+        st.toast(f"Could not save your result: {error}", icon=":material/error:")
+        return
+    except database.DATABASE_ERRORS:
+        logging.getLogger(__name__).exception("Could not save to the database.")
+        st.toast("Could not save to the database. Please try again later.", icon=":material/error:")
         return
     st.session_state["database_public_id"] = public_id
     st.session_state["database_saved_inputs"] = inputs
@@ -1058,8 +1064,9 @@ def delete_from_database() -> None:
     try:
         with closing(database.connect()) as conn:
             sql_store.delete_project(conn, public_id)
-    except database.DATABASE_ERRORS as error:
-        st.toast(f"Could not delete your saved result: {error}", icon=":material/error:")
+    except database.DATABASE_ERRORS:
+        logging.getLogger(__name__).exception("Could not delete a saved result.")
+        st.toast("Could not delete your saved result. Please try again later.", icon=":material/error:")
         return
     st.session_state["database_public_id"] = None
     st.session_state["database_saved_inputs"] = None

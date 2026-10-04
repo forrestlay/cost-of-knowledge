@@ -20,6 +20,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import closing
 from typing import TYPE_CHECKING, Any
@@ -29,6 +30,7 @@ import streamlit as st
 
 from src import database, sql_store
 from src.calculator_state import OVERALL_TOTAL_PHASES, compute_costs
+from src.csv_safety import to_safe_csv
 from src.reference_data import (
     COUNTRY_CURRENCIES,
     COUNTRY_NAMES,
@@ -73,25 +75,44 @@ def calculator_url() -> str:
     return (st.context.url or "./").removesuffix(ADMIN_URL_PATH)
 
 
+# Number of results per page of the results table, and the options for it.
+PAGE_SIZES: tuple[int, ...] = (25, 50, 100)
+# Number of results loaded at a time when exporting every result, so the export does not hold them all in memory.
+EXPORT_CHUNK_SIZE: int = 200
+
+
 @st.cache_data(ttl=60, show_spinner="Loading saved results...")
-def load_saved() -> list[tuple[dict[str, Any], CalculatorState]]:
-    """Loads every saved project and its calculator state, most recently saved first.
+def count_saved() -> int:
+    """Returns the number of saved projects. Cached for a minute."""
+    with closing(database.connect()) as conn:
+        return sql_store.count_projects(conn)
+
+
+@st.cache_data(ttl=60, show_spinner="Loading saved results...")
+def load_saved(limit: int, offset: int) -> list[tuple[dict[str, Any], CalculatorState]]:
+    """Loads one page of saved projects and their calculator states, most recently saved first.
 
     Cached for a minute so reruns of the page do not query the database each time.
     """
     with closing(database.connect()) as conn:
-        return sql_store.load_projects(conn)
+        return sql_store.load_projects(conn, limit, offset)
 
 
-@st.cache_data(ttl=60, show_spinner="Loading saved results...")
-def load_results() -> pd.DataFrame:
-    """Loads every saved project as one row of totals, most recently saved first.
+@st.cache_data(ttl=60, show_spinner="Loading saved result...")
+def load_one(public_id: str) -> CalculatorState | None:
+    """Loads one saved project's calculator state, or None if it has been deleted. Cached for a minute."""
+    try:
+        with closing(database.connect()) as conn:
+            return sql_store.load_project(conn, public_id)
+    except KeyError:
+        return None
 
-    Cached for a minute so reruns of the page do not query the database each time. Costs are in the currency of each
-    project's country, as saved.
+
+def results_frame(projects: list[tuple[dict[str, Any], CalculatorState]]) -> pd.DataFrame:
+    """Returns the given saved projects as one row of totals each, in the order given.
+
+    Costs are in the currency of each project's country, as saved.
     """
-    projects: list[tuple[dict[str, Any], CalculatorState]] = load_saved()
-
     rows: list[dict[str, Any]] = []
     for project, state in projects:
         combined: list[Cost] = [*state.effective_activities(), *state.effective_direct_costs()]  # ty:ignore[invalid-assignment]
@@ -139,6 +160,19 @@ def load_results() -> pd.DataFrame:
     ).astype({"Loaded Alam et al. defaults": "boolean"})
 
 
+def export_all_results() -> str:
+    """Returns every saved result as CSV text, loading the results in chunks. Run when the export button is clicked."""
+    frames: list[pd.DataFrame] = []
+    with closing(database.connect()) as conn:
+        total: int = sql_store.count_projects(conn)
+        for offset in range(0, total, EXPORT_CHUNK_SIZE):
+            frame: pd.DataFrame = results_frame(sql_store.load_projects(conn, EXPORT_CHUNK_SIZE, offset))
+            link_prefix: str = calculator_url() + f"{RESULT_URL_PATH}?{database.PROJECT_ID_QUERY_PARAM}="
+            frame.insert(0, "Link", link_prefix + frame["public_id"].astype(str))
+            frames.append(frame)
+    return to_safe_csv(pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(), index=False)
+
+
 def inject_auth_secrets() -> None:
     """Adds the authentication settings that are set as environment variables to st.secrets, for st.login to use.
 
@@ -175,6 +209,24 @@ def user_claim(name: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def owner_email() -> str | None:
+    """Email address allowed to become the owner when nobody has logged in yet, from the ADMIN_OWNER_EMAIL secret or
+    environment variable. When unset, the first user to log in becomes the owner.
+    """
+    value: object = None
+    try:
+        value = st.secrets.get("ADMIN_OWNER_EMAIL")
+    except Exception:  # noqa: BLE001 - no secrets file
+        value = None
+    return str(value or os.environ.get("ADMIN_OWNER_EMAIL") or "").strip().lower() or None
+
+
+def user_claim_verified() -> bool:
+    """Whether the login provider has verified the user's email. Providers that omit the claim count as verified."""
+    value: object = st.user.get("email_verified")
+    return value is not False
+
+
 def manage_user(click_key: str) -> None:
     """Runs the action of a button clicked in the users table, as the on_click callback of its button column.
 
@@ -183,6 +235,20 @@ def manage_user(click_key: str) -> None:
     """
     click = st.session_state[click_key]
     user_id: str = st.session_state.admin_user_ids[click.row]
+    # Checked again here, as the callback must not rely on the buttons only having been shown to the owner.
+    if not st.user.is_logged_in:
+        return
+    acting_user_id: str = sql_store.admin_user_id(user_claim("iss"), user_claim("sub") or "")
+    try:
+        with closing(database.connect()) as conn:
+            is_owner: bool = sql_store.is_admin_owner(conn, acting_user_id)
+    except database.DATABASE_ERRORS:
+        logging.getLogger(__name__).exception("Could not check the owner of the admin page.")
+        st.session_state.admin_authorise_error = "Could not check your access."
+        return
+    if not is_owner:
+        st.session_state.admin_authorise_error = "Only the owner can manage users."
+        return
     action: Callable[[sql_store.Connection, str], None]
     # The label is the text of the button, which may include its icon, e.g. ":material/key: Set owner".
     if "Authorise" in click.label:
@@ -301,6 +367,8 @@ try:
             sql_store.admin_user_id(user_claim("iss"), user_claim("sub") or ""),
             user_claim("email"),
             user_claim("name"),
+            owner_email=owner_email(),
+            email_verified=user_claim_verified(),
         )
 except database.DATABASE_ERRORS as error:
     st.error(f"Could not check your access in the database: {error}", icon=":material/error:")
@@ -320,21 +388,39 @@ st.button("Log out", icon=":material/logout:", on_click=st.logout)
 with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
     st.caption("Every result saved from the calculator. Costs are in the currency of each result's country.")
     if st.button("Refresh", icon=":material/refresh:"):
+        count_saved.clear()
         load_saved.clear()
-        load_results.clear()
+        load_one.clear()
 
 try:
-    results: pd.DataFrame = load_results()
-    states: dict[str, CalculatorState] = {str(project["public_id"]): state for project, state in load_saved()}
+    total_results: int = count_saved()
 except database.DATABASE_ERRORS as error:
     st.error(f"Could not load the saved results from the database: {error}", icon=":material/error:")
     show_authorisation_section(current_user)
     st.stop()
 
-if results.empty:
+if total_results == 0:
     st.info("No results have been saved yet.", icon=":material/info:")
     show_authorisation_section(current_user)
     st.stop()
+
+with st.container(horizontal=True, vertical_alignment="bottom"):
+    page_size: int = st.selectbox("Results per page", PAGE_SIZES, key="admin_page_size")
+    page_count: int = max(1, -(-total_results // page_size))
+    # Clamped, as results may have been deleted or the page size changed since the page was chosen.
+    if st.session_state.get("admin_page", 1) > page_count:
+        st.session_state.admin_page = page_count
+    page: int = st.number_input("Page", min_value=1, max_value=page_count, step=1, key="admin_page")
+    st.caption(f"{total_results} saved results, page {page} of {page_count}.")
+
+try:
+    page_projects: list[tuple[dict[str, Any], CalculatorState]] = load_saved(page_size, (page - 1) * page_size)
+except database.DATABASE_ERRORS as error:
+    st.error(f"Could not load the saved results from the database: {error}", icon=":material/error:")
+    show_authorisation_section(current_user)
+    st.stop()
+results: pd.DataFrame = results_frame(page_projects)
+states: dict[str, CalculatorState] = {str(project["public_id"]): state for project, state in page_projects}
 
 public_ids: list[str] = results.pop("public_id").astype(str).tolist()
 
@@ -358,7 +444,7 @@ if "admin_show_json" not in st.session_state:
 with st.container(horizontal=True, horizontal_alignment="right"):
     st.download_button(
         "Export all results",
-        data=results.drop(columns="Details").assign(public_id=public_ids).to_csv(index=False),
+        data=export_all_results,
         file_name="results.csv",
         mime="text/csv",
         icon=":material/download:",
@@ -401,12 +487,16 @@ st.dataframe(
 
 st.subheader("Result details")
 
-if st.session_state.admin_selected_id not in states:
+# The selected result may be on another page than the one shown, so it is loaded by its id if it is not in this page.
+selected_state: CalculatorState | None = None
+if st.session_state.admin_selected_id is not None:
+    selected_state = states.get(st.session_state.admin_selected_id) or load_one(st.session_state.admin_selected_id)
+if selected_state is None:
     st.caption('Click "Load" on a result in the table above to see its details.')
     show_authorisation_section(current_user)
     st.stop()
 
-state: CalculatorState = states[st.session_state.admin_selected_id]
+state: CalculatorState = selected_state
 currency: str = COUNTRY_CURRENCIES.get(state.user_country, ("", ""))[0]
 st.caption(
     f"Result {st.session_state.admin_selected_id} · "
@@ -487,7 +577,7 @@ loaded_export.insert(0, "public_id", st.session_state.admin_selected_id)
 with st.container(horizontal=True, horizontal_alignment="right"):
     st.download_button(
         "Export loaded result",
-        data=loaded_export.to_csv(index=False),
+        data=to_safe_csv(loaded_export, index=False),
         file_name=f"result-{st.session_state.admin_selected_id}.csv",
         mime="text/csv",
         icon=":material/download:",

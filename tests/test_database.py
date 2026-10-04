@@ -396,7 +396,7 @@ def test_result_page_with_unknown_id(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run_result_page(at, "does-not-exist")
-    assert at.error[0].value.startswith("There is no result with id")
+    assert at.error[0].value.startswith("There is no result with that id")
     assert not at.metric
 
 

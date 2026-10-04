@@ -190,6 +190,25 @@ def test_load_projects(conn: Connection) -> None:
     assert [loaded for _, loaded in projects] == [state, CalculatorState.default()]
 
 
+def test_load_projects_pages(conn: Connection) -> None:
+    states: list[CalculatorState] = [modified_state() if index % 2 else CalculatorState.default() for index in range(5)]
+    public_ids: list[str] = [sql_store.save_project(conn, state, FORM_VERSION) for state in states]
+    assert sql_store.count_projects(conn) == 5
+    everything = sql_store.load_projects(conn)
+    pages = [sql_store.load_projects(conn, 2, offset) for offset in (0, 2, 4)]
+    assert [len(page) for page in pages] == [2, 2, 1]
+    assert [project["public_id"] for page in pages for project, _ in page] == list(reversed(public_ids))
+    assert [pair for page in pages for pair in page] == everything
+    assert sql_store.load_projects(conn, 2, 10) == []
+
+
+def test_load_projects_rejects_bad_page(conn: Connection) -> None:
+    with pytest.raises(ValueError, match="limit"):
+        sql_store.load_projects(conn, 0)
+    with pytest.raises(ValueError, match="limit"):
+        sql_store.load_projects(conn, 5, -1)
+
+
 def test_delete_project_cascades(conn: Connection) -> None:
     public_id: str = sql_store.save_project(conn, modified_state(), FORM_VERSION)
     sql_store.delete_project(conn, public_id)
@@ -253,3 +272,43 @@ def test_delete_admin_user(conn: Connection) -> None:
     assert [user["user_id"] for user in sql_store.list_admin_users(conn)] == ["iss#1"]
     with pytest.raises(KeyError):
         sql_store.delete_admin_user(conn, "iss#2")
+
+
+def test_save_rejects_oversize_text(conn: Connection) -> None:
+    state: CalculatorState = default_with_researcher()
+    state.activities[0].name = "x" * (sql_store.MAX_TEXT_LENGTH + 1)
+    with pytest.raises(ValueError, match="too long"):
+        sql_store.save_project(conn, state, FORM_VERSION)
+    assert count_rows(conn, "projects") == 0
+
+
+def test_save_rejects_negative_or_huge_numbers(conn: Connection) -> None:
+    state: CalculatorState = default_with_researcher()
+    state.peer_reviewer.hourly_rate = -1
+    with pytest.raises(ValueError, match="outside"):
+        sql_store.save_project(conn, state, FORM_VERSION)
+
+
+def test_unknown_table_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown table"):
+        sql_store._check_table("projects; DROP TABLE projects")
+
+
+def test_is_admin_owner(conn: Connection) -> None:
+    sql_store.record_admin_login(conn, "a", "a@example.com", "A")
+    sql_store.record_admin_login(conn, "b", "b@example.com", "B")
+    assert sql_store.is_admin_owner(conn, "a")
+    assert not sql_store.is_admin_owner(conn, "b")
+    assert not sql_store.is_admin_owner(conn, "missing")
+
+
+def test_owner_email_restricts_first_owner(conn: Connection) -> None:
+    other = sql_store.record_admin_login(conn, "x", "x@example.com", "X", owner_email="boss@example.com")
+    assert not other["is_owner"]
+    unverified = sql_store.record_admin_login(
+        conn, "y", "boss@example.com", "Y", owner_email="boss@example.com", email_verified=False
+    )
+    assert not unverified["is_owner"]
+    boss = sql_store.record_admin_login(conn, "z", "Boss@Example.com", "Z", owner_email="boss@example.com")
+    assert boss["is_owner"]
+    assert boss["is_authorised"]

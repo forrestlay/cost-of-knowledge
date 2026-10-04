@@ -34,6 +34,7 @@ Configuration is read from environment variables. The database and
 | `DATABASE_URL`           | When `mysql`            | Database to connect to, in the form `mysql://host[:port]/database`. The database must already exist; its tables are created on first use.           |
 | `DATABASE_USERNAME`      | When `mysql`            | Username for the MySQL database.                                                                                                                    |
 | `DATABASE_PASSWORD`      | When `mysql`            | Password for the MySQL database.                                                                                                                    |
+| `DATABASE_SSL_CA`        | No                      | Path to a CA certificate file. When set, the MySQL connection is encrypted and the server's certificate is verified.                                |
 | `AUTH_REDIRECT_URI`      | For OIDC authentication | The redirect URL for OIDC authentication. Should be the `BASE_URL/oauth2callback`.                                                                  |
 | `COOKIE_SECRET`          | For OIDC authentication | A strong, randomly generated string. Needed for OIDC authentication.                                                                                |
 | `GOOGLE_CLIENT_ID`       | Google authentication   | Google OIDC login client ID.                                                                                                                        |
@@ -42,6 +43,7 @@ Configuration is read from environment variables. The database and
 | `MSFT_CLIENT_ID`         | Microsoft auth          | Microsoft OIDC login client ID.                                                                                                                     |
 | `MSFT_CLIENT_SECRET`     | Microsoft auth          | Microsoft OIDC login client secret.                                                                                                                 |
 | `MSFT_METADATA_URL`      | Microsoft auth          | Microsoft OIDC login metadata url.                                                                                                                  |
+| `ADMIN_OWNER_EMAIL`      | Recommended for admin   | Email address allowed to become the admin owner. Without it, the first account to log in becomes the owner.                                         |
 
 With `sqlite`, the database is created at `data/cost_of_knowledge.db`.
 
@@ -49,7 +51,10 @@ With `sqlite`, the database is created at `data/cost_of_knowledge.db`.
 
 To view the admin page, go to the `BASE_URL/admin` and login with a Google or Microsoft account. OIDC authentication
 must be enabled by setting the relevant environment variables or setting the variables in `.streamlit/secrets.toml`.
-The first account to login will have admin access and can authorise other users who login to access the admin page.
+The owner has admin access and can authorise other users who login to access the admin page. Set `ADMIN_OWNER_EMAIL` to
+the owner's email address so that only an account with that verified email can become the owner. If it is not set, the
+first account to login becomes the owner, so anyone who reaches `/admin` first on a new deployment could take
+ownership.
 
 The admin page displays all data collected by the tool where the user has consented.
 

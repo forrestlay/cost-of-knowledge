@@ -21,6 +21,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import logging
 from contextlib import closing
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
@@ -88,9 +89,10 @@ def load_result(public_id: str) -> CalculatorState | None:
         with closing(database.connect()) as conn:
             return sql_store.load_project(conn, public_id)
     except KeyError:
-        st.error(f"There is no result with id {public_id!r}.", icon=":material/error:")
-    except database.DATABASE_ERRORS as error:
-        st.error(f"Could not load the result from the database: {error}", icon=":material/error:")
+        st.error("There is no result with that id.", icon=":material/error:")
+    except database.DATABASE_ERRORS:
+        logging.getLogger(__name__).exception("Could not load a result from the database.")
+        st.error("Could not load the result from the database. Please try again later.", icon=":material/error:")
     return None
 
 

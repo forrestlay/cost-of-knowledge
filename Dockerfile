@@ -14,7 +14,8 @@ COPY . /app
 ENV UV_NO_DEV=1
 
 WORKDIR /app
-RUN uv sync --locked
+RUN uv sync --locked     && useradd --create-home appuser     && chown -R appuser /app
+USER appuser
 
 EXPOSE 8501
 

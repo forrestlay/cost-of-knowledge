@@ -67,6 +67,17 @@ def _write_rates_file(data: SavedRates) -> None:
     temp_file.replace(EXCHANGE_RATES_FILE)
 
 
+def _newer_default_rates(saved: SavedRates | None) -> dict[str, float] | None:
+    """Returns the default rates if they exist and are dated later than saved (or nothing is saved), else None."""
+    default: SavedRates | None = _read_rates_file(DEFAULT_EXCHANGE_RATES_FILE)
+    if default is None:
+        return None
+    # ISO format dates compare correctly as strings.
+    if saved is None or default.get("date", "") > saved.get("date", ""):
+        return default["rates"]
+    return None
+
+
 def _get_api_key() -> str | None:
     """Returns the API key from Streamlit secrets, falling back to the environment variable of the same name."""
     try:
@@ -109,9 +120,9 @@ def _fetch_usd_rates(api_key: str) -> dict[str, float]:
 def _load_usd_rates(today: str) -> dict[str, float] | None:
     """Returns today's USD exchange rates, querying the API only if they haven't already been saved today.
 
-    If the API's usage limit has been reached, whichever of the default rates and the most recently saved rates is newer
-    is used instead. If the API can't be queried for any other reason, the most recently saved rates are used. Cached
-    for an hour so that a failing API isn't queried on every rerun.
+    If no API key is set or the API's usage limit has been reached, whichever of the default rates and the most recently
+    saved rates is newer is used instead. If the API can't be queried for any other reason, the most recently saved
+    rates are used. Cached for an hour so that a failing API isn't queried on every rerun.
 
     Args:
         today: Today's date in ISO format. Part of the cache key so the cache turns over each day.
@@ -125,11 +136,10 @@ def _load_usd_rates(today: str) -> dict[str, float] | None:
         try:
             rates: dict[str, float] = _fetch_usd_rates(api_key)
         except RateLimitError as error:
-            default: SavedRates | None = _read_rates_file(DEFAULT_EXCHANGE_RATES_FILE)
-            # ISO format dates compare correctly as strings.
-            if default is not None and (saved is None or default.get("date", "") > saved.get("date", "")):
+            default_rates: dict[str, float] | None = _newer_default_rates(saved)
+            if default_rates is not None:
                 logger.warning("%s, using default exchange rates.", error)
-                return default["rates"]
+                return default_rates
             logger.warning("%s, using saved exchange rates.", error)
         except (RuntimeError, KeyError, ZeroDivisionError) as error:
             logger.warning("Could not update exchange rates: %s", error)
@@ -137,6 +147,10 @@ def _load_usd_rates(today: str) -> dict[str, float] | None:
             _write_rates_file(SavedRates(date=today, base="USD", rates=rates))
             return rates
     else:
+        default_rates = _newer_default_rates(saved)
+        if default_rates is not None:
+            logger.warning("No %s secret set, using default exchange rates.", EXCHANGE_RATES_SECRET)
+            return default_rates
         logger.warning("No %s secret set, exchange rates can't be updated.", EXCHANGE_RATES_SECRET)
 
     return saved["rates"] if saved is not None else None

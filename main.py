@@ -1876,7 +1876,7 @@ st.markdown(
 
         By default, this cost is not included in the total cost calculated by this tool as it focuses on the costs
         of producing the research that make scholarly publishing possible. However, you may choose to include these
-        costs in the results.
+        costs in the results to provide a closer approximation of the total cost of your refereed journal article.
         """
     ).replace(
         "{footnote_5}",

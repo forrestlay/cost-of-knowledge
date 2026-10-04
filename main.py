@@ -1660,15 +1660,15 @@ st.markdown(
             To estimate the full cost of producing your journal article, the process is divided into five phases:
 
             - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
-              applying for researchfunding (whether successful or not).
+              applying for research funding (whether successful or not).
             - **Data Collection and Analysis**: Gathering data, conducting fieldwork or experiments, cleaning data,
               and carrying out analyses.
-            - **Manuscript Preparation**: Writing, revising, formatting, and preparing the article for submission.
+            - **Manuscript Preparation**: Writing, obtaining peer feedback through conferencing, revising, formatting,
+              and preparing the article for submission.
             - **Peer Review and Journal Editorial Work**: Responding to reviewer comments, making revisions,
               resubmitting the manuscript, and completing publication-related tasks.
             - **Publishing (optional)**: The publication and dissemination of the journal article, generally performed
-              by the journal publisher. Includes handling article submissions, formatting an article for publication,
-              and dissemination of the journal article via the journal website and through indexing services.
+              by the journal publisher.
 
             Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
             refereed journal article. {starting_point}

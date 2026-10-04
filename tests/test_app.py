@@ -101,7 +101,7 @@ def default_with_researcher() -> CalculatorState:
 def test_defaults_unchanged() -> None:
     at: AppTest = run_app()
     # Nothing counts until a researcher has been added, including the peer review and journal editorial work.
-    assert metric_values(at) == ["$455 (USD)", "0 h", "$0 (USD)"]
+    assert metric_values(at) == ["$0 (USD)", "0 h", "$0 (USD)"]
     assert at.selectbox(key="user_country_select").value is None
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
     assert field_select.value is None
@@ -139,11 +139,11 @@ def test_load_alam_defaults() -> None:
     at: AppTest = run_app()
     add_researcher_at_rate(at)
     load_alam_defaults(at)
-    assert metric_values(at) == ["$71,973 (USD)", "798 h", "$3,646 (USD)"]
+    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
     # The loaded hours and costs must survive later reruns, not only the one straight after loading.
     run(at)
     run(at)
-    assert metric_values(at) == ["$71,973 (USD)", "798 h", "$3,646 (USD)"]
+    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
     first_activity: Activity = next(a for a in at.session_state["activity_list"] if isinstance(a, Activity))
     assert (first_activity.name, first_activity.hours) == ("Ideation and conception", 55.0)
     assert at.session_state["cost_list"][0].cost == 246.0
@@ -304,7 +304,7 @@ def test_quantity_does_not_change_totals() -> None:
     load_alam_defaults(at)
     at.session_state["people"]["1"].quantity = 2
     run(at)
-    assert metric_values(at) == ["$71,973 (USD)", "798 h", "$3,646 (USD)"]
+    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
 
 
 def test_deleting_researcher_reassigns_activities() -> None:
@@ -469,18 +469,25 @@ def test_simplified_is_the_default_mode() -> None:
     ]
 
 
-def test_simplified_first_researcher_starts_with_default_hours() -> None:
+def test_simplified_starts_at_zero_and_loads_defaults_for_first_researcher() -> None:
     at: AppTest = run_app("simplified")
     add_researcher_at_rate(at)
     add_researcher(at, "lecturer")
+    run(at)
+    assert at.slider(key="simplified-hours-incubation-1").value == 0.0
+    assert at.slider(key="simplified-hours-incubation-1").max == 800.0
+    assert at.number_input(key="simplified-cost-data").value == 0.0
+    # Only the 23 hours of peer review and journal editorial work, at US$85.
+    assert metric_values(at) == [f"${23 * 85:,.0f} (USD)", "23 h", "$0 (USD)"]
+
+    at.button(key="load-simplified-defaults").click()
     run(at)
     assert at.slider(key="simplified-hours-incubation-1").value == 286.0
     assert at.slider(key="simplified-hours-data-1").value == 266.5
     assert at.slider(key="simplified-hours-writing-1").value == 223.0
     assert at.slider(key="simplified-hours-incubation-2").value == 0.0
-    assert at.slider(key="simplified-hours-incubation-1").max == 800.0
     # 775.5 hours of research and 23 hours of peer review and journal editorial work, at US$85.
-    assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3646 + 454.63:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,646 (USD)"]
+    assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3646:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,646 (USD)"]
 
 
 def test_simplified_estimates() -> None:
@@ -491,17 +498,17 @@ def test_simplified_estimates() -> None:
     at.slider(key="simplified-hours-writing-1").set_value(0.0)
     at.number_input(key="simplified-cost-data").set_value(250.0)
     run(at)
-    assert metric_values(at) == [f"${(100 + 23) * 85 + 3650 + 454.63:,.0f} (USD)", "123 h", "$3,650 (USD)"]
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
 
     # The detailed estimates are separate, and the mode chosen decides which count.
     at.radio(key="calculator-mode").set_value("detailed")
     run(at)
-    assert metric_values(at) == ["$2,410 (USD)", "23 h", "$0 (USD)"]
+    assert metric_values(at) == ["$1,955 (USD)", "23 h", "$0 (USD)"]
     at.radio(key="calculator-mode").set_value("simplified")
     run(at)
     assert at.slider(key="simplified-hours-incubation-1").value == 100.0
     assert at.number_input(key="simplified-cost-data").value == 250.0
-    assert metric_values(at) == [f"${(100 + 23) * 85 + 3650 + 454.63:,.0f} (USD)", "123 h", "$3,650 (USD)"]
+    assert metric_values(at) == [f"${(100 + 23) * 85 + 250:,.0f} (USD)", "123 h", "$250 (USD)"]
 
 
 def test_simplified_direct_costs_convert_with_currency() -> None:
@@ -519,6 +526,8 @@ def test_deleting_researcher_moves_simplified_hours() -> None:
     at: AppTest = run_app("simplified")
     add_researcher(at)
     add_researcher(at, "lecturer")
+    at.slider(key="simplified-hours-incubation-1").set_value(286.0)
+    at.slider(key="simplified-hours-data-1").set_value(266.5)
     at.slider(key="simplified-hours-incubation-2").set_value(50.0)
     at.slider(key="simplified-hours-data-2").set_value(600.0)
     run(at)
@@ -558,3 +567,23 @@ def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:
     detailed: AppTest = run_app("detailed")
     add_researcher(detailed, "assistant_professor")
     assert detailed.slider(key="add-item-hours-1").label == label
+
+
+def test_clear_all_researchers_asks_for_confirmation() -> None:
+    at: AppTest = run_app("simplified")
+    assert at.button(key="clear-people").disabled
+    add_researcher(at)
+    add_researcher(at, "lecturer")
+    at.button(key="clear-people").click()
+    run(at)
+    at.button(key="cancel-clear-people").click()
+    run(at)
+    assert len(at.session_state["people"]) == 2
+
+    at.button(key="clear-people").click()
+    run(at)
+    at.button(key="confirm-clear-people").click()
+    run(at)
+    assert not at.exception
+    assert at.session_state["people"] == {}
+    assert at.button(key="clear-people").disabled

@@ -100,7 +100,7 @@ DEFAULT_PUBLISHING_COSTS: float = float(_DEFAULT_COSTS["publishing"]["publishing
 
 def default_phase_hours() -> dict[str, float]:
     """Returns the total hours of each phase in OVERALL_TOTAL_PHASES in the default estimates from Alam et al. (2026),
-    which the first researcher starts with in the simplified calculator.
+    which the simplified calculator's defaults button gives the first researcher.
     """
     hours: dict[str, float] = dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0)
     for activity in _DEFAULT_COSTS["activities"]:
@@ -201,7 +201,7 @@ class CalculatorState:
     simplified_hours: dict[str, dict[str, float]] = field(default_factory=dict)
     simplified_direct_costs: dict[str, float] = field(default_factory=dict)
     publishing_costs: float = DEFAULT_PUBLISHING_COSTS
-    include_publishing_costs: bool = True
+    include_publishing_costs: bool = False
 
     @property
     def peer_review(self) -> PeerReview:
@@ -216,7 +216,7 @@ class CalculatorState:
     @classmethod
     def default(cls) -> CalculatorState:
         """Returns the calculator's starting state, with no researchers, one journal submission with three rounds of
-        peer review, no detailed direct costs, and the default simplified direct costs of each phase (in USD).
+        peer review, no detailed direct costs, and and zero simplified hours and direct costs.
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
         peer_reviewer: Person = Person(
@@ -243,7 +243,7 @@ class CalculatorState:
             journal_editor=journal_editor,
             activities=activities,
             direct_costs=[],
-            simplified_direct_costs=default_phase_costs(),
+            simplified_direct_costs=dict.fromkeys(OVERALL_TOTAL_PHASES, 0.0),
         )
 
     def effective_activities(self) -> list[BaseActivity]:

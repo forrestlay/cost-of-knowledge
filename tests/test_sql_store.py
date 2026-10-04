@@ -140,7 +140,7 @@ def test_save_and_load_simplified_estimates(conn: Connection) -> None:
     assert restored == state
     assert restored.calculator_mode == "simplified"
     assert restored.total_hours() == 286 + 12.5 + 266.5 + 23
-    assert restored.total_cost() == pytest.approx((286 + 266.5 + 23) * 85 + 12.5 * 40 + 250.5 + 3400 + 454.63)
+    assert restored.total_cost() == pytest.approx((286 + 266.5 + 23) * 85 + 12.5 * 40 + 250.5 + 3400)
 
     # Detailed mode ignores the simplified estimates, which are kept.
     state.calculator_mode = "detailed"

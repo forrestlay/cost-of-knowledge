@@ -279,15 +279,6 @@ def set_simplified_hours(phase: str, person_key: str, hours: float) -> None:
     st.session_state[f"simplified-hours-{phase}-{person_key}"] = hours
 
 
-def add_default_simplified_hours(person: Person) -> None:
-    """Gives a researcher the default hours of each phase in the simplified calculator, from data/default_costs.json.
-
-    Used for the first researcher only, so the calculator starts with the estimates from Alam et al. (2026).
-    """
-    for phase, hours in default_phase_hours().items():
-        set_simplified_hours(phase, person.unique_key, hours)
-
-
 def delete_person(key: str):
     """Deletes a research team member. Their activities and simplified hours are reassigned to the first remaining
     team member, or deleted if there are none left.
@@ -480,11 +471,8 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
         hourly_rate = role_hourly_rate(choice)
 
     if person is None:
-        first_researcher: bool = not people
         person = Person(next_person_key(), PersonType.RESEARCH_TEAM, hourly_rate, role, quantity)
         people[person.unique_key] = person
-        if first_researcher:
-            add_default_simplified_hours(person)
         # The form clears itself, but not the role selectbox above it.
         st.session_state[f"{key}-role"] = None
         st.toast(f"Added {person.label}.", icon=":material/check_circle:")
@@ -624,6 +612,11 @@ def simplified_phase_inputs(phase: str) -> None:
     with st.container(border=True):
         if not st.session_state["people"]:
             st.info("Add a researcher to estimate their hours.")
+        else:
+            st.markdown(
+                "**Add the total hours of labor performed by each set of researchers and the direct costs "
+                "incurred in this phase.**"
+            )
         for person in st.session_state["people"].values():
             # Seed the widget's state rather than passing value=, as reused keys keep the value the browser holds.
             hours_key: str = f"simplified-hours-{phase}-{person.unique_key}"
@@ -636,6 +629,7 @@ def simplified_phase_inputs(phase: str) -> None:
                 min_value=0.0,
                 max_value=float(MAX_RESEARCHER_HOURS),
                 step=0.5,
+                format="%g hour(s)",
                 key=hours_key,
             )
         simplified_cost_key: str = f"simplified-cost-{phase}"
@@ -898,6 +892,7 @@ def item_form(key: str, item_kind: str | None = None, item_id: int | None = None
                     min_value=0.0,
                     max_value=float(MAX_RESEARCHER_HOURS),
                     step=0.5,
+                    format="%g hour(s)",
                     key=f"{key}-hours-{person.unique_key}",
                 )
         else:
@@ -1131,9 +1126,10 @@ def load_alam_defaults() -> None:
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
-def reset_simplified_defaults() -> None:
-    """Callback for the simplified calculator's reset button. Sets the hours and direct costs back to the estimates
-    from Alam et al. (2026): the first researcher gets the default hours of each phase and everyone else has none.
+def load_simplified_defaults() -> None:
+    """Callback for the simplified calculator's "Load defaults from Alam et al. (2026)" button. Sets the hours and
+    direct costs to the estimates from Alam et al. (2026): the first researcher gets the default hours of each phase
+    and everyone else has none.
 
     The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
     """
@@ -1147,7 +1143,7 @@ def reset_simplified_defaults() -> None:
             set_simplified_hours(phase, person.unique_key, hours)
         st.session_state["simplified_direct_costs"][phase] = round(cost * rate, 2)
         st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
-    st.toast("Reset the hours and costs to the defaults.", icon=":material/check_circle:")
+    st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
 def reset_publishing_costs() -> None:
@@ -1171,6 +1167,34 @@ def clear_simplified_estimates() -> None:
         st.session_state["simplified_direct_costs"][phase] = 0.0
         st.session_state[f"simplified-cost-{phase}"] = 0.0
     st.toast("Set all hours and costs to zero.", icon=":material/check_circle:")
+
+
+def clear_people() -> None:
+    """Deletes every research team member, along with their activities and simplified hours."""
+    for key in list(st.session_state["people"]):
+        delete_person(key)
+    st.toast("Removed all researchers.", icon=":material/check_circle:")
+
+
+@st.dialog("Clear all researchers")
+def confirm_clear_people() -> None:
+    """Asks for confirmation before deleting every researcher."""
+    st.write(
+        "This will delete all of the researchers you have added, along with their activities and simplified hours. "
+        "This cannot be undone."
+    )
+    confirm_column, cancel_column = st.columns(2)
+    if confirm_column.button(
+        "Clear researchers",
+        key="confirm-clear-people",
+        type="primary",
+        icon=":material/delete:",
+        width="stretch",
+    ):
+        clear_people()
+        st.rerun()
+    if cancel_column.button("Cancel", key="cancel-clear-people", width="stretch"):
+        st.rerun()
 
 
 def reset_activities_and_costs() -> None:
@@ -1224,11 +1248,10 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
         return COST_OF_KNOWLEDGE_URL, "Estimate your own Cost of Knowledge"
     return saved_url, "See my result and estimate your own Cost of Knowledge"
 
+
 def share_footer() -> str:
     """Footer text for the social media and email post."""
-    return (
-        "Cost of Knowledge Calculator by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
-    )
+    return "Cost of Knowledge Calculator by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
 
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
@@ -1514,7 +1537,7 @@ with st.container(border=True):
         format_func=lambda answer: "Yes" if answer else "No",
         horizontal=True,
         help="This will be reflected on a summary infographic generated by this tool. This has no effect on the cost "
-        "calculation."
+        "calculation.",
     )
     # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
     # used selectable, so loading it does not fail.
@@ -1588,6 +1611,15 @@ with st.container(border=True):
     st.markdown("**Add a researcher**")
     researcher_form(ADD_PERSON_FORM_KEY)
 
+if st.button(
+    "Clear all researchers",
+    key="clear-people",
+    icon=":material/delete_sweep:",
+    disabled=not st.session_state["people"],
+    help=None if st.session_state["people"] else "There are no researchers to clear.",
+):
+    confirm_clear_people()
+
 if not st.session_state["people"]:
     st.info("No researchers added yet. Add at least one to start adding activities to the calculator.")
 row_styles(list(RESEARCH_PHASES))
@@ -1654,32 +1686,25 @@ st.markdown(
             To estimate the full cost of producing your journal article, the process is divided into five phases:
 
             - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
-              applying for researchfunding (whether successful or not).
+              applying for research funding (whether successful or not).
             - **Data Collection and Analysis**: Gathering data, conducting fieldwork or experiments, cleaning data,
               and carrying out analyses.
-            - **Manuscript Preparation**: Writing, revising, formatting, and preparing the article for submission.
+            - **Manuscript Preparation**: Writing, obtaining peer feedback through conferencing, revising, formatting,
+              and preparing the article for submission.
             - **Peer Review and Journal Editorial Work**: Responding to reviewer comments, making revisions,
               resubmitting the manuscript, and completing publication-related tasks.
-            - **Publishing**: The publication and dissemination of the journal article, generally performed by the
-              journal publisher. Includes handling article submissions, formatting an article for publication, and
-              dissemination of the journal article via the journal website and through indexing services.
+            - **Publishing (optional)**: The publication and dissemination of the journal article, generally performed
+              by the journal publisher.
 
             Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
-            refereed journal article. {starting_point}
+            refereed journal article. If you would like a starting point, you can click the button below to load default
+            estimates, which are the conservative estimates for a single author social sciences journal
+            article{footnote_alam}.
 
             For activities, input the estimated hours performed by each researcher. If there are multiple researchers
             with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
             per person).
             """.replace(
-        "{starting_point}",
-        (
-            "If you would like a starting point, you can click the button below to load default estimates, which "
-            if st.session_state["calculator_mode"] == "detailed"
-            else "If you would like a starting point, the default estimates "
-        )
-        + "are the conservative estimates for a single author social sciences journal article{footnote_alam}.",
-    )
-    .replace(
         "{footnote_alam}",
         toggletip(
             "<sup>4</sup>",
@@ -1687,8 +1712,7 @@ st.markdown(
             available on Zenodo.""",
             key="footnote-4",
         ),
-    )
-    .replace(
+    ).replace(
         "{direct costs}",
         toggletip(
             "direct costs",
@@ -1706,12 +1730,17 @@ st.markdown(
 if st.session_state["calculator_mode"] == "simplified":
     reset_defaults_column, clear_column, _ = st.columns([1, 1, 2])
     reset_defaults_column.button(
-        "Reset hours and costs to defaults",
-        key="reset-simplified-defaults",
-        icon=":material/restart_alt:",
-        on_click=reset_simplified_defaults,
+        "Load defaults from Alam et al. (2026)",
+        key="load-simplified-defaults",
+        icon=":material/download:",
+        type="primary",
+        on_click=load_simplified_defaults,
         disabled=not st.session_state["people"],
-        help=None if st.session_state["people"] else "Add a researcher to assign the hours to first.",
+        help=(
+            "Loads the default hours for Researcher 1 only, as it assumes a single author."
+            if st.session_state["people"]
+            else "Add a researcher to assign the hours to first."
+        ),
         width="stretch",
     )
     clear_column.button(
@@ -1726,7 +1755,7 @@ if st.session_state["calculator_mode"] == "simplified":
 if st.session_state["calculator_mode"] == "detailed":
     defaults_column, reset_column, _ = st.columns([1, 1, 2])
     defaults_column.button(
-        "Load defaults from Alam et al. 2026",
+        "Load defaults from Alam et al. (2026)",
         key="load-alam-defaults",
         icon=":material/download:",
         type="primary",
@@ -1782,8 +1811,6 @@ if st.session_state["calculator_mode"] == "detailed":
 else:
     phases_column = st.container()
 
-# TODO: Include buttons to load information about the activities/phases.
-
 phases_column.subheader(RESEARCH_PHASES["incubation"])
 phases_column.markdown(PHASE_DESCRIPTIONS["incubation"])
 with phases_column:
@@ -1837,26 +1864,19 @@ with st.container(border=True):
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
 # The publishing phase also requires a special full width section
-st.subheader(RESEARCH_PHASES["publishing"])
+st.subheader(f"{RESEARCH_PHASES['publishing']} (optional)")
 st.markdown(
     cleandoc(
-        """The publication and dissemination of the journal article, generally performed by the journal publisher.
-        Includes handling article submissions, formatting an article for dissemination, and dissemination of the journal
-        article via the journal website and through indexing services.
+        """
+        Now that you've calculated the costs from ideation to acceptance, what do you think it costs the publisher to
+        go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
+        journal article for a full service journal publisher with in-house staff that relies on volunteer editors and
+        peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs, 2021,
+        p. 6).{footnote_5}
 
-        The default value provided here corresponds to the cost per refereed journal article for a full service journal
-        publisher with in-house staff that relies on volunteer editors and peer reviewers, and publishes 100 journal
-        articles a year with a 50% rejection rate (Grossman & Brembs, 2021, p. 6).{footnote_5} For a lower bound
-        estimate, arXiv, a nonprofit open access repository, has reported operating costs of $19 per manuscript
-        (Alam et al., 2026, p. 8).
-
-        - A publisher that publishes more articles per year in its journal or outsources some of the above activities
-          will bear lower costs per journal article.
-        - A publisher that uses in-house editors will bear higher costs.
-        - A journal with a high rejection rate will bear higher costs per journal article.
-
-        Provide your best estimation of the cost of scholarly publishing for your refereed journal article, using
-        the default value as a benchmark. If you are unsure, you may disable the inclusion of this cost.
+        By default, this cost is not included in the total cost calculated by this tool as it focuses on the costs
+        of producing the research that make scholarly publishing possible. However, you may choose to include these
+        costs in the results to provide a closer approximation of the total cost of your refereed journal article.
         """
     ).replace(
         "{footnote_5}",
@@ -1885,6 +1905,7 @@ with st.container(border=True):
         # Converting to another currency or loading a saved result can give a value above the usual maximum.
         max_value=max(1600.0, float(st.session_state["publishing-costs"])),
         step=1.0,
+        format=f"{currency_prefix()}%.2f",
         key="publishing-costs",
         help=f"The default value of US${DEFAULT_PUBLISHING_COSTS:,.2f} is the cost per refereed journal article "
         "for a full service journal publisher with in-house staff using volunteer editors "
@@ -2216,10 +2237,6 @@ with share_left:
         format_currency=format_currency,
         show_hours=st.session_state["share_show_hours"],
     ).as_svg()
-
-    # TODO: Add names to our social media share message.
-    # TODO: Move the save button here.
-    # TODO: Add messaging above the share posts.
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.download_button(

@@ -35,13 +35,12 @@ def test_default_totals() -> None:
     state: CalculatorState = CalculatorState.default()
     # Peer review and journal editorial work only count once a researcher has been added.
     assert state.total_hours() == 0
-    # The default simplified direct costs count from the start: US$246 for data collection and US$3,400 for writing,
-    # along with US$454.63 for publishing.
-    assert state.total_cost() == pytest.approx(3646 + 454.63)
+    # The simplified direct costs are zero by default, and publishing costs are excluded.
+    assert state.total_cost() == 0
     state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 85)
     # Three review rounds of one journal submission is 8 hours, and journal editorial work is 15, at US$85.
     assert state.total_hours() == 23
-    assert state.total_cost() == pytest.approx(23 * 85 + 3646 + 454.63)
+    assert state.total_cost() == pytest.approx(23 * 85)
     del state.people["1"]
     assert state.people == {}
     assert [activity for activity in state.activities if isinstance(activity, Activity)] == []
@@ -72,7 +71,7 @@ def test_with_default_costs_totals() -> None:
     state: CalculatorState = default_with_researcher().with_default_costs()
     # 775.5 activity hours, 8 peer review hours and 15 journal editing hours at US$85, plus US$3,646 direct costs.
     assert state.total_hours() == 798.5
-    assert state.total_cost() == pytest.approx(798.5 * 85 + 3646 + 454.63)
+    assert state.total_cost() == pytest.approx(798.5 * 85 + 3646)
 
 
 def test_simplified_totals_ignore_detailed_estimates() -> None:
@@ -82,7 +81,7 @@ def test_simplified_totals_ignore_detailed_estimates() -> None:
     state.simplified_direct_costs = {"writing": 500.0}
     # Peer review and journal editorial work count in both modes: 8 + 15 hours.
     assert state.total_hours() == 123
-    assert state.total_cost() == pytest.approx(123 * 85 + 500 + 454.63)
+    assert state.total_cost() == pytest.approx(123 * 85 + 500)
     assert state.summary()["phase_costs"]["incubation"] == pytest.approx(100 * 85)
     assert CalculatorState.from_json(state.to_json()) == state
 

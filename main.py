@@ -1189,9 +1189,9 @@ def confirm_clear_people() -> None:
         key="confirm-clear-people",
         type="primary",
         icon=":material/delete:",
-        on_click=clear_people,
         width="stretch",
     ):
+        clear_people()
         st.rerun()
     if cancel_column.button("Cancel", key="cancel-clear-people", width="stretch"):
         st.rerun()

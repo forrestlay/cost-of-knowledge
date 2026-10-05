@@ -2,10 +2,12 @@
 
 Each saved CalculatorState is a row in the projects table, with its people, activities and direct costs in child
 tables. save_project creates a new row and update_project overwrites a saved project in place. Each project records
-the version of the form (main.FORM_VERSION) that it was saved under. Rows are built from CalculatorState.to_dict() and
-loaded back through CalculatorState.from_dict(), so the dict format remains the single definition of what is serialised.
+the version of the tool (main.COST_OF_KNOWLEDGE_VERSION) that it was saved under. Rows are built from
+CalculatorState.to_dict() and loaded back through CalculatorState.from_dict(), so the dict format remains the single
+definition of what is serialised.
 
-No names are stored for projects. Databases created by older versions are not migrated and must be reset.
+No names are stored for projects. Databases created by older versions of the tool are not migrated automatically. Run
+the scripts in src/migrations to bring them up to date.
 
 The admin_users table records everyone who has logged in to the admin page. The first user to log in is the owner and is
 authorised automatically. Every later user must be authorised by the owner before they can use the admin page.
@@ -73,8 +75,8 @@ CREATE TABLE IF NOT EXISTS projects (
     -- Derived from the inputs below for querying; ignored when a project is loaded.
     total_cost NUMERIC NOT NULL,
     total_hours NUMERIC NOT NULL,
-    -- Version of the form (main.FORM_VERSION) that the project was saved under.
-    version INTEGER NOT NULL
+    -- Version of the tool (main.COST_OF_KNOWLEDGE_VERSION) that the project was saved under, e.g. '0.1.2'.
+    version TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS people (
@@ -184,8 +186,8 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         -- Derived from the inputs below for querying, ignored when a project is loaded.
         total_cost DOUBLE NOT NULL,
         total_hours DOUBLE NOT NULL,
-        -- Version of the form (main.FORM_VERSION) that the project was saved under.
-        version INTEGER NOT NULL
+        -- Version of the tool (main.COST_OF_KNOWLEDGE_VERSION) that the project was saved under, e.g. '0.1.2'.
+        version VARCHAR(16) NOT NULL
     )
     """,
     """
@@ -376,7 +378,7 @@ def connect(database: str) -> sqlite3.Connection:
 def init_db(conn: Connection) -> None:
     """Creates the tables if they do not exist. For SQLite, also enables foreign keys on the connection.
 
-    Databases created by older versions are not migrated and must be reset.
+    Databases created by older versions of the tool are not migrated. Run the scripts in src/migrations to migrate them.
     """
     if isinstance(conn, sqlite3.Connection):
         conn.execute("PRAGMA foreign_keys = ON")
@@ -522,13 +524,13 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
     )
 
 
-def save_project(conn: Connection, state: CalculatorState, version: int, loaded_alam_defaults: bool = False) -> str:
+def save_project(conn: Connection, state: CalculatorState, version: str, loaded_alam_defaults: bool = False) -> str:
     """Saves a calculator state as a new project and returns its public id.
 
     Args:
         conn: Connection to the database.
         state: Calculator state to save.
-        version: Version of the form that the project is saved under.
+        version: Version of the tool that the project is saved under, e.g. "0.1.2".
         loaded_alam_defaults: Whether the user loaded the default estimates from Alam et al. (2026). Only stored for
             projects in detailed mode.
     """
@@ -551,9 +553,9 @@ def save_project(conn: Connection, state: CalculatorState, version: int, loaded_
 
 
 def update_project(
-    conn: Connection, public_id: str, state: CalculatorState, version: int, loaded_alam_defaults: bool = False
+    conn: Connection, public_id: str, state: CalculatorState, version: str, loaded_alam_defaults: bool = False
 ) -> None:
-    """Replaces a saved project's data, form version and loaded_alam_defaults flag with the given values.
+    """Replaces a saved project's data, tool version and loaded_alam_defaults flag with the given values.
 
     Raises:
         KeyError: If no project with that public id exists.

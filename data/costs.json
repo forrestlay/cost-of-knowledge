@@ -6,7 +6,7 @@
       "direct_cost_desc": "Costs associated with developing the project, preparing ethics applications, or applying for research funding."
     },
     "data": {
-      "description": "This phase encompasses all activities and direct costs involved in carrying out the research.",
+      "description": "This phase encompasses activities involved in collecting and analysing research data, including the gathering, coding, verifying and analysing of data from interviews, fieldwork, experiments, clinical trials and/or archival studies.",
       "direct_cost_desc": "Participant incentives, survey administration, dataset purchases, transcription services, specialist software, database access, laboratory consumables, or research assistance."
     },
     "writing": {
@@ -98,7 +98,7 @@
     {
       "name": "Participant incentivization",
       "phase": "data",
-      "default_cost": 246,
+      "default_cost": 352,
       "description": "Payments, vouchers or gifts given to participants for taking part in the study."
     },
     {

@@ -80,6 +80,9 @@ persists when the container is recreated, e.g. `-v costofknowledge/data:/app/dat
 
 The app is then available at <http://localhost:8501>.
 
+Each time the container starts, it runs any database migrations the configured database needs (`src/migrate.py`)
+before starting the app. Outside Docker, run them with `uv run python -m src.migrate`.
+
 To provide a `secrets.toml`, create a `.streamlit` directory on the host containing a `secrets.toml` file, and mount it
 at `/app/.streamlit`. Mounting it read-only (`:ro`) is recommended. Streamlit reads `secrets.toml` from this directory
 at startup.

@@ -21,5 +21,7 @@ EXPOSE 8501
 
 HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
 
-ENTRYPOINT ["uv", "run", "streamlit", "run", "main.py"]
+# Run any needed database migrations before starting the tool. Run at startup rather than at build time, as the
+# database is configured by the container's environment. Arguments from CMD are passed on to Streamlit.
+ENTRYPOINT ["sh", "-c", "uv run python -m src.migrate && exec uv run streamlit run main.py \"$@\"", "--"]
 CMD ["--server.port=8501"]

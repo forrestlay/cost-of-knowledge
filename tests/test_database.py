@@ -18,8 +18,8 @@ from src import database, sql_store
 from src.calculator_state import CalculatorState
 from src.reference_data import RESEARCH_PHASES
 
-# Stands in for main.FORM_VERSION, which cannot be imported as main.py is a script.
-FORM_VERSION: int = 1
+# Stands in for main.COST_OF_KNOWLEDGE_VERSION, which cannot be imported as main.py is a script.
+COST_OF_KNOWLEDGE_VERSION: str = "0.1.2"
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -199,7 +199,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
     state.peer_review.review_rounds = 2
     state.peer_review.journal_submissions = 3
     with closing(database.connect()) as conn:
-        public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
+        public_id: str = sql_store.save_project(conn, state, COST_OF_KNOWLEDGE_VERSION)
 
     log_in(monkeypatch, "owner")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
@@ -374,7 +374,7 @@ def test_result_page_shows_saved_result_without_hours(monkeypatch: pytest.Monkey
     state: CalculatorState = CalculatorState.default()
     state.user_country = "gb"
     with closing(database.connect()) as conn:
-        public_id: str = sql_store.save_project(conn, state, FORM_VERSION)
+        public_id: str = sql_store.save_project(conn, state, COST_OF_KNOWLEDGE_VERSION)
 
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run_result_page(at, public_id)
@@ -406,11 +406,11 @@ def test_result_page_without_id() -> None:
     assert at.info[0].value == "No result was chosen."
 
 
-def test_saved_project_records_form_version(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_saved_project_records_tool_version(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
     click_save(at)
     with closing(database.connect()) as conn:
         [project] = sql_store.list_projects(conn)
-    assert project["version"] == FORM_VERSION
+    assert project["version"] == COST_OF_KNOWLEDGE_VERSION

@@ -2252,6 +2252,7 @@ with share_left:
         phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
         format_currency=format_currency,
         show_hours=st.session_state["share_show_hours"],
+        version=COST_OF_KNOWLEDGE_VERSION,
     ).as_svg()
 
     with st.container(horizontal=True, horizontal_alignment="left"):

@@ -150,6 +150,7 @@ social_media_svg: str = create_social_media_svg(
     phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
     format_currency=lambda amount: format_currency(amount, country),
     show_hours=False,
+    version=state.version,
 ).as_svg()
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg_to_png(social_media_svg), width=540)

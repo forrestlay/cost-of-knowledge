@@ -590,7 +590,9 @@ def _state_from_rows(
     simplified_hours_rows: list[dict[str, Any]],
     simplified_direct_cost_rows: list[dict[str, Any]],
 ) -> CalculatorState:
-    """Builds a CalculatorState from a projects row and its child rows, each in position order."""
+    """Builds a CalculatorState from a projects row and its child rows, each in position order, with the version of
+    the tool that the project was saved under.
+    """
     people: dict[str, list[dict[str, Any]]] = {"team": [], "peer_reviewer": [], "journal_editor": []}
     for row in people_rows:
         people[row["role"]].append(
@@ -614,6 +616,7 @@ def _state_from_rows(
     return CalculatorState.from_dict(
         {
             "schema_version": project["schema_version"],
+            "version": project["version"],
             "project": {
                 "user_country": project["user_country"],
                 "international_collaborators": bool(project["international_collaborators"]),

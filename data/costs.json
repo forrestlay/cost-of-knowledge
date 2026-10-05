@@ -108,7 +108,7 @@
       "description": "Costs associated with travel for the purposes of data collection."
     },
     {
-      "name": "Digital ranscription services",
+      "name": "Digital transcription services",
       "phase": "data",
       "default_cost": 0,
       "description": "Cost of digital transcription services. If a human transcription service was hired and the hours and hourly rate is known, add the transcriber as a researcher and add transcription as an activity."

@@ -96,6 +96,8 @@ def test_save_and_load(conn: Connection) -> None:
     public_id: str = sql_store.save_project(conn, state, COST_OF_KNOWLEDGE_VERSION)
     restored: CalculatorState = sql_store.load_project(conn, public_id)
     assert restored == state
+    assert restored.version == COST_OF_KNOWLEDGE_VERSION
+    assert sql_store.load_projects(conn)[0][1].version == COST_OF_KNOWLEDGE_VERSION
     assert restored.total_cost() == pytest.approx(state.total_cost())
     # Integer inputs stay integers, so the int-bounded Streamlit inputs accept them.
     assert isinstance(restored.peer_reviewer.hourly_rate, int)

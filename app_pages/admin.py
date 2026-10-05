@@ -120,6 +120,7 @@ def results_frame(projects: list[tuple[dict[str, Any], CalculatorState]]) -> pd.
             {
                 "public_id": project["public_id"],
                 "Saved": pd.to_datetime(project["created_at"]),
+                "Version": state.version,
                 "Country": COUNTRY_NAMES.get(state.user_country, state.user_country),
                 "International collaboration": state.international_collaborators,
                 "Field": field_of_research_display_name(state.project_field),
@@ -143,6 +144,7 @@ def results_frame(projects: list[tuple[dict[str, Any], CalculatorState]]) -> pd.
         columns=[
             "public_id",
             "Saved",
+            "Version",
             "Country",
             "International collaboration",
             "Field",
@@ -500,7 +502,7 @@ state: CalculatorState = selected_state
 currency: str = COUNTRY_CURRENCIES.get(state.user_country, ("", ""))[0]
 st.caption(
     f"Result {st.session_state.admin_selected_id} · "
-    f"{state.calculator_mode.capitalize()} · amounts in {currency or 'USD'}"
+    f"Version {state.version} · {state.calculator_mode.capitalize()} · amounts in {currency or 'USD'}"
 )
 
 # The tables of the details section, in the order shown, which are also exported together as one CSV.

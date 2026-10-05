@@ -150,6 +150,7 @@ social_media_svg: str = create_social_media_svg(
     phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
     format_currency=lambda amount: format_currency(amount, country),
     show_hours=False,
+    version=state.version,
 ).as_svg()
 with st.container(horizontal=True, horizontal_alignment="center"):
     st.image(social_media_svg_to_png(social_media_svg), width=540)
@@ -270,13 +271,21 @@ st.markdown(
         https://doi.org/10.7208/chicago/9780226805597.003.0002;
         Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
         review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
-
-        :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
-        Lay, Loh, and Tanima.
-        :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
-        International License](https://creativecommons.org/licenses/by/4.0/).]
-
-        :small[[Privacy Policy](https://sparcopen.org/privacy-policy/)]
         """,
     unsafe_allow_html=True,
+)
+st.divider()
+st.markdown(
+    """
+    :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+    Lay, Loh, and Tanima.
+    :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+    International License](https://creativecommons.org/licenses/by/4.0/).]
+
+    :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
+    [Github](https://github.com/forrestlay/cost-of-knowledge)]
+
+    :small[Tool version: v{version}]
+    """.replace("{version}", state.version or "unknown"),
+    text_alignment="center",
 )

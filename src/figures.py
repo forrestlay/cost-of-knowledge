@@ -350,6 +350,7 @@ def create_social_media_svg(
     phase_costs: dict[str, float],
     format_currency: Callable[[float], str],
     show_hours: bool = False,
+    version: str | None = None,
 ) -> draw.Drawing:
     """Builds a portrait social-media card summarising a cost estimate.
 
@@ -366,6 +367,8 @@ def create_social_media_svg(
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
         format_currency: Formats an amount as a string in the chosen country's currency.
         show_hours: Whether to show the estimated hours of labor below the total cost.
+        version: Version of the tool that produced the estimate (e.g. "0.1.2"), shown in the bottom-left corner, or
+            None to leave it out.
     """
     width: int = 1080
     height: int = 1360
@@ -635,6 +638,18 @@ def create_social_media_svg(
             line_height=28 / 24,
         )
     )
+    if version is not None:
+        # Aligned with the last line of the credit.
+        image.append(
+            draw.Text(
+                f"Version {version}",
+                14,
+                margin,
+                height - 36,
+                fill=muted,
+                font_family=SOCIAL_MEDIA_FONT,
+            )
+        )
     return image
 
 

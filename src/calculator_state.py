@@ -186,6 +186,9 @@ class CalculatorState:
             by the journal publisher.
         include_publishing_costs: Whether publishing_costs count towards the totals, as a direct cost in the
             publishing phase.
+        version: Version of the tool that the state was saved under in the database (e.g. "0.1.2"), or None if it
+            was not loaded from the database. It is not an input to the calculator, so it is left out of session state
+            and comparisons between states.
     """
 
     user_country: str
@@ -202,6 +205,7 @@ class CalculatorState:
     simplified_direct_costs: dict[str, float] = field(default_factory=dict)
     publishing_costs: float = DEFAULT_PUBLISHING_COSTS
     include_publishing_costs: bool = False
+    version: str | None = field(default=None, compare=False)
 
     @property
     def peer_review(self) -> PeerReview:
@@ -378,6 +382,7 @@ class CalculatorState:
         """Returns a JSON-serialisable dict of this state. Activities reference people by their unique_key."""
         return {
             "schema_version": SCHEMA_VERSION,
+            "version": self.version,
             "project": {
                 "user_country": self.user_country,
                 "international_collaborators": self.international_collaborators,
@@ -468,6 +473,7 @@ class CalculatorState:
             },
             publishing_costs=float(project.get("publishing_costs", DEFAULT_PUBLISHING_COSTS)),
             include_publishing_costs=bool(project.get("include_publishing_costs", False)),
+            version=data.get("version"),
         )
 
     def to_json(self, indent: int | None = 2) -> str:

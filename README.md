@@ -1,6 +1,6 @@
-# Cost of Knowledge Visualisation Tool
+# Cost of Knowledge Calculator Tool
 
-The Cost of Knowledge Visualisation Tool, allows an academic to estimate the total cost of producing
+The Cost of Knowledge Calculator Tool allows an academic to estimate the total cost of producing
 and publishing an academic research article.
 
 This repository is part of the Cost of Knowledge research project conducted by academics from The University of Sydney

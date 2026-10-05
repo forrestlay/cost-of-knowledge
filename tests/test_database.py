@@ -214,6 +214,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         "Link": f"./result?project_id={public_id}",
         "Details": ":material/visibility: Load",
         "Saved": row["Saved"],
+        "Version": COST_OF_KNOWLEDGE_VERSION,
         "Country": "United Kingdom",
         "International collaboration": True,
         "Field": "Commerce, management, tourism and services/Accounting, auditing and accountability",

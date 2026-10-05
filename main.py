@@ -108,7 +108,7 @@ for other_page in (RESULT_PAGE, ADMIN_PAGE):
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # Version of the tool, shown in the footer and recorded with each saved result. Whenever this tool is changed
 # substantially such that users may approach answering the questions differently, increment this.
-COST_OF_KNOWLEDGE_VERSION: str = "0.1.2"
+COST_OF_KNOWLEDGE_VERSION: str = "0.1.3"
 
 
 # Anchors of the page's main sections, and the table of contents in the sidebar that links to them.
@@ -1119,7 +1119,7 @@ def show_footer() -> None:
         :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
         [Github](https://github.com/forrestlay/cost-of-knowledge)]
 
-        Tool version: v{version}
+        :small[Tool version: v{version}]
         """.replace("{version}", COST_OF_KNOWLEDGE_VERSION),
         text_alignment="center",
     )
@@ -2252,6 +2252,7 @@ with share_left:
         phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
         format_currency=format_currency,
         show_hours=st.session_state["share_show_hours"],
+        version=COST_OF_KNOWLEDGE_VERSION,
     ).as_svg()
 
     with st.container(horizontal=True, horizontal_alignment="left"):

@@ -61,10 +61,25 @@ def run(at: AppTest) -> None:
     assert not at.exception
 
 
-def run_app(mode: str = "detailed") -> AppTest:
-    """Runs the app in the given calculator mode. Most tests exercise the detailed calculator, so it is the default."""
+def field_selectbox(at: AppTest) -> Any:
+    return next(box for box in at.selectbox if box.label.startswith("Field of research"))
+
+
+def set_project(at: AppTest, country: str = "us", field: str = "4601") -> None:
+    """Chooses the project's country and field of research, which must be set before the results are shown. The
+    default country is the US, so that amounts stay in USD."""
+    at.selectbox(key="user_country_select").set_value(country)
+    field_selectbox(at).set_value(field)
+    run(at)
+
+
+def run_app(mode: str = "detailed", project: bool = True) -> AppTest:
+    """Runs the app in the given calculator mode. Most tests exercise the detailed calculator, so it is the default.
+    If project is True, the project's country and field of research are chosen too (see set_project)."""
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    if project:
+        set_project(at)
     if mode != at.radio(key="calculator-mode").value:
         at.radio(key="calculator-mode").set_value(mode)
         run(at)
@@ -98,13 +113,23 @@ def default_with_researcher() -> CalculatorState:
     return state
 
 
+def results_warning(at: AppTest) -> str | None:
+    """Returns the warning listing the requirements for showing the results, or None if it is not shown."""
+    return next((w.value for w in at.warning if w.value.startswith("The results cannot be shown")), None)
+
+
 def test_defaults_unchanged() -> None:
-    at: AppTest = run_app()
-    # Nothing counts until a researcher has been added, including the peer review and journal editorial work.
-    assert metric_values(at) == ["$0 (USD)", "0 h", "$0 (USD)"]
+    at: AppTest = run_app(project=False)
+    # The results are not shown until every requirement is met, and the warning lists each unmet requirement.
+    assert metric_values(at) == []
+    warning: str | None = results_warning(at)
+    assert warning is not None
+    assert "country" in warning
+    assert "field of research" in warning
+    assert "at least one researcher" in warning
+    assert "hours" in warning
     assert at.selectbox(key="user_country_select").value is None
-    field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
-    assert field_select.value is None
+    assert field_selectbox(at).value is None
     assert at.session_state["people"] == {}
     assert at.selectbox(key="add-person-role").value is None
     assert at.slider(key="review-rounds").value == 3
@@ -112,6 +137,41 @@ def test_defaults_unchanged() -> None:
     assert not any(box.key == "activity-name-1" for box in at.selectbox)
     assert all(button.disabled for button in at.button if button.key and button.key.startswith("add-activity-"))
     assert at.button(key="load-alam-defaults").disabled
+
+
+def test_results_shown_once_requirements_met() -> None:
+    at: AppTest = run_app(project=False)
+    set_project(at)
+    warning: str | None = results_warning(at)
+    assert warning is not None
+    assert "country" not in warning
+    assert "field of research" not in warning
+    assert "at least one researcher" in warning
+    add_researcher_at_rate(at)
+    run(at)
+    warning = results_warning(at)
+    assert warning is not None
+    assert "at least one researcher" not in warning
+    # The peer review and journal editorial work hours do not count, as they are not in the first three phases.
+    assert "hours" in warning
+    assert metric_values(at) == []
+    # Hours in only one of the first three phases are enough.
+    at.radio(key="calculator-mode").set_value("simplified")
+    run(at)
+    at.slider(key="simplified-hours-writing-1").set_value(10.0)
+    run(at)
+    assert results_warning(at) is None
+    assert metric_values(at)
+
+
+def meet_results_requirements(at: AppTest) -> None:
+    """Chooses the project's country and field of research, adds a researcher and loads the default activities, so
+    that the results can be shown."""
+    set_project(at)
+    at.radio(key="calculator-mode").set_value("detailed")
+    run(at)
+    add_researcher_at_rate(at)
+    load_alam_defaults(at)
 
 
 def test_first_researcher_starts_without_activities() -> None:
@@ -184,7 +244,7 @@ def test_load_alam_defaults_keeps_country_and_rates() -> None:
 
 
 def test_session_state_round_trip() -> None:
-    at: AppTest = run_app("simplified")
+    at: AppTest = run_app("simplified", project=False)
     state: CalculatorState = CalculatorState.from_session_state(AppTestSessionState(at))
     expected: CalculatorState = CalculatorState.default()
     assert CalculatorState.from_json(state.to_json()) == expected
@@ -208,6 +268,7 @@ def test_import_replaces_edited_widgets() -> None:
     imported.activities.append(Activity("Data collection", second, "data", 100, 11, 4))
     imported.peer_review.review_rounds = 2
     imported.user_country = "us"
+    imported.project_field = "4601"
     restored: CalculatorState = CalculatorState.from_json(imported.to_json())
 
     restored.apply_to_session_state(AppTestSessionState(at))
@@ -441,7 +502,7 @@ def test_adding_editing_and_deleting_direct_cost() -> None:
 
 
 def test_field_of_research_select() -> None:
-    at: AppTest = run_app("simplified")
+    at: AppTest = run_app("simplified", project=False)
     field_select = next(box for box in at.selectbox if box.label.startswith("Field of research"))
     # No field is chosen until the user picks one.
     assert field_select.value is None
@@ -477,8 +538,9 @@ def test_simplified_starts_at_zero_and_loads_defaults_for_first_researcher() -> 
     assert at.slider(key="simplified-hours-incubation-1").value == 0.0
     assert at.slider(key="simplified-hours-incubation-1").max == 800.0
     assert at.number_input(key="simplified-cost-data").value == 0.0
-    # Only the 23 hours of peer review and journal editorial work, at US$85.
-    assert metric_values(at) == [f"${23 * 85:,.0f} (USD)", "23 h", "$0 (USD)"]
+    # Only the 23 hours of peer review and journal editorial work, which are not enough to show the results.
+    assert metric_values(at) == []
+    assert results_warning(at) is not None
 
     at.button(key="load-simplified-defaults").click()
     run(at)
@@ -503,7 +565,10 @@ def test_simplified_estimates() -> None:
     # The detailed estimates are separate, and the mode chosen decides which count.
     at.radio(key="calculator-mode").set_value("detailed")
     run(at)
-    assert metric_values(at) == ["$1,955 (USD)", "23 h", "$0 (USD)"]
+    # No detailed activities have been added, so only the peer review and journal editorial work count, which are not
+    # enough to show the results.
+    assert metric_values(at) == []
+    assert results_warning(at) is not None
     at.radio(key="calculator-mode").set_value("simplified")
     run(at)
     assert at.slider(key="simplified-hours-incubation-1").value == 100.0
@@ -544,11 +609,16 @@ def test_sunburst_only_shown_in_detailed_mode() -> None:
     def sunburst_caption_shown(at: AppTest) -> bool:
         return any(caption.value.startswith("Percentages are calculated") for caption in at.caption)
 
-    at: AppTest = run_app("simplified")
-    assert not sunburst_caption_shown(at)
-    at.radio(key="calculator-mode").set_value("detailed")
-    run(at)
+    at: AppTest = run_app()
+    add_researcher_at_rate(at)
+    load_alam_defaults(at)
     assert sunburst_caption_shown(at)
+    at.radio(key="calculator-mode").set_value("simplified")
+    run(at)
+    at.button(key="load-simplified-defaults").click()
+    run(at)
+    assert metric_values(at)
+    assert not sunburst_caption_shown(at)
 
 
 def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:

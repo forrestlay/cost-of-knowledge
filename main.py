@@ -1073,16 +1073,58 @@ def delete_from_database() -> None:
     st.toast("Your saved result has been deleted.", icon=":material/delete:")
 
 
-def toggle_results() -> None:
-    """Callback for the "Calculate the cost of your journal article" button. Shows the results and share sections
-    (they stay visible afterwards). Each click syncs the database with the "save my result" toggle: if it is on, the
-    result is saved (or updated if it was saved before); if it is off, a previously saved result is deleted.
+def unmet_results_requirements() -> list[str]:
+    """Returns a description of each condition that must be met before the results can be shown, or an empty list if
+    they are all met: a country and field of research are chosen, at least one researcher is added, and the total hours
+    across the incubation, data collection and analysis, and manuscript preparation phases is greater than zero.
     """
-    st.session_state["show_results"] = True
+    unmet: list[str] = []
+    if not st.session_state["user_country"]:
+        unmet.append("Choose the country your research project is primarily associated with.")
+    if not st.session_state["project_field"]:
+        unmet.append("Choose the field of research your paper/project is located in.")
+    if not st.session_state["people"]:
+        unmet.append("Add at least one researcher.")
+    activities: list[BaseActivity] = CalculatorState.from_session_state(st.session_state).effective_activities()
+    if sum(compute_hours(activities, phase) for phase in OVERALL_TOTAL_PHASES) <= 0:
+        phase_names: list[str] = [RESEARCH_PHASES[phase] for phase in OVERALL_TOTAL_PHASES]
+        unmet.append(
+            f"Enter more than zero hours of researcher labor in total across the {', '.join(phase_names[:-1])} and "
+            f"{phase_names[-1]} phases."
+        )
+    return unmet
+
+
+def results_visible() -> bool:
+    """Whether the results and share sections are shown: the cost has been calculated, and the requirements of
+    unmet_results_requirements() are still met.
+    """
+    return st.session_state.get("show_results", False) and not unmet_results_requirements()
+
+
+def sync_database() -> None:
+    """Syncs the database with the "save my result" toggle: if it is on, the result is saved (or updated if it was saved
+    before); if it is off, a previously saved result is deleted.
+    """
+    st.session_state["database_sync_pending"] = False
     if st.session_state.get("save_result_to_database", False):
         save_to_database()
     else:
         delete_from_database()
+
+
+def show_results() -> None:
+    """Callback for the "Calculate the cost of your journal article" button. Shows the results and share sections
+    (they stay visible afterwards while the requirements of unmet_results_requirements() are met; otherwise a warning
+    lists the unmet requirements instead). Each click syncs the database with the "save my result" toggle (see
+    sync_database()). If the requirements are not met, the sync waits in st.session_state["database_sync_pending"]
+    until they are, so a result is never saved before it can be shown.
+    """
+    st.session_state["show_results"] = True
+    if unmet_results_requirements():
+        st.session_state["database_sync_pending"] = True
+        return
+    sync_database()
 
 
 def show_footer() -> None:
@@ -1457,7 +1499,7 @@ with st.sidebar:
     )
     with st.container(key="toc", gap="small"):
         for toc_label, toc_anchor in TABLE_OF_CONTENTS:
-            if toc_anchor in RESULTS_ANCHORS and not st.session_state.get("show_results", False):
+            if toc_anchor in RESULTS_ANCHORS and not results_visible():
                 continue
             st.markdown(f"[{toc_label}](#{toc_anchor})")
 
@@ -1970,11 +2012,31 @@ st.button(
     key="calculate-cost",
     icon=":material/calculate:",
     type="primary",
-    on_click=toggle_results,
+    on_click=show_results,
 )
 
-# Nothing below the button, apart from the footer, is shown until the cost has been calculated.
-if not st.session_state["show_results"]:
+# Once the button has been clicked, list any requirements still unmet. Checked each run, so the warning updates as
+# the inputs change and the results appear once every requirement is met.
+results_requirements: list[str] = unmet_results_requirements()
+if st.session_state["show_results"] and results_requirements:
+    saving_notice: str = (
+        "\n\nYour result will be saved once these are done."
+        if st.session_state.get("save_result_to_database", False)
+        else ""
+    )
+    st.warning(
+        "The results cannot be shown until the following are done:\n"
+        + "\n".join(f"- {requirement}" for requirement in results_requirements)
+        + saving_notice,
+        icon=":material/warning:",
+    )
+# A click made while the requirements were unmet saves (or deletes) the result once they are met.
+if st.session_state.get("database_sync_pending", False) and not results_requirements:
+    sync_database()
+
+# Nothing below the button, apart from the footer, is shown until the cost has been calculated and every requirement
+# is met.
+if not st.session_state["show_results"] or results_requirements:
     show_footer()
     st.stop()
 

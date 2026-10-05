@@ -12,14 +12,14 @@ import pymysql
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
-from test_app import MAIN, run
+from test_app import MAIN, field_selectbox, meet_results_requirements, run
 
 from src import database, sql_store
 from src.calculator_state import CalculatorState
 from src.reference_data import RESEARCH_PHASES
 
 # Stands in for main.COST_OF_KNOWLEDGE_VERSION, which cannot be imported as main.py is a script.
-COST_OF_KNOWLEDGE_VERSION: str = "0.1.2"
+COST_OF_KNOWLEDGE_VERSION: str = "0.1.3"
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -108,23 +108,41 @@ def test_save_overwrites_previous_project(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    meet_results_requirements(at)
 
     click_save(at)
     public_id: str = at.session_state["database_public_id"]
-    next(box for box in at.selectbox if box.label.startswith("Field of research")).set_value("4601")
+    field_selectbox(at).set_value("3501")
     run(at)
     click_save(at)
 
     assert at.session_state["database_public_id"] == public_id
     with closing(database.connect()) as conn:
         assert [project["public_id"] for project in sql_store.list_projects(conn)] == [public_id]
-        assert sql_store.load_project(conn, public_id).project_field == "4601"
+        assert sql_store.load_project(conn, public_id).project_field == "3501"
+
+
+def test_save_waits_until_results_requirements_met(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+
+    click_save(at)
+    assert any("will be saved once these are done" in warning.value for warning in at.warning)
+    with closing(database.connect()) as conn:
+        assert sql_store.list_projects(conn) == []
+
+    meet_results_requirements(at)
+    with closing(database.connect()) as conn:
+        [project] = sql_store.list_projects(conn)
+    assert at.session_state["database_public_id"] == project["public_id"]
 
 
 def test_save_button_without_changes_keeps_project(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    meet_results_requirements(at)
 
     click_save(at)
     public_id: str = at.session_state["database_public_id"]
@@ -148,6 +166,7 @@ def test_copy_link_button_shown_after_save(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    meet_results_requirements(at)
     assert not copy_link_buttons(at)
 
     click_save(at)
@@ -349,6 +368,7 @@ def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    meet_results_requirements(at)
     share_labels: set[str] = {"Share on LinkedIn", "Share on X", "Share on Facebook", "Share via email"}
     before: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
     assert len(before) == len(share_labels)
@@ -411,6 +431,7 @@ def test_saved_project_records_tool_version(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
+    meet_results_requirements(at)
     click_save(at)
     with closing(database.connect()) as conn:
         [project] = sql_store.list_projects(conn)

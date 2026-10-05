@@ -39,6 +39,27 @@ def theme_color(option: str, light_default: str, dark_default: str) -> str:
     return str(configured or (dark_default if theme_type == "dark" else light_default))
 
 
+def primary_fill_styles() -> None:
+    """Adds the CSS that keeps labels on primary-coloured fills (e.g. primary buttons) readable. Call it once per run.
+
+    Streamlit always uses white for these labels, which is too faint on the dark theme's light orange primary colour,
+    so in the dark theme they use the background colour instead.
+    """
+    if st.context.theme.type != "dark":
+        return
+    label_color = theme_color("backgroundColor", "#ffffff", "#0e1117")
+    st.html(
+        f"""
+    <style>
+    :is([data-testid^="stBaseButton-primary"], [data-testid^="stBaseLinkButton-primary"]),
+    :is([data-testid^="stBaseButton-primary"], [data-testid^="stBaseLinkButton-primary"]) * {{
+        color: {label_color} !important;
+    }}
+    </style>
+    """
+    )
+
+
 def toggletip(trigger: str, tip: str, key: str | None = None) -> str:
     """Inline HTML for a toggletip: clicking `trigger` shows `tip`, clicking outside it (or pressing Esc) hides it.
 

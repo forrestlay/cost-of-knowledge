@@ -1990,10 +1990,13 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         abbreviated version will not display details of the hours of labor performed by each researcher, as this may
         potentially be used to calculate an approximation of a researcher's salary.
 
-        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing and retaining the
-        data you enter into this tool, and to potential use of this data by SPARC for future research. Please refer to
-        [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for details about how your data will be
-        handled.
+        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing all data you enter
+        into this tool (including the primary country, the quantity and hourly rate of researchers, and details of
+        activities and direct costs), and to potential use of this data by SPARC for future research. Data will be
+        retained for a minimum of 5 years, after which it will be retained for as long as necessary to fulfil the
+        purposes set out in this paragraph or in [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/).
+        Please refer to [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for further details about
+        how your data will be handled.
 
         If you continue without saving your result, please download the generated infographic to keep a record of the
         total cost you have calculated. Reloading this page will reset all information entered and you will have to

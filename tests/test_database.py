@@ -19,7 +19,7 @@ from src.calculator_state import CalculatorState
 from src.reference_data import RESEARCH_PHASES
 
 # Stands in for main.COST_OF_KNOWLEDGE_VERSION, which cannot be imported as main.py is a script.
-COST_OF_KNOWLEDGE_VERSION: str = "0.1.3"
+COST_OF_KNOWLEDGE_VERSION: str = "0.1.4"
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

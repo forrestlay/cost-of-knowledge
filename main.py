@@ -637,7 +637,7 @@ def simplified_phase_inputs(phase: str) -> None:
         if simplified_cost_key not in st.session_state:
             st.session_state[simplified_cost_key] = float(st.session_state["simplified_direct_costs"].get(phase, 0.0))
         st.session_state["simplified_direct_costs"][phase] = st.number_input(
-            f"Total direct costs ({currency_code()})",
+            f"Total direct costs - {RESEARCH_PHASES[phase]} ({currency_code()})",
             min_value=0.0,
             step=100.0,
             key=simplified_cost_key,

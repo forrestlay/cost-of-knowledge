@@ -15,7 +15,7 @@
   "journal_editing": {"journal_submissions": 1},
   "publishing": {"publishing_costs": 454.63},
   "direct_costs": [
-    {"name": "Participant incentivization", "phase": "data", "cost": 246},
+    {"name": "Participant incentivization", "phase": "data", "cost": 352},
     {"name": "Conferencing (direct costs)", "phase": "writing", "cost": 3400}
   ]
 }

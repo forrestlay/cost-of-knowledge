@@ -106,15 +106,15 @@ for other_page in (RESULT_PAGE, ADMIN_PAGE):
 
 
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
+# Version of the tool, shown in the footer and recorded with each saved result. Whenever this tool is changed
+# substantially such that users may approach answering the questions differently, increment this.
+COST_OF_KNOWLEDGE_VERSION: str = "0.1.2"
 
 
 # Anchors of the page's main sections, and the table of contents in the sidebar that links to them.
 ARTICLE_ANCHOR: str = "your-article"
 PEOPLE_ANCHOR: str = "people-involved"
 CALCULATOR_ANCHOR: str = "calculator"
-# Track the version of the tool that was used to save a result. Whenever this tool is changed substantially such that
-# users may approach answering the questions differently, increment this by 1.
-FORM_VERSION: int = 1
 RESULTS_HEADER_ANCHOR: str = "cost-of-your-article"
 SHARE_ANCHOR: str = "share-your-result"
 CALCULATE_ANCHOR: str = "calculate-and-share"
@@ -1038,9 +1038,9 @@ def save_to_database() -> None:
             try:
                 if public_id is None:
                     raise KeyError(public_id)
-                sql_store.update_project(conn, public_id, state, FORM_VERSION, loaded_alam_defaults)
+                sql_store.update_project(conn, public_id, state, COST_OF_KNOWLEDGE_VERSION, loaded_alam_defaults)
             except KeyError:
-                public_id = sql_store.save_project(conn, state, FORM_VERSION, loaded_alam_defaults)
+                public_id = sql_store.save_project(conn, state, COST_OF_KNOWLEDGE_VERSION, loaded_alam_defaults)
     except ValueError as error:
         # Raised by sql_store.validate_state, whose messages are safe to show.
         st.toast(f"Could not save your result: {error}", icon=":material/error:")
@@ -1090,30 +1090,38 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-            :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
-            Knowledge. Preprint available on Zenodo.]
+        :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
+        Knowledge. Preprint available on Zenodo.]
 
-            :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
-            Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
-            https://doi.org/10.7208/chicago/9780226805597.003.0002;
-            Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
-            review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
+        :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
+        Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
+        https://doi.org/10.7208/chicago/9780226805597.003.0002;
+        Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
+        review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
 
-            :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
-            Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
-            the Economy, 5, 133–182. https://doi.org/10.1086/738903]
+        :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
+        Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
+        the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
-            :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
-            services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
-
-            :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
-            Lay, Loh, and Tanima.
-            :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
-            International License](https://creativecommons.org/licenses/by/4.0/).]
-
-            :small[[Privacy Policy](https://sparcopen.org/privacy-policy/)]
-            """,
+        :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
+        services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
+        """,
         unsafe_allow_html=True,
+    )
+    st.divider()
+    st.markdown(
+        """
+        :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+        Lay, Loh, and Tanima.
+        :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+        International License](https://creativecommons.org/licenses/by/4.0/).]
+
+        :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
+        [Github](https://github.com/forrestlay/cost-of-knowledge)]
+
+        Tool version: v{version}
+        """.replace("{version}", COST_OF_KNOWLEDGE_VERSION),
+        text_alignment="center",
     )
 
 
@@ -1535,7 +1543,7 @@ with st.container(border=True):
         on_change=convert_monetary_values,
         help="Type in the box to search for a country. The country chosen will determine the currency used for "
         "monetary values in this tool and the results calculated. Changing the country will automatically convert "
-        "values already entered in based on recent exchange rates.",
+        "values already entered in based on recent exchange rates, sourced from https://exchangeratesapi.io.",
     )
     st.session_state["international_collaborators"] = st.radio(
         "Does your project have international collaborators outside of the primary country?",
@@ -1559,7 +1567,8 @@ with st.container(border=True):
             index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
             placeholder="Type in the box to search for a field of research.",
             format_func=field_of_research_display_name,
-            help="Type in the box to search for a field of research.",
+            help="Type in the box to search for a field of research. This will be reflected on a summary infographic "
+            "generated by this tool. This has no effect on the cost calculation.",
         )
         or ""
     )
@@ -1698,8 +1707,8 @@ st.markdown(
               and carrying out analyses.
             - **Manuscript Preparation**: Writing, obtaining peer feedback through conferencing, revising, formatting,
               and preparing the article for submission.
-            - **Peer Review and Journal Editorial Work**: Responding to reviewer comments, making revisions,
-              resubmitting the manuscript, and completing publication-related tasks.
+            - **Peer Review and Journal Editorial Work**: The labor of journal editors in managing submitted articles
+              and assigning them for review, and of peer reviewers in reviewing submitted articles.
             - **Publishing (optional)**: The publication and dissemination of the journal article, generally performed
               by the journal publisher.
 

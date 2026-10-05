@@ -151,6 +151,23 @@ def init_database() -> DatabaseType:
     return database_type
 
 
+def connect_without_init() -> Connection:
+    """Opens a connection to the configured database without creating its tables. The caller must close it.
+
+    Used by src/migrate.py, which needs to see a database as it is before any tables are created.
+
+    Raises:
+        RuntimeError: If no database is configured.
+    """
+    database_type: DatabaseType = get_database_type()
+    if database_type == "sqlite":
+        SQLITE_DATABASE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        return sqlite3.connect(SQLITE_DATABASE_FILE)
+    if database_type == "mysql":
+        return _mysql_connect()
+    raise RuntimeError(f"No database configured. Set {DATABASE_TYPE_SECRET} to enable saving.")
+
+
 def connect() -> Connection:
     """Opens a connection to the configured database, creating its tables if needed. The caller must close it.
 
@@ -160,16 +177,10 @@ def connect() -> Connection:
     Raises:
         RuntimeError: If no database is configured.
     """
-    database_type: DatabaseType = get_database_type()
-    if database_type == "sqlite":
-        SQLITE_DATABASE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        return sql_store.connect(str(SQLITE_DATABASE_FILE))
-    if database_type == "mysql":
-        conn: pymysql.connections.Connection = _mysql_connect()
-        try:
-            sql_store.init_db(conn)
-        except BaseException:
-            conn.close()
-            raise
-        return conn
-    raise RuntimeError(f"No database configured. Set {DATABASE_TYPE_SECRET} to enable saving.")
+    conn: Connection = connect_without_init()
+    try:
+        sql_store.init_db(conn)
+    except BaseException:
+        conn.close()
+        raise
+    return conn

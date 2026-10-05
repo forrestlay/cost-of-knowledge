@@ -1,0 +1,88 @@
+# Light and dark themes built around the accent colour #f37d21.
+#
+# Every text/background pair meets WCAG AA (4.5:1 for text, 3:1 for widget borders):
+# - Light: #f37d21 is only 2.7:1 against white (both as text and behind white button labels), so the accent is
+#   darkened to #a04b09 (6.0:1 against white).
+# - Dark: #f37d21 is kept, as it is 6.9:1 against the background. Streamlit always puts white labels on primary-coloured
+#   fills, which would be 2.7:1, so src/ui.py:primary_fill_styles darkens those labels in the dark theme.
+# The coloured text/background pairs (badges, alerts, :color[text]) are set explicitly because some of Streamlit's
+# defaults fall short, e.g. its orange badge text is 3.3:1 against white.
+
+[theme]
+showWidgetBorder = true
+
+[theme.light]
+primaryColor = "#a04b09"
+linkColor = "#a04b09"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8f6f4"
+textColor = "#14110f"
+codeTextColor = "#14110f"
+codeBackgroundColor = "#f2ede8"
+borderColor = "#8a817a"
+dataframeBorderColor = "#e3ddd8"
+dataframeHeaderBackgroundColor = "#f8f6f4"
+redColor = "#b42318"
+redTextColor = "#b42318"
+redBackgroundColor = "#f8e9e8"
+orangeColor = "#a04b09"
+orangeTextColor = "#a04b09"
+orangeBackgroundColor = "#f6ede6"
+yellowColor = "#8a6100"
+yellowTextColor = "#8a6100"
+yellowBackgroundColor = "#f3efe6"
+greenColor = "#1a7a3a"
+greenTextColor = "#1a7a3a"
+greenBackgroundColor = "#e8f2eb"
+blueColor = "#1f5fbf"
+blueTextColor = "#1f5fbf"
+blueBackgroundColor = "#e9eff9"
+violetColor = "#7a3fbf"
+violetTextColor = "#7a3fbf"
+violetBackgroundColor = "#f2ecf9"
+grayColor = "#5f5853"
+grayTextColor = "#5f5853"
+grayBackgroundColor = "#efeeee"
+
+[theme.light.sidebar]
+backgroundColor = "#f8f6f4"
+secondaryBackgroundColor = "#ffffff"
+borderColor = "#8a817a"
+
+[theme.dark]
+primaryColor = "#f37d21"
+linkColor = "#f37d21"
+backgroundColor = "#121212"
+secondaryBackgroundColor = "#211d1a"
+textColor = "#f5f1ee"
+codeTextColor = "#f5f1ee"
+codeBackgroundColor = "#211d1a"
+borderColor = "#8a817a"
+dataframeBorderColor = "#3a3430"
+dataframeHeaderBackgroundColor = "#211d1a"
+redColor = "#ff8a80"
+redTextColor = "#ff8a80"
+redBackgroundColor = "#412a28"
+orangeColor = "#f59a52"
+orangeTextColor = "#f59a52"
+orangeBackgroundColor = "#3f2d1f"
+yellowColor = "#f2c94c"
+yellowTextColor = "#f2c94c"
+yellowBackgroundColor = "#3f371e"
+greenColor = "#5fd38a"
+greenTextColor = "#5fd38a"
+greenBackgroundColor = "#21392a"
+blueColor = "#7ab4ff"
+blueTextColor = "#7ab4ff"
+blueBackgroundColor = "#273241"
+violetColor = "#c49bff"
+violetTextColor = "#c49bff"
+violetBackgroundColor = "#362d41"
+grayColor = "#b3aaa3"
+grayTextColor = "#b3aaa3"
+grayBackgroundColor = "#32302f"
+
+[theme.dark.sidebar]
+backgroundColor = "#1a1715"
+secondaryBackgroundColor = "#211d1a"
+borderColor = "#8a817a"

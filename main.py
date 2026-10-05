@@ -78,13 +78,14 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import colored_container_key, row_styles, toggletip, toggletip_styles
+from src.ui import colored_container_key, primary_fill_styles, row_styles, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
     from src.models import Cost
 
 
 st.set_page_config(page_title="The Cost of Knowledge Calculator", layout="wide")
+primary_fill_styles()
 
 
 def calculator_page() -> None:

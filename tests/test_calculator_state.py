@@ -86,6 +86,13 @@ def test_simplified_totals_ignore_detailed_estimates() -> None:
     assert CalculatorState.from_json(state.to_json()) == state
 
 
+def test_version_round_trip() -> None:
+    assert CalculatorState.from_json(CalculatorState.default().to_json()).version is None
+    state: CalculatorState = CalculatorState.default()
+    state.version = "0.1.2"
+    assert CalculatorState.from_json(state.to_json()).version == "0.1.2"
+
+
 def test_default_phase_hours() -> None:
     assert default_phase_hours() == {"incubation": 286.0, "data": 266.5, "writing": 223.0}
 

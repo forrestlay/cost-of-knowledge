@@ -1119,7 +1119,7 @@ def show_footer() -> None:
         :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
         [Github](https://github.com/forrestlay/cost-of-knowledge)]
 
-        Tool version: v{version}
+        :small[Tool version: v{version}]
         """.replace("{version}", COST_OF_KNOWLEDGE_VERSION),
         text_alignment="center",
     )

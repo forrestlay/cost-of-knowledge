@@ -69,9 +69,9 @@ def test_missing_quantity_defaults_to_one() -> None:
 
 def test_with_default_costs_totals() -> None:
     state: CalculatorState = default_with_researcher().with_default_costs()
-    # 775.5 activity hours, 8 peer review hours and 15 journal editing hours at US$85, plus US$3,646 direct costs.
+    # 775.5 activity hours, 8 peer review hours and 15 journal editing hours at US$85, plus US$3,752 direct costs.
     assert state.total_hours() == 798.5
-    assert state.total_cost() == pytest.approx(798.5 * 85 + 3646)
+    assert state.total_cost() == pytest.approx(798.5 * 85 + 3752)
 
 
 def test_simplified_totals_ignore_detailed_estimates() -> None:

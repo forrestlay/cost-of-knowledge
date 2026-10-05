@@ -139,14 +139,14 @@ def test_load_alam_defaults() -> None:
     at: AppTest = run_app()
     add_researcher_at_rate(at)
     load_alam_defaults(at)
-    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
+    assert metric_values(at) == ["$71,624 (USD)", "798 h", "$3,752 (USD)"]
     # The loaded hours and costs must survive later reruns, not only the one straight after loading.
     run(at)
     run(at)
-    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
+    assert metric_values(at) == ["$71,624 (USD)", "798 h", "$3,752 (USD)"]
     first_activity: Activity = next(a for a in at.session_state["activity_list"] if isinstance(a, Activity))
     assert (first_activity.name, first_activity.hours) == ("Ideation and conception", 55.0)
-    assert at.session_state["cost_list"][0].cost == 246.0
+    assert at.session_state["cost_list"][0].cost == 352.0
     # Each activity and direct cost is listed with buttons to edit and delete it.
     assert at.button(key="item-activity-1-edit")
     assert at.button(key="item-direct-cost-1-delete")
@@ -176,7 +176,7 @@ def test_load_alam_defaults_keeps_country_and_rates() -> None:
     run(at)
     add_researcher_at_rate(at, 100)
     load_alam_defaults(at)
-    cost: float | None = convert_currency(246, "USD", "AUD")
+    cost: float | None = convert_currency(352, "USD", "AUD")
     assert cost is not None
     assert at.selectbox(key="user_country_select").value == "au"
     assert at.session_state["people"]["1"].hourly_rate == 100
@@ -219,7 +219,7 @@ def test_import_replaces_edited_widgets() -> None:
     assert metric_values(at) == [
         f"${restored.total_cost():,.0f} (USD)",
         f"{restored.total_hours():.0f} h",
-        "$3,646 (USD)",
+        "$3,752 (USD)",
     ]
     assert at.slider(key="add-item-hours-1").value == 0.0
     assert at.button(key="item-activity-1-edit")
@@ -304,7 +304,7 @@ def test_quantity_does_not_change_totals() -> None:
     load_alam_defaults(at)
     at.session_state["people"]["1"].quantity = 2
     run(at)
-    assert metric_values(at) == ["$71,518 (USD)", "798 h", "$3,646 (USD)"]
+    assert metric_values(at) == ["$71,624 (USD)", "798 h", "$3,752 (USD)"]
 
 
 def test_deleting_researcher_reassigns_activities() -> None:
@@ -416,7 +416,7 @@ def test_adding_editing_and_deleting_direct_cost() -> None:
     assert "Participant incentivization" in at.selectbox(key="add-item-name").options
     at.selectbox(key="add-item-name").set_value("Participant incentivization")
     run(at)
-    cost: float | None = convert_currency(246, "USD", "AUD")
+    cost: float | None = convert_currency(352, "USD", "AUD")
     assert cost is not None
     assert at.number_input(key="add-item-cost").value == round(cost, 2)
     next(button for button in at.button if button.label == "Add direct cost").click()
@@ -487,7 +487,7 @@ def test_simplified_starts_at_zero_and_loads_defaults_for_first_researcher() -> 
     assert at.slider(key="simplified-hours-writing-1").value == 223.0
     assert at.slider(key="simplified-hours-incubation-2").value == 0.0
     # 775.5 hours of research and 23 hours of peer review and journal editorial work, at US$85.
-    assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3646:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,646 (USD)"]
+    assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3752:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,752 (USD)"]
 
 
 def test_simplified_estimates() -> None:

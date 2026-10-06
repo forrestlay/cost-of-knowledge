@@ -488,10 +488,26 @@ def _public_investment(total_cost: float, phase_costs: dict[str, float]) -> floa
     return total_cost - phase_costs.get(RESEARCH_PHASES["publishing"], 0.0)
 
 
+def _social_media_subtitle_parts(researchers: int, country: str, international_collaborators: bool) -> list[str]:
+    """The parts of the social-media card's subtitle: the number of researchers and contributors, then where they are.
+
+    Where they are is "International" for projects with international collaborators, otherwise the country, and is left
+    out if there is no country.
+    """
+    parts: list[str] = [
+        "1 researcher" if researchers == 1 else f"{researchers:,} researchers and contributors",
+    ]
+    place: str = "International" if international_collaborators else country.strip()
+    if place:
+        parts.append(place)
+    return parts
+
+
 def create_social_media_svg(
     country: str,
     international_collaborators: bool,
     project_field: str,
+    researchers: int,
     total_cost: float,
     phase_costs: dict[str, float],
     format_currency: Callable[[float], str],
@@ -504,9 +520,11 @@ def create_social_media_svg(
 
     Args:
         country: Display name of the researcher's country.
-        international_collaborators: Whether the project has collaborators from
-            other countries; appends "+ others" after the country name.
+        international_collaborators: Whether the project has collaborators from other countries; shows "International"
+            in place of the country.
         project_field: Name of the Field of Research group the project sits in, shown in the title.
+        researchers: Number of researchers and contributors the user added, counting each person's quantity, but not
+            the peer reviewer or journal editor.
         total_cost: Estimated total cost in the chosen country's currency. The headline figure leaves out the
             publishing phase, showing only the public and institutional investment.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
@@ -593,11 +611,13 @@ def create_social_media_svg(
 
     # Country and divider, sitting just above the breakdown. The country wraps upwards from the divider.
     divider_y: float = bar_label_y - 58
-    subtitle: str = country.strip()
-    if subtitle and international_collaborators:
-        subtitle = f"{subtitle} + international collaborators"
+    # The researchers and the country share a line if they fit, otherwise the country moves to a second line.
+    subtitle_parts: list[str] = _social_media_subtitle_parts(researchers, country, international_collaborators)
+    subtitle: str = " · ".join(subtitle_parts)
     subtitle_line_height: float = 1.2
-    subtitle_lines: list[str] = _wrap_text(subtitle, 48)
+    subtitle_lines: list[str] = (
+        [subtitle] if len(subtitle) <= 48 else [line for part in subtitle_parts for line in _wrap_text(part, 48)]
+    )
     subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
 
     # Space for the headline figure, between the title and the country.
@@ -798,6 +818,7 @@ def create_social_media_image_alt_text(
     country: str,
     international_collaborators: bool,
     project_field: str,
+    researchers: int,
     total_cost: float,
     phase_costs: dict[str, float],
     format_currency: Callable[[float], str],
@@ -809,9 +830,7 @@ def create_social_media_image_alt_text(
     phase, so the card is accessible to screen-reader users. Takes the same arguments as ``create_social_media_svg``.
     """
     title: str = _social_media_title(project_field)
-    subtitle: str = country.strip()
-    if subtitle and international_collaborators:
-        subtitle = f"{subtitle} + international collaborators"
+    subtitle: str = ", ".join(_social_media_subtitle_parts(researchers, country, international_collaborators))
 
     sentences: list[str] = [
         'An infographic intended for sharing on social media, titled "The Cost of Knowledge".',
@@ -822,8 +841,7 @@ def create_social_media_image_alt_text(
             f"{format_currency(_public_investment(total_cost, phase_costs))}."
         ),
     ]
-    if subtitle:
-        sentences.append(f"Country: {subtitle}.")
+    sentences.append(f"{subtitle}.")
 
     breakdown_total: float = sum(phase_costs.values())
     publishing_name: str = RESEARCH_PHASES["publishing"]

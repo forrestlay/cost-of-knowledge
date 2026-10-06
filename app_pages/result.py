@@ -151,6 +151,8 @@ social_media_card: dict[str, Any] = {
     "project_field": FIELDS_OF_RESEARCH[state.project_field].name
     if state.project_field in FIELDS_OF_RESEARCH
     else state.project_field,
+    # Only the people the user added, not the peer reviewer or journal editor.
+    "researchers": sum(person.quantity for person in state.people.values()),
     "total_cost": total_cost,
     "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
     "format_currency": lambda amount: format_currency(amount, country),

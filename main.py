@@ -2322,6 +2322,8 @@ with share_left:
             if st.session_state["project_field"] in FIELDS_OF_RESEARCH
             else st.session_state["project_field"]
         ),
+        # Only the people the user added, not the peer reviewer or journal editor.
+        "researchers": sum(person.quantity for person in st.session_state["people"].values()),
         "total_cost": total_cost,
         "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
         "format_currency": format_currency,

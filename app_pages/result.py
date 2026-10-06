@@ -151,11 +151,11 @@ social_media_card: dict[str, Any] = {
     "project_field": FIELDS_OF_RESEARCH[state.project_field].name
     if state.project_field in FIELDS_OF_RESEARCH
     else state.project_field,
+    # Only the people the user added, not the peer reviewer or journal editor.
+    "researchers": sum(person.quantity for person in state.people.values()),
     "total_cost": total_cost,
-    "total_hours": 0.0,
     "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
     "format_currency": lambda amount: format_currency(amount, country),
-    "show_hours": False,
     "version": state.version,
 }
 social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()

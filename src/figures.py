@@ -17,7 +17,22 @@ if TYPE_CHECKING:
     from src.models import BaseActivity, Cost
 
 # Real colours for the phases on the card, as Streamlit's placeholder palette renders near-black outside the app.
-_PHASE_PALETTE: list[str] = px.colors.qualitative.Bold
+# Plotly's Bold palette, darkened (same hue and saturation) to at least 3:1 contrast against every point of the card's
+# background gradient, per WCAG 2.2 SC 1.4.11 (non-text contrast). Each also has over 5:1 contrast with the white
+# hatching drawn over it.
+_PHASE_PALETTE: list[str] = [
+    "#7f3c8d",
+    "#0c7757",
+    "#3969ac",
+    "#826301",
+    "#ca1951",
+    "#4a7230",
+    "#9a580b",
+    "#00717e",
+    "#c21a87",
+    "#ce1609",
+    "#646958",
+]
 
 
 _HATCH_TILE: int = 16
@@ -373,9 +388,11 @@ def create_social_media_svg(
     width: int = 1080
     height: int = 1360
     margin: int = 72
+    # Text colours meet WCAG AA contrast (4.5:1) against every point of the background gradient: ink 8.6:1, muted
+    # 4.6:1, accent 4.6:1.
     ink: str = "#16263a"
     muted: str = "#3f5064"
-    accent: str = "#d6336c"
+    accent: str = "#961c47"
 
     image: draw.Drawing = draw.Drawing(width, height, id_prefix="socmed")
 
@@ -576,7 +593,8 @@ def create_social_media_svg(
             bar_h,
             rx=10,
             fill="none",
-            stroke="#ffffff",
+            # Ink rather than white, so the bar's edge has 3:1 contrast against the background.
+            stroke=ink,
             stroke_width=3,
         )
     )

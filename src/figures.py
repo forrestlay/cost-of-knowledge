@@ -483,6 +483,11 @@ def _social_media_title(project_field: str) -> str:
     )
 
 
+def _public_investment(total_cost: float, phase_costs: dict[str, float]) -> float:
+    """The total cost less the publishing phase, which journal publishers bear, not the public and institutions."""
+    return total_cost - phase_costs.get(RESEARCH_PHASES["publishing"], 0.0)
+
+
 def create_social_media_svg(
     country: str,
     international_collaborators: bool,
@@ -502,7 +507,8 @@ def create_social_media_svg(
         international_collaborators: Whether the project has collaborators from
             other countries; appends "+ others" after the country name.
         project_field: Name of the Field of Research group the project sits in, shown in the title.
-        total_cost: Estimated total cost in the chosen country's currency.
+        total_cost: Estimated total cost in the chosen country's currency. The headline figure leaves out the
+            publishing phase, showing only the public and institutional investment.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
         format_currency: Formats an amount as a string in the chosen country's currency.
         version: Version of the tool that produced the estimate (e.g. "0.1.2"), shown in the bottom-left corner, or
@@ -571,7 +577,14 @@ def create_social_media_svg(
     # Bottom of the legend sits above the three footer lines, with generous padding
     # around the larger, centred call-to-action line that follows it.
     legend_last_y: float = height - 194
-    legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h
+    # Publishing is paid for by journal publishers rather than the public and institutions, so a dotted divider in an
+    # extra gap separates it from the phases listed before it.
+    publishing_name: str = RESEARCH_PHASES["publishing"]
+    publishing_divider: bool = (
+        breakdown_total > 0 and phase_costs.get(publishing_name, 0) > 0 and visible_phases[0] != publishing_name
+    )
+    legend_divider_gap: int = 24 if publishing_divider else 0
+    legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h - legend_divider_gap
     bar_x: int = margin
     bar_w: int = width - 2 * margin
     bar_h: int = 88
@@ -588,7 +601,7 @@ def create_social_media_svg(
     subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
 
     # Space for the headline figure, between the title and the country.
-    figures_block_h: int = 116
+    figures_block_h: int = 72
     figures_gap: int = 50
     zone_bottom: float = subtitle_y - 26 - 40
 
@@ -641,13 +654,12 @@ def create_social_media_svg(
         )
     )
 
-    # Headline figure, with its label below, vertically centred between the title and the country. Offsets are from
-    # the top of the block.
+    # Headline figure, vertically centred between the title and the country. Offsets are from the top of the block.
     zone_top: float = title_bottom + figures_gap
     figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
     image.append(
         draw.Text(
-            format_currency(total_cost),
+            format_currency(_public_investment(total_cost, phase_costs)),
             88,
             margin,
             figures_y + 64,
@@ -656,20 +668,10 @@ def create_social_media_svg(
             font_weight="bold",
         )
     )
-    image.append(
-        draw.Text(
-            "Estimated total cost",
-            30,
-            margin,
-            figures_y + 108,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
 
     image.append(
         draw.Text(
-            "Where the cost goes",
+            "Estimated investment in my journal article",
             30,
             margin,
             bar_label_y,
@@ -703,23 +705,42 @@ def create_social_media_svg(
 
     # Legend: one row per phase that has a cost.
     row_index: int = 0
+    row_offset: float = 0.0
     for name in phase_names:
         amount: float = phase_costs[name]
         if amount <= 0:
             continue
-        row_y: float = legend_first_y + row_index * legend_row_h
+        if publishing_divider and name == publishing_name and row_index > 0:
+            # Midway between the swatches of the previous row and this one.
+            row_offset = legend_divider_gap
+            divider_line_y: float = legend_first_y + row_index * legend_row_h + row_offset / 2 - legend_row_h / 2 - 8
+            image.append(
+                draw.Line(
+                    margin,
+                    divider_line_y,
+                    width - margin,
+                    divider_line_y,
+                    stroke=muted,
+                    stroke_width=3,
+                    stroke_dasharray="1 9",
+                    stroke_linecap="round",
+                )
+            )
+        row_y: float = legend_first_y + row_index * legend_row_h + row_offset
         share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
         image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=fills[name]))
-        image.append(
-            draw.Text(
-                name,
-                legend_font,
-                margin + 48,
-                row_y,
-                fill=ink,
-                font_family=SOCIAL_MEDIA_FONT,
-            )
+        legend_label: draw.Text = draw.Text(
+            name,
+            legend_font,
+            margin + 48,
+            row_y,
+            fill=ink,
+            font_family=SOCIAL_MEDIA_FONT,
         )
+        if name == publishing_name:
+            # SVG collapses a leading space, so the gap before the note is an offset instead.
+            legend_label.append(draw.TSpan("(publisher-borne cost)", dx=8, fill=muted))
+        image.append(legend_label)
         image.append(
             draw.Text(
                 f"{format_currency(amount)}  ({share:.0f}%)",
@@ -796,25 +817,36 @@ def create_social_media_image_alt_text(
         'An infographic intended for sharing on social media, titled "The Cost of Knowledge".',
         "The text of the infographic is as follows: ",
         (
-            f"{SOCIAL_MEDIA_BLURB} {title} {format_currency(total_cost)} (estimated total cost)."
+            # The title is capitalised on the card, but continues the blurb's sentence here.
+            f"{SOCIAL_MEDIA_BLURB} {title[:1].lower()}{title[1:]} "
+            f"{format_currency(_public_investment(total_cost, phase_costs))}."
         ),
     ]
     if subtitle:
         sentences.append(f"Country: {subtitle}.")
 
     breakdown_total: float = sum(phase_costs.values())
+    publishing_name: str = RESEARCH_PHASES["publishing"]
     phase_shares: list[str] = [
-        f"{name}: {format_currency(amount)} ({amount / breakdown_total * 100:.0f}%)"
+        f"{name}{' (publisher-borne cost)' if name == publishing_name else ''}: {format_currency(amount)} "
+        f"({amount / breakdown_total * 100:.0f}%)"
         for name, amount in phase_costs.items()
         if amount > 0
     ]
     if breakdown_total > 0 and phase_shares:
         sentences.append(
-            f"Where the cost goes: a horizontal stacked bar chart splits the total cost across "
+            f"Estimated investment in my journal article: a horizontal stacked bar chart splits the total cost across "
             f"{_plural(len(phase_shares), 'research phase')}, from left to right: {_join_list(phase_shares)}."
         )
+        if phase_costs.get(publishing_name, 0) > 0 and len(phase_shares) > 1:
+            sentences.append(
+                f"In the legend, a dotted line separates {publishing_name}, a cost borne by journal publishers, from "
+                "the phases above it, which are borne by the public and institutions."
+            )
     else:
-        sentences.append("Where the cost goes: an empty bar chart, as no research phase has a cost.")
+        sentences.append(
+            "Estimated investment in my journal article: an empty bar chart, as no research phase has a cost."
+        )
 
     sentences.append("Estimate your own Cost of Knowledge at https://costofknowledge.org.")
     sentences.append("The University of Sydney and SPARC. Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026.")

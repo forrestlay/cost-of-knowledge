@@ -44,6 +44,7 @@ from src.calculator_state import (
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
     PUBLISHING_PHASE,
+    WIDGET_KEYS,
     CalculatorState,
     compute_costs,
     compute_hours,
@@ -78,7 +79,7 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import colored_container_key, primary_fill_styles, row_styles, toggletip, toggletip_styles
+from src.ui import CALCULATOR_PAGE, colored_container_key, primary_fill_styles, row_styles, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
     from src.models import Cost
@@ -88,20 +89,27 @@ st.set_page_config(page_title="The Cost of Knowledge Calculator", layout="wide")
 primary_fill_styles()
 
 
-def calculator_page() -> None:
-    """The calculator, which is the rest of this script. The script carries on past navigation to run it."""
-
-
-# The other pages are reached only by their URLs (e.g. BASE-URL/admin), so navigation is hidden. The result page is the
-# link that users share, and the admin page lists every saved result.
+# The other pages are reached only by their URLs (e.g. BASE-URL/admin) or the sidebar's links, so navigation is hidden.
+# The result page is the link that users share, the admin page lists every saved result, and the about page describes
+# the tool.
 RESULT_PAGE: st.Page = st.Page("app_pages/result.py", title="Cost of Knowledge result", url_path="result")
 ADMIN_PAGE: st.Page = st.Page("app_pages/admin.py", title="Saved results", url_path="admin")
+ABOUT_PAGE: st.Page = st.Page(
+    "app_pages/about.py", title="About the Cost of Knowledge", icon=":material/info:", url_path="about"
+)
 current_page: st.Page = st.navigation(  # ty: ignore[call-non-callable]
-    [st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True), RESULT_PAGE, ADMIN_PAGE],
+    [CALCULATOR_PAGE, RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE],
     position="hidden",
 )
-for other_page in (RESULT_PAGE, ADMIN_PAGE):
+for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
     if current_page.url_path == other_page.url_path:
+        # Streamlit discards the state of widgets that are not rendered in a run, so the calculator's inputs would be
+        # lost on visiting the about page from the sidebar. Reassigning them hands them over to session state instead.
+        # The add and edit forms are left out, as they are reset whenever they are opened.
+        if other_page is ABOUT_PAGE:
+            for widget_key in list(st.session_state.keys()):
+                if widget_key in WIDGET_KEYS or str(widget_key).startswith(("simplified-hours-", "simplified-cost-")):
+                    st.session_state[widget_key] = st.session_state[widget_key]
         other_page.run()
         st.stop()
 
@@ -1503,6 +1511,8 @@ with st.sidebar:
             if toc_anchor in RESULTS_ANCHORS and not results_visible():
                 continue
             st.markdown(f"[{toc_label}](#{toc_anchor})")
+    st.divider()
+    st.page_link(ABOUT_PAGE)
 
 
 toggletip_styles()

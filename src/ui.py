@@ -27,6 +27,14 @@ if TYPE_CHECKING:
 TOGGLETIP_BORDER = "color-mix(in srgb, currentColor 25%, transparent)"
 
 
+def calculator_page() -> None:
+    """The calculator, which is the rest of main.py. The script carries on past navigation to run it."""
+
+
+# The calculator page, registered with st.navigation in main.py. Defined here so that the other pages can link to it.
+CALCULATOR_PAGE: st.Page = st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True)
+
+
 def theme_color(option: str, light_default: str, dark_default: str) -> str:
     """Colour of a Streamlit theme option (e.g. "primaryColor") for the active light/dark theme.
 

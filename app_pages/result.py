@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import closing
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 import streamlit as st
@@ -34,10 +34,14 @@ from src.figures import (
     build_color_map,
     costs_dataframe,
     costs_pie_chart,
+    costs_pie_chart_alt_text,
+    create_social_media_image_alt_text,
     create_social_media_svg,
     labour_bar_chart,
+    labour_bar_chart_alt_text,
     labour_dataframe,
     labour_sunburst_chart,
+    labour_sunburst_chart_alt_text,
     social_media_svg_to_png,
 )
 from src.reference_data import (
@@ -51,6 +55,8 @@ from src.reference_data import (
 from src.ui import toggletip, toggletip_styles
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from src.calculator_state import CalculatorState
     from src.models import BaseActivity, Cost, DirectCost
 
@@ -139,21 +145,26 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-social_media_svg: str = create_social_media_svg(
-    country=COUNTRY_NAMES.get(country, ""),
-    international_collaborators=state.international_collaborators,
-    project_field=FIELDS_OF_RESEARCH[state.project_field].name
+social_media_card: dict[str, Any] = {
+    "country": COUNTRY_NAMES.get(country, ""),
+    "international_collaborators": state.international_collaborators,
+    "project_field": FIELDS_OF_RESEARCH[state.project_field].name
     if state.project_field in FIELDS_OF_RESEARCH
     else state.project_field,
-    total_cost=total_cost,
-    total_hours=0.0,
-    phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-    format_currency=lambda amount: format_currency(amount, country),
-    show_hours=False,
-    version=state.version,
-).as_svg()
+    "total_cost": total_cost,
+    "total_hours": 0.0,
+    "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    "format_currency": lambda amount: format_currency(amount, country),
+    "show_hours": False,
+    "version": state.version,
+}
+social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()
 with st.container(horizontal=True, horizontal_alignment="center"):
-    st.image(social_media_svg_to_png(social_media_svg), width=540)
+    st.image(
+        social_media_svg_to_png(social_media_svg),
+        width=540,
+        alt=create_social_media_image_alt_text(**social_media_card),
+    )
 
 st.markdown(
     """
@@ -213,15 +224,17 @@ costs_chart_selection = st.pills(
     default="phases",
 )
 costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
+costs_df: pd.DataFrame = costs_dataframe(combined_costs_list)
 st.plotly_chart(
     costs_pie_chart(
-        costs_dataframe(combined_costs_list),
+        costs_df,
         costs_pie_names,
         phase_color_map,
         item_color_map,
         hatching=colorblind_safe_graphs,
     ),
     width="stretch",
+    alt=costs_pie_chart_alt_text(costs_df, costs_pie_names, lambda amount: format_currency(amount, country)),
 )
 
 
@@ -241,6 +254,7 @@ if state.calculator_mode == "detailed":
             labour_df, phase_color_map, total_cost, currency_code(country), hatching=colorblind_safe_graphs
         ),
         width="stretch",
+        alt=labour_sunburst_chart_alt_text(labour_df, total_cost, lambda amount: format_currency(amount, country)),
     )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
@@ -258,6 +272,9 @@ st.plotly_chart(
         hatching=colorblind_safe_graphs,
     ),
     width="stretch",
+    alt=labour_bar_chart_alt_text(
+        labour_df, "Cost", "Cost of Labor Activities", lambda amount: format_currency(amount, country)
+    ),
 )
 
 with st.container(horizontal=True, horizontal_alignment="center"):

@@ -317,6 +317,122 @@ def labour_bar_chart(
     return chart
 
 
+def _join_list(items: Sequence[str]) -> str:
+    """Joins items into a list for alt text, e.g. "A; B; and C".
+
+    Semicolons separate the items, as formatted amounts contain commas.
+    """
+    if len(items) <= 1:
+        return "".join(items)
+    return "; ".join(items[:-1]) + f"; and {items[-1]}"
+
+
+def _plural(count: int, noun: str, plural: str | None = None) -> str:
+    """Formats a count with its noun, e.g. "1 phase" or "3 phases", taking ``plural`` for irregular nouns."""
+    return f"{count} {noun if count == 1 else plural or f'{noun}s'}"
+
+
+def costs_pie_chart_alt_text(costs_df: pd.DataFrame, names: str, format_currency: Callable[[float], str]) -> str:
+    """Builds alt text for ``costs_pie_chart``, listing each slice's cost and share, largest first.
+
+    Args:
+        costs_df: The data of the chart, from ``costs_dataframe``.
+        names: The column the pie is split by, "Phase" or "Item".
+        format_currency: Formats an amount as a string in the chosen country's currency.
+    """
+    by_phase: bool = names == "Phase"
+    title: str = f'Pie chart "Total Cost Breakdown" by {"phase" if by_phase else "activity and direct cost"}.'
+    totals: pd.Series = costs_df.groupby(names, sort=False)["Cost"].sum().sort_values(ascending=False)
+    totals = totals[totals > 0]
+    total: float = float(totals.sum())
+    if total <= 0:
+        return f"{title} There are no costs to show."
+    slices: list[str] = [
+        f"{name}: {format_currency(cost)} ({cost / total * 100:.0f}%)" for name, cost in totals.items()
+    ]
+    noun_count: str = (
+        _plural(len(slices), "phase")
+        if by_phase
+        else _plural(len(slices), "activity and direct cost", "activities and direct costs")
+    )
+    return (
+        f"{title} The total cost of {format_currency(total)} is split across {noun_count}, largest first: "
+        f"{_join_list(slices)}."
+    )
+
+
+def labour_sunburst_chart_alt_text(
+    labour_df: pd.DataFrame, total_cost: float, format_currency: Callable[[float], str]
+) -> str:
+    """Builds alt text for ``labour_sunburst_chart``, listing each phase's cost of labour and the people within it.
+
+    The activities in the outer ring are left out to keep the text short; the labour bar chart lists them.
+
+    Args:
+        labour_df: The data of the chart, from ``labour_dataframe``.
+        total_cost: The total cost of the paper, which the chart's percentages are of.
+        format_currency: Formats an amount as a string in the chosen country's currency.
+    """
+    title: str = 'Sunburst chart "Cost of Labor Breakdown by Phase, Role and Activity".'
+    labour_df = labour_df[labour_df["Cost"] > 0]
+    if labour_df.empty:
+        return f"{title} There are no labor costs to show."
+
+    def share(cost: float) -> str:
+        return f"{cost / total_cost * 100:.1f}%" if total_cost else "0.0%"
+
+    phases: list[str] = []
+    for phase, phase_df in labour_df.groupby("Phase", sort=False):
+        phase_cost: float = float(phase_df["Cost"].sum())
+        people: pd.Series = phase_df.groupby("Person", sort=False)["Cost"].sum().sort_values(ascending=False)
+        people_text: str = ", ".join(f"{person} {format_currency(cost)}" for person, cost in people.items())
+        phases.append(f"{phase}: {format_currency(phase_cost)} ({share(phase_cost)}), by {people_text}")
+    labour_cost: float = float(labour_df["Cost"].sum())
+    return (
+        f"{title} The inner ring splits the cost of labor, {format_currency(labour_cost)} ({share(labour_cost)} of "
+        f"the total cost of {format_currency(total_cost)}), across {_plural(len(phases), 'phase')}; the middle ring "
+        f"splits each phase by person, and the outer ring by activity. {_join_list(phases)}."
+    )
+
+
+def labour_bar_chart_alt_text(
+    labour_df: pd.DataFrame, measure: str, title: str, format_currency: Callable[[float], str]
+) -> str:
+    """Builds alt text for ``labour_bar_chart``, listing each activity's bar in order.
+
+    Args:
+        labour_df: The data of the chart, from ``labour_dataframe``.
+        measure: The measure the bars show, "Cost" or "Hours".
+        title: The title of the chart.
+        format_currency: Formats an amount as a string in the chosen country's currency.
+    """
+    totals_df: pd.DataFrame = labour_df.groupby(["Activity", "Phase"], as_index=False, sort=False)[[measure]].sum()
+    chart: str = f'Bar chart "{title}" of the {measure.lower()} of each labor activity, colored by phase.'
+    if totals_df.empty:
+        return f"{chart} There are no labor activities to show."
+    bars: list[str] = [
+        f"{activity} ({phase}): " + (format_currency(value) if measure == "Cost" else f"{value:,.1f} hours")
+        for activity, phase, value in zip(totals_df["Activity"], totals_df["Phase"], totals_df[measure], strict=True)
+    ]
+    return f"{chart} {_plural(len(bars), 'activity', 'activities')}: {_join_list(bars)}."
+
+
+def hours_per_person_chart_alt_text(hours_per_person_df: pd.DataFrame) -> str:
+    """Builds alt text for the bar chart of the hours of labour per person, listing each person's bar in order.
+
+    Args:
+        hours_per_person_df: The data of the chart, with "Person" and "Hours" columns.
+    """
+    chart: str = 'Bar chart "Hours of Labor per Person".'
+    if hours_per_person_df.empty:
+        return f"{chart} There are no people to show."
+    bars: list[str] = [
+        f"{person}: {hours:,.1f} hours"
+        for person, hours in zip(hours_per_person_df["Person"], hours_per_person_df["Hours"], strict=True)
+    ]
+    return f"{chart} {_plural(len(bars), 'person', 'people')}: {_join_list(bars)}."
+
+
 # Arial is the intended face; the generic fallback lets the PNG renderer substitute a metric-compatible font
 # (Liberation Sans, installed in the Docker image) on hosts without Arial.
 SOCIAL_MEDIA_FONT: str = "Arial, sans-serif"
@@ -669,6 +785,61 @@ def create_social_media_svg(
             )
         )
     return image
+
+
+def create_social_media_image_alt_text(
+    country: str,
+    international_collaborators: bool,
+    project_field: str,
+    total_cost: float,
+    total_hours: float,
+    phase_costs: dict[str, float],
+    format_currency: Callable[[float], str],
+    show_hours: bool = False,
+    version: str | None = None,
+) -> str:
+    """Builds alt text for the social-media card from ``create_social_media_svg``.
+
+    Repeats the card's text in reading order and describes the stacked bar as the share of the cost taken by each
+    phase, so the card is accessible to screen-reader users. Takes the same arguments as ``create_social_media_svg``.
+    """
+    title: str = " ".join(f"My {_title_case(project_field)} paper cost".split())
+    subtitle: str = country.strip()
+    if subtitle and international_collaborators:
+        subtitle = f"{subtitle} + international collaborators"
+
+    sentences: list[str] = [
+        'An infographic intended for sharing on social media, titled "The Cost of Knowledge".',
+        "The text of the infographic is as follows: ",
+        (
+            f"Using the Cost of Knowledge calculator, I calculated that {title} {format_currency(total_cost)} "
+            "(estimated total cost)."
+        ),
+    ]
+    if show_hours:
+        sentences.append(f"Estimated hours of labor: {total_hours:,.0f} hours.")
+    if subtitle:
+        sentences.append(f"Country: {subtitle}.")
+
+    breakdown_total: float = sum(phase_costs.values())
+    phase_shares: list[str] = [
+        f"{name}: {format_currency(amount)} ({amount / breakdown_total * 100:.0f}%)"
+        for name, amount in phase_costs.items()
+        if amount > 0
+    ]
+    if breakdown_total > 0 and phase_shares:
+        sentences.append(
+            f"Where the cost goes: a horizontal stacked bar chart splits the total cost across "
+            f"{_plural(len(phase_shares), 'research phase')}, from left to right: {_join_list(phase_shares)}."
+        )
+    else:
+        sentences.append("Where the cost goes: an empty bar chart, as no research phase has a cost.")
+
+    sentences.append("Estimate your own Cost of Knowledge at https://costofknowledge.org.")
+    sentences.append("The University of Sydney and SPARC. Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026.")
+    if version is not None:
+        sentences.append(f"Version {version}.")
+    return " ".join(sentences)
 
 
 @st.cache_data(show_spinner=False)

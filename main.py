@@ -57,10 +57,15 @@ from src.figures import (
     build_color_map,
     costs_dataframe,
     costs_pie_chart,
+    costs_pie_chart_alt_text,
+    create_social_media_image_alt_text,
     create_social_media_svg,
+    hours_per_person_chart_alt_text,
     labour_bar_chart,
+    labour_bar_chart_alt_text,
     labour_dataframe,
     labour_sunburst_chart,
+    labour_sunburst_chart_alt_text,
     social_media_svg_to_png,
 )
 from src.models import (
@@ -97,7 +102,7 @@ ADMIN_PAGE: st.Page = st.Page("app_pages/admin.py", title="Saved results", url_p
 ABOUT_PAGE: st.Page = st.Page(
     "app_pages/about.py", title="About the Cost of Knowledge", icon=":material/info:", url_path="about"
 )
-current_page: st.Page = st.navigation(  # ty: ignore[call-non-callable]
+current_page: st.Page = st.navigation(
     [CALCULATOR_PAGE, RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE],
     position="hidden",
 )
@@ -2140,12 +2145,14 @@ costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == 
 
 
 costs_df = costs_dataframe(combined_costs_list)
+costs_pie_alt_text: str = costs_pie_chart_alt_text(costs_df, costs_pie_names, format_currency)
 
 
 with st.container(key="wide-chart-costs-pie"):
     st.plotly_chart(
         costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=colorblind_safe_graphs),
         width="stretch",
+        alt=costs_pie_alt_text,
     )
 with st.container(key="narrow-chart-costs-pie"):
     st.plotly_chart(
@@ -2158,6 +2165,7 @@ with st.container(key="narrow-chart-costs-pie"):
             hatching=colorblind_safe_graphs,
         ),
         width="stretch",
+        alt=costs_pie_alt_text,
     )
 
 
@@ -2176,12 +2184,14 @@ if st.session_state["calculator_mode"] == "detailed":
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.
                 """)
+    sunburst_alt_text: str = labour_sunburst_chart_alt_text(labour_df, total_cost, format_currency)
     with st.container(key="wide-chart-sunburst"):
         st.plotly_chart(
             labour_sunburst_chart(
                 labour_df, phase_color_map, total_cost, currency_code(), hatching=colorblind_safe_graphs
             ),
             width="stretch",
+            alt=sunburst_alt_text,
         )
     with st.container(key="narrow-chart-sunburst"):
         st.plotly_chart(
@@ -2194,6 +2204,7 @@ if st.session_state["calculator_mode"] == "detailed":
                 hatching=colorblind_safe_graphs,
             ),
             width="stretch",
+            alt=sunburst_alt_text,
         )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
@@ -2216,7 +2227,7 @@ hours_per_person_chart = px.bar(
 )
 hours_per_person_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
 hours_per_person_chart.update_layout(showlegend=False)
-st.plotly_chart(hours_per_person_chart, width="stretch")
+st.plotly_chart(hours_per_person_chart, width="stretch", alt=hours_per_person_chart_alt_text(hours_per_person_df))
 
 
 labour_chart_selection = st.pills(
@@ -2227,13 +2238,16 @@ labour_chart_selection = st.pills(
 )
 
 
+labour_bar_measure: str = labour_chart_selection or "Cost"
+labour_bar_title: str = "Cost of and Time Spent on Labor Activities"
+labour_bar_alt_text: str = labour_bar_chart_alt_text(labour_df, labour_bar_measure, labour_bar_title, format_currency)
 for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart-labour-bar", True)):
     with st.container(key=chart_key):
         st.plotly_chart(
             labour_bar_chart(
                 labour_df,
-                labour_chart_selection or "Cost",
-                "Cost of and Time Spent on Labor Activities",
+                labour_bar_measure,
+                labour_bar_title,
                 phase_color_map,
                 currency_code(),
                 currency_prefix(),
@@ -2241,6 +2255,7 @@ for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart
                 hatching=colorblind_safe_graphs,
             ),
             width="stretch",
+            alt=labour_bar_alt_text,
         )
 
 
@@ -2312,24 +2327,26 @@ with share_left:
     st.container(border=True).toggle("Show estimated hours of labor on the image", key="share_show_hours")
 
     # Rendered fresh each run from the (persisted) project inputs and computed totals,
-    # so it never needs its own st.session_state entry.
-    social_media_svg: str = create_social_media_svg(
-        country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
-        international_collaborators=st.session_state["international_collaborators"],
+    # so it never needs its own st.session_state entry. The alt text is built from the same content as the card.
+    social_media_card: dict[str, Any] = {
+        "country": COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+        "international_collaborators": st.session_state["international_collaborators"],
         # Only the group name, as the division name would make the title too long for the card. Projects saved before
         # Field of Research codes were used hold a broad field name instead.
-        project_field=(
+        "project_field": (
             FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
             if st.session_state["project_field"] in FIELDS_OF_RESEARCH
             else st.session_state["project_field"]
         ),
-        total_cost=total_cost,
-        total_hours=total_hours,
-        phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-        format_currency=format_currency,
-        show_hours=st.session_state["share_show_hours"],
-        version=COST_OF_KNOWLEDGE_VERSION,
-    ).as_svg()
+        "total_cost": total_cost,
+        "total_hours": total_hours,
+        "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+        "format_currency": format_currency,
+        "show_hours": st.session_state["share_show_hours"],
+        "version": COST_OF_KNOWLEDGE_VERSION,
+    }
+    social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()
+    social_media_alt_text: str = create_social_media_image_alt_text(**social_media_card)
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.download_button(
@@ -2364,7 +2381,9 @@ with share_left:
             icon=":material/email:",
             help="Share this tool via email. Download the image first and attach it to your email.",
         )
-share_right.container(horizontal=True, horizontal_alignment="center").image(social_media_svg, width=540)
+share_right.container(horizontal=True, horizontal_alignment="center").image(
+    social_media_svg, width=540, alt=social_media_alt_text
+)
 
 
 show_footer()

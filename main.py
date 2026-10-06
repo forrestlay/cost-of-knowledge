@@ -44,6 +44,7 @@ from src.calculator_state import (
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
     PUBLISHING_PHASE,
+    WIDGET_KEYS,
     CalculatorState,
     compute_costs,
     compute_hours,
@@ -56,10 +57,15 @@ from src.figures import (
     build_color_map,
     costs_dataframe,
     costs_pie_chart,
+    costs_pie_chart_alt_text,
+    create_social_media_image_alt_text,
     create_social_media_svg,
+    hours_per_person_chart_alt_text,
     labour_bar_chart,
+    labour_bar_chart_alt_text,
     labour_dataframe,
     labour_sunburst_chart,
+    labour_sunburst_chart_alt_text,
     social_media_svg_to_png,
 )
 from src.models import (
@@ -78,7 +84,7 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import colored_container_key, primary_fill_styles, row_styles, toggletip, toggletip_styles
+from src.ui import CALCULATOR_PAGE, colored_container_key, primary_fill_styles, row_styles, toggletip, toggletip_styles
 
 if TYPE_CHECKING:
     from src.models import Cost
@@ -88,20 +94,27 @@ st.set_page_config(page_title="The Cost of Knowledge Calculator", layout="wide")
 primary_fill_styles()
 
 
-def calculator_page() -> None:
-    """The calculator, which is the rest of this script. The script carries on past navigation to run it."""
-
-
-# The other pages are reached only by their URLs (e.g. BASE-URL/admin), so navigation is hidden. The result page is the
-# link that users share, and the admin page lists every saved result.
+# The other pages are reached only by their URLs (e.g. BASE-URL/admin) or the sidebar's links, so navigation is hidden.
+# The result page is the link that users share, the admin page lists every saved result, and the about page describes
+# the tool.
 RESULT_PAGE: st.Page = st.Page("app_pages/result.py", title="Cost of Knowledge result", url_path="result")
 ADMIN_PAGE: st.Page = st.Page("app_pages/admin.py", title="Saved results", url_path="admin")
-current_page: st.Page = st.navigation(  # ty: ignore[call-non-callable]
-    [st.Page(calculator_page, title="Cost of Knowledge Calculator", default=True), RESULT_PAGE, ADMIN_PAGE],
+ABOUT_PAGE: st.Page = st.Page(
+    "app_pages/about.py", title="About the Cost of Knowledge", icon=":material/info:", url_path="about"
+)
+current_page: st.Page = st.navigation(
+    [CALCULATOR_PAGE, RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE],
     position="hidden",
 )
-for other_page in (RESULT_PAGE, ADMIN_PAGE):
+for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
     if current_page.url_path == other_page.url_path:
+        # Streamlit discards the state of widgets that are not rendered in a run, so the calculator's inputs would be
+        # lost on visiting the about page from the sidebar. Reassigning them hands them over to session state instead.
+        # The add and edit forms are left out, as they are reset whenever they are opened.
+        if other_page is ABOUT_PAGE:
+            for widget_key in list(st.session_state.keys()):
+                if widget_key in WIDGET_KEYS or str(widget_key).startswith(("simplified-hours-", "simplified-cost-")):
+                    st.session_state[widget_key] = st.session_state[widget_key]
         other_page.run()
         st.stop()
 
@@ -1503,6 +1516,8 @@ with st.sidebar:
             if toc_anchor in RESULTS_ANCHORS and not results_visible():
                 continue
             st.markdown(f"[{toc_label}](#{toc_anchor})")
+    st.divider()
+    st.page_link(ABOUT_PAGE)
 
 
 toggletip_styles()
@@ -1958,13 +1973,10 @@ with st.container(border=True):
         "Include the cost of publishing in the total cost",
         key="include-publishing-costs",
     )
-    st.session_state["publishing_costs"] = st.slider(
+    st.session_state["publishing_costs"] = st.number_input(
         f"Cost of publishing a refereed journal article ({currency_code()})",
         min_value=0.0,
-        # Converting to another currency or loading a saved result can give a value above the usual maximum.
-        max_value=max(1600.0, float(st.session_state["publishing-costs"])),
-        step=1.0,
-        format=f"{currency_prefix()}%.2f",
+        step=100.0,
         key="publishing-costs",
         help=f"The default value of US${DEFAULT_PUBLISHING_COSTS:,.2f} is the cost per refereed journal article "
         "for a full service journal publisher with in-house staff using volunteer editors "
@@ -2130,12 +2142,14 @@ costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == 
 
 
 costs_df = costs_dataframe(combined_costs_list)
+costs_pie_alt_text: str = costs_pie_chart_alt_text(costs_df, costs_pie_names, format_currency)
 
 
 with st.container(key="wide-chart-costs-pie"):
     st.plotly_chart(
         costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=colorblind_safe_graphs),
         width="stretch",
+        alt=costs_pie_alt_text,
     )
 with st.container(key="narrow-chart-costs-pie"):
     st.plotly_chart(
@@ -2148,6 +2162,7 @@ with st.container(key="narrow-chart-costs-pie"):
             hatching=colorblind_safe_graphs,
         ),
         width="stretch",
+        alt=costs_pie_alt_text,
     )
 
 
@@ -2166,12 +2181,14 @@ if st.session_state["calculator_mode"] == "detailed":
                 Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
                 the phase or person again to return to the parent view.
                 """)
+    sunburst_alt_text: str = labour_sunburst_chart_alt_text(labour_df, total_cost, format_currency)
     with st.container(key="wide-chart-sunburst"):
         st.plotly_chart(
             labour_sunburst_chart(
                 labour_df, phase_color_map, total_cost, currency_code(), hatching=colorblind_safe_graphs
             ),
             width="stretch",
+            alt=sunburst_alt_text,
         )
     with st.container(key="narrow-chart-sunburst"):
         st.plotly_chart(
@@ -2184,6 +2201,7 @@ if st.session_state["calculator_mode"] == "detailed":
                 hatching=colorblind_safe_graphs,
             ),
             width="stretch",
+            alt=sunburst_alt_text,
         )
     st.caption(
         "Percentages are calculated as a percentage of the total cost of the "
@@ -2206,7 +2224,7 @@ hours_per_person_chart = px.bar(
 )
 hours_per_person_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
 hours_per_person_chart.update_layout(showlegend=False)
-st.plotly_chart(hours_per_person_chart, width="stretch")
+st.plotly_chart(hours_per_person_chart, width="stretch", alt=hours_per_person_chart_alt_text(hours_per_person_df))
 
 
 labour_chart_selection = st.pills(
@@ -2217,13 +2235,16 @@ labour_chart_selection = st.pills(
 )
 
 
+labour_bar_measure: str = labour_chart_selection or "Cost"
+labour_bar_title: str = "Cost of and Time Spent on Labor Activities"
+labour_bar_alt_text: str = labour_bar_chart_alt_text(labour_df, labour_bar_measure, labour_bar_title, format_currency)
 for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart-labour-bar", True)):
     with st.container(key=chart_key):
         st.plotly_chart(
             labour_bar_chart(
                 labour_df,
-                labour_chart_selection or "Cost",
-                "Cost of and Time Spent on Labor Activities",
+                labour_bar_measure,
+                labour_bar_title,
                 phase_color_map,
                 currency_code(),
                 currency_prefix(),
@@ -2231,6 +2252,7 @@ for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart
                 hatching=colorblind_safe_graphs,
             ),
             width="stretch",
+            alt=labour_bar_alt_text,
         )
 
 
@@ -2302,24 +2324,26 @@ with share_left:
     st.container(border=True).toggle("Show estimated hours of labor on the image", key="share_show_hours")
 
     # Rendered fresh each run from the (persisted) project inputs and computed totals,
-    # so it never needs its own st.session_state entry.
-    social_media_svg: str = create_social_media_svg(
-        country=COUNTRY_NAMES.get(st.session_state["user_country"], ""),
-        international_collaborators=st.session_state["international_collaborators"],
+    # so it never needs its own st.session_state entry. The alt text is built from the same content as the card.
+    social_media_card: dict[str, Any] = {
+        "country": COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+        "international_collaborators": st.session_state["international_collaborators"],
         # Only the group name, as the division name would make the title too long for the card. Projects saved before
         # Field of Research codes were used hold a broad field name instead.
-        project_field=(
+        "project_field": (
             FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
             if st.session_state["project_field"] in FIELDS_OF_RESEARCH
             else st.session_state["project_field"]
         ),
-        total_cost=total_cost,
-        total_hours=total_hours,
-        phase_costs={label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-        format_currency=format_currency,
-        show_hours=st.session_state["share_show_hours"],
-        version=COST_OF_KNOWLEDGE_VERSION,
-    ).as_svg()
+        "total_cost": total_cost,
+        "total_hours": total_hours,
+        "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+        "format_currency": format_currency,
+        "show_hours": st.session_state["share_show_hours"],
+        "version": COST_OF_KNOWLEDGE_VERSION,
+    }
+    social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()
+    social_media_alt_text: str = create_social_media_image_alt_text(**social_media_card)
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.download_button(
@@ -2354,7 +2378,9 @@ with share_left:
             icon=":material/email:",
             help="Share this tool via email. Download the image first and attach it to your email.",
         )
-share_right.container(horizontal=True, horizontal_alignment="center").image(social_media_svg, width=540)
+share_right.container(horizontal=True, horizontal_alignment="center").image(
+    social_media_svg, width=540, alt=social_media_alt_text
+)
 
 
 show_footer()

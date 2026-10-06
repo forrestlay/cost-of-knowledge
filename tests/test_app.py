@@ -18,7 +18,7 @@ MAIN: str = str(Path(__file__).parent.parent / "main.py")
 
 
 class AppTestSessionState(MutableMapping[SessionStateKey, Any]):
-    """Adapts AppTest's session state, which cannot be iterated, to the mapping st.session_state provides in an app."""
+    """Adapts AppTest's session state to the MutableMapping that CalculatorState.apply_to_session_state expects."""
 
     def __init__(self, at: AppTest) -> None:
         self._state = at.session_state
@@ -33,10 +33,10 @@ class AppTestSessionState(MutableMapping[SessionStateKey, Any]):
         del self._state[str(key)]
 
     def __iter__(self) -> Iterator[SessionStateKey]:
-        return iter(list(self._state.filtered_state))
+        return iter(list(self._state))
 
     def __len__(self) -> int:
-        return len(self._state.filtered_state)
+        return len(self._state)
 
 
 def metric_values(at: AppTest) -> list[str]:
@@ -49,7 +49,8 @@ def run(at: AppTest) -> None:
     AppTest calls a selectbox's format_func outside of a script run, where st.session_state is unavailable, so the
     "Assigned person" selectboxes cannot format their value. Swap in an equivalent that reads AppTest's session state.
     """
-    if TESTING_KEY in at.session_state and "people" in at.session_state:
+    # Membership tests only see user state, so look the internal testing key up directly.
+    if at.session_state.get(TESTING_KEY) is not None and "people" in at.session_state:
         people: dict[str, Person] = at.session_state["people"]
         for selectbox in at.selectbox:
             if selectbox.key and selectbox.key.startswith("activity-person-"):

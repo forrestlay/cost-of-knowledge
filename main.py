@@ -1973,13 +1973,10 @@ with st.container(border=True):
         "Include the cost of publishing in the total cost",
         key="include-publishing-costs",
     )
-    st.session_state["publishing_costs"] = st.slider(
+    st.session_state["publishing_costs"] = st.number_input(
         f"Cost of publishing a refereed journal article ({currency_code()})",
         min_value=0.0,
-        # Converting to another currency or loading a saved result can give a value above the usual maximum.
-        max_value=max(1600.0, float(st.session_state["publishing-costs"])),
-        step=1.0,
-        format=f"{currency_prefix()}%.2f",
+        step=100.0,
         key="publishing-costs",
         help=f"The default value of US${DEFAULT_PUBLISHING_COSTS:,.2f} is the cost per refereed journal article "
         "for a full service journal publisher with in-house staff using volunteer editors "

@@ -2310,19 +2310,6 @@ with share_left:
                 key="copy-saved-project-link",
             )
 
-    st.warning(
-        """
-                You may choose to show the total number of hours on your results image. However, for one-person or
-                small teams, this may be used to approximate your salary.
-                """,
-        icon=":material/warning:",
-    )
-
-    # Keyed so the choice persists across reruns; hours are hidden by default.
-    if "share_show_hours" not in st.session_state:
-        st.session_state["share_show_hours"] = False
-    st.container(border=True).toggle("Show estimated hours of labor on the image", key="share_show_hours")
-
     # Rendered fresh each run from the (persisted) project inputs and computed totals,
     # so it never needs its own st.session_state entry. The alt text is built from the same content as the card.
     social_media_card: dict[str, Any] = {
@@ -2336,10 +2323,8 @@ with share_left:
             else st.session_state["project_field"]
         ),
         "total_cost": total_cost,
-        "total_hours": total_hours,
         "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
         "format_currency": format_currency,
-        "show_hours": st.session_state["share_show_hours"],
         "version": COST_OF_KNOWLEDGE_VERSION,
     }
     social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()

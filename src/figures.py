@@ -472,15 +472,24 @@ def _title_case(text: str) -> str:
     )
 
 
+# Blurb above the social-media card's title, beginning the sentence the title continues.
+SOCIAL_MEDIA_BLURB: str = "Using the Cost of Knowledge Calculator, I estimated that"
+
+
+def _social_media_title(project_field: str) -> str:
+    """Builds the social-media card's title, which continues the blurb and leads into the estimated total cost."""
+    return " ".join(
+        f"The public and institutional investment in my {_title_case(project_field)} journal article is".split()
+    )
+
+
 def create_social_media_svg(
     country: str,
     international_collaborators: bool,
     project_field: str,
     total_cost: float,
-    total_hours: float,
     phase_costs: dict[str, float],
     format_currency: Callable[[float], str],
-    show_hours: bool = False,
     version: str | None = None,
 ) -> draw.Drawing:
     """Builds a portrait social-media card summarising a cost estimate.
@@ -494,10 +503,8 @@ def create_social_media_svg(
             other countries; appends "+ others" after the country name.
         project_field: Name of the Field of Research group the project sits in, shown in the title.
         total_cost: Estimated total cost in the chosen country's currency.
-        total_hours: Estimated total hours of labour.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
         format_currency: Formats an amount as a string in the chosen country's currency.
-        show_hours: Whether to show the estimated hours of labor below the total cost.
         version: Version of the tool that produced the estimate (e.g. "0.1.2"), shown in the bottom-left corner, or
             None to leave it out.
     """
@@ -532,44 +539,17 @@ def create_social_media_svg(
         )
     )
 
-    # Blurb, introducing the title and figures below.
+    # Blurb, beginning the sentence that the title continues.
     image.append(
         draw.Text(
-            "Using the Cost of Knowledge calculator, I calculated that",
+            SOCIAL_MEDIA_BLURB,
             28,
             margin,
             162,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
-
-    # Title (wrapped, capped at three lines). Some Field of Research names are long, so the font shrinks until the
-    # title fits, with the characters per line scaled to match.
-    title: str = " ".join(f"My {_title_case(project_field)} paper cost".split())
-    title_line_height: float = 1.15
-    for title_size in (62, 54, 46, 40):
-        wrapped_title: list[str] = _wrap_text(title, int(26 * 62 / title_size))
-        if len(wrapped_title) <= 3:
-            break
-    title_lines: list[str] = wrapped_title[:3]
-    if len(wrapped_title) > 3:
-        title_lines[-1] = title_lines[-1].rstrip(".") + "…"
-    title_top: float = 238
-    image.append(
-        draw.Text(
-            title_lines,
-            title_size,
-            margin,
-            title_top,
             fill=ink,
             font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
-            line_height=title_line_height,
         )
     )
-
-    title_bottom: float = title_top + title_size * title_line_height * (len(title_lines) - 1)
 
     # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
     # library is needed. The block is anchored to the bottom of the card so the
@@ -606,6 +586,38 @@ def create_social_media_svg(
     subtitle_line_height: float = 1.2
     subtitle_lines: list[str] = _wrap_text(subtitle, 48)
     subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
+
+    # Space for the headline figure, between the title and the country.
+    figures_block_h: int = 116
+    figures_gap: int = 50
+    zone_bottom: float = subtitle_y - 26 - 40
+
+    # Title: continues the blurb into the total cost, at a single font size. Some Field of Research names are long,
+    # so the font shrinks until the wrapped title leaves room for the headline figure, with the characters per line
+    # scaled to match.
+    title: str = _social_media_title(project_field)
+    title_line_height: float = 1.2
+    title_bottom_limit: float = zone_bottom - figures_block_h - figures_gap
+    for title_size in (56, 52, 48, 44, 40, 36):
+        title_lines: list[str] = _wrap_text(title, int(26 * 62 / title_size))
+        # The first baseline sits a fixed gap below the blurb, whatever the font size.
+        title_top: float = 196 + title_size * 0.8
+        title_bottom: float = title_top + title_size * title_line_height * (len(title_lines) - 1)
+        if title_bottom <= title_bottom_limit:
+            break
+    image.append(
+        draw.Text(
+            title_lines,
+            title_size,
+            margin,
+            title_top,
+            fill=ink,
+            font_family=SOCIAL_MEDIA_FONT,
+            font_weight="bold",
+            line_height=title_line_height,
+        )
+    )
+
     image.append(
         draw.Text(
             subtitle_lines,
@@ -629,13 +641,9 @@ def create_social_media_svg(
         )
     )
 
-    # Headline figures, each label below its figure, vertically centred between the title and the country. Offsets
-    # are from the top of the block. The hours figure uses a smaller font than the cost to leave room for the
-    # breakdown below.
-    hours_size: int = 64
-    figures_block_h: int = 240 if show_hours else 116
-    zone_top: float = title_bottom + 50
-    zone_bottom: float = subtitle_y - 26 - 40
+    # Headline figure, with its label below, vertically centred between the title and the country. Offsets are from
+    # the top of the block.
+    zone_top: float = title_bottom + figures_gap
     figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
     image.append(
         draw.Text(
@@ -658,28 +666,6 @@ def create_social_media_svg(
             font_family=SOCIAL_MEDIA_FONT,
         )
     )
-    if show_hours:
-        image.append(
-            draw.Text(
-                f"{total_hours:,.0f} hours",
-                hours_size,
-                margin,
-                figures_y + 190,
-                fill=ink,
-                font_family=SOCIAL_MEDIA_FONT,
-                font_weight="bold",
-            )
-        )
-        image.append(
-            draw.Text(
-                "Estimated hours of labor",
-                30,
-                margin,
-                figures_y + 232,
-                fill=muted,
-                font_family=SOCIAL_MEDIA_FONT,
-            )
-        )
 
     image.append(
         draw.Text(
@@ -792,10 +778,8 @@ def create_social_media_image_alt_text(
     international_collaborators: bool,
     project_field: str,
     total_cost: float,
-    total_hours: float,
     phase_costs: dict[str, float],
     format_currency: Callable[[float], str],
-    show_hours: bool = False,
     version: str | None = None,
 ) -> str:
     """Builds alt text for the social-media card from ``create_social_media_svg``.
@@ -803,7 +787,7 @@ def create_social_media_image_alt_text(
     Repeats the card's text in reading order and describes the stacked bar as the share of the cost taken by each
     phase, so the card is accessible to screen-reader users. Takes the same arguments as ``create_social_media_svg``.
     """
-    title: str = " ".join(f"My {_title_case(project_field)} paper cost".split())
+    title: str = _social_media_title(project_field)
     subtitle: str = country.strip()
     if subtitle and international_collaborators:
         subtitle = f"{subtitle} + international collaborators"
@@ -812,12 +796,9 @@ def create_social_media_image_alt_text(
         'An infographic intended for sharing on social media, titled "The Cost of Knowledge".',
         "The text of the infographic is as follows: ",
         (
-            f"Using the Cost of Knowledge calculator, I calculated that {title} {format_currency(total_cost)} "
-            "(estimated total cost)."
+            f"{SOCIAL_MEDIA_BLURB} {title} {format_currency(total_cost)} (estimated total cost)."
         ),
     ]
-    if show_hours:
-        sentences.append(f"Estimated hours of labor: {total_hours:,.0f} hours.")
     if subtitle:
         sentences.append(f"Country: {subtitle}.")
 

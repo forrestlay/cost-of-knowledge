@@ -1149,21 +1149,28 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-        :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
-        Knowledge. Preprint available on Zenodo.]
-
-        :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
+        :small[<sup>1</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
         Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
         https://doi.org/10.7208/chicago/9780226805597.003.0002;
         Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
         review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
 
+        :small[<sup>2</sup> American Association of University Professors (2026). *Annual Report on the Economic Status
+        of the Profession, 2025-26.* https://www.aaup.org/sites/default/files/2026-06/ARES_2025-26.pdf;
+        National Center for Science and Engineering Statistics (2026). *Survey of Earned Doctorates 2024.*
+        https://ncses.nsf.gov/surveys/earned-doctorates/2024;
+        US Bureau of Labor Statistics (2026). *Occupational Employment and Wage Statistics May 2025.*
+        https://data.bls.gov/oes/#/area/0000000/2025]
+
         :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
         Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
         the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
-        :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
-        services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
+        :small[<sup>4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
+        Knowledge. Preprint available on Zenodo.]
+
+        :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). *Current market rates for scholarly publishing
+        services.* F1000Research. https://doi.org/10.12688/f1000research.27468.2]
         """,
         unsafe_allow_html=True,
     )
@@ -1537,20 +1544,12 @@ st.markdown(
 
     **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
     involved in preparing a refereed journal article. Prior literature has established that research provides
-    substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
+    substantial economic and social returns{footnote_returns}, and with this tool we instead seek to draw attention
     to the resources required for scholarly publishing.
     """.replace(
-        "{footnote_1}",
+        "{footnote_returns}",
         toggletip(
             "<sup>1</sup>",
-            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
-            available on Zenodo.""",
-            key="footnote-1",
-        ),
-    ).replace(
-        "{footnote_2}",
-        toggletip(
-            "<sup>2</sup>",
             "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
             "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
             "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
@@ -1576,7 +1575,7 @@ with st.expander("About the data", expanded=False):
         """.replace(
             "{footnote_surveys}",
             toggletip(
-                "<sup>3</sup>",
+                "<sup>2</sup>",
                 """American Association of University Professors (2026). Annual Report on the Economic Status of
                 the Profession, 2025-26. https://www.aaup.org/sites/default/files/2026-06/ARES_2025-26.pdf;
                 National Center for Science and Engineering Statistics (2026). Survey of Earned Doctorates 2024.
@@ -1593,6 +1592,7 @@ with st.expander("About the data", expanded=False):
 # User and Project
 # -----------------------------------------------
 
+st.space()
 st.header(":material/article: Your Refereed Journal Article", anchor=ARTICLE_ANCHOR)
 st.markdown("""
             Please fill in some details about a **single refereed journal article** for which you will estimate the
@@ -1649,10 +1649,10 @@ st.markdown(
     licences, and open access publishing agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
-    rate of 40% sourced from Azoulay et al. (2026){footnote_3}, being an approximate middle ground within
+    rate of 40% sourced from Azoulay et al. (2026){footnote_azoulay}, being an approximate middle ground within
     the range of effective indirect cost recovery rates they observe from a sample of US universities.
     """.replace(
-        "{footnote_3}",
+        "{footnote_azoulay}",
         toggletip(
             "<sup>3</sup>",
             """Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
@@ -1683,6 +1683,7 @@ st.slider(
 # Study team
 # -----------------------------------------------
 
+st.space()
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
@@ -1743,6 +1744,7 @@ for person in st.session_state["people"].values():
 # Calculator
 # -----------------------------------------------
 
+st.space()
 st.header(":material/request_quote: Calculator", anchor=CALCULATOR_ANCHOR)
 
 # Loading a state writes the radio's value into its widget state, so seed it here rather than passing index=, which
@@ -1955,7 +1957,7 @@ st.markdown(
         go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
         journal article for a full service journal publisher with in-house staff that relies on volunteer editors and
         peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs, 2021,
-        p. 6).{footnote_5}
+        p. 6).{footnote_grossmann}
 
         **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is strictly
         required of a publisher to disseminate an article), while price is driven by what individuals are willing to
@@ -1969,7 +1971,7 @@ st.markdown(
         interests are served.
         """
     ).replace(
-        "{footnote_5}",
+        "{footnote_grossmann}",
         toggletip(
             "<sup>5</sup>",
             """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
@@ -2094,6 +2096,7 @@ item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" f
 person_color_map: dict[str, str] = build_color_map([activity.get_person().label for activity in results_activities])
 
 
+st.space()
 st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
 
 

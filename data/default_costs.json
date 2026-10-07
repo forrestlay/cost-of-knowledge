@@ -11,7 +11,7 @@
     {"name": "Writing and manuscript preparation", "phase": "writing", "hours": 100},
     {"name": "Conferencing (labor)", "phase": "writing", "hours": 123}
   ],
-  "peer_review": {"review_rounds": 3, "journal_submissions": 1},
+  "peer_review": {"review_rounds": 3, "journal_submissions": 1, "peer_reviewers": 1},
   "journal_editing": {"journal_submissions": 1},
   "publishing": {"publishing_costs": 454.63},
   "direct_costs": [

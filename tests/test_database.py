@@ -238,6 +238,7 @@ def test_results_page_lists_saved_projects(monkeypatch: pytest.MonkeyPatch) -> N
         "International collaboration": True,
         "Field": "Commerce, management, tourism and services/Accounting, auditing and accountability",
         "Researchers": 0,
+        "Peer reviewers": state.peer_review.peer_reviewers,
         "Peer reviews": 2,
         "Journal submissions": 3,
         "Calculator mode": "Simplified",

@@ -49,9 +49,10 @@ type SessionStateKey = str | int
 # Version 2 removed the user's name, the project's name and people's names, and added people's roles. Version 1 data
 # is read by ignoring the names, with no roles. Version 3 added the calculator mode and the simplified estimates. Older
 # data is read in detailed mode with no simplified estimates. Version 4 added the publishing cost. Older data is read
-# with the default publishing cost.
-SCHEMA_VERSION: int = 4
-SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4)
+# with the default publishing cost. Version 5 added the number of peer reviewers to the peer review activity. Older data
+# is read with one peer reviewer.
+SCHEMA_VERSION: int = 5
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4, 5)
 # The two ways of estimating activities and costs in the calculator. Simplified takes an overall number of hours per
 # researcher and an overall direct cost for each phase in OVERALL_TOTAL_PHASES. Detailed takes individual activities and
 # direct costs.
@@ -77,6 +78,7 @@ WIDGET_KEY_PREFIXES: tuple[str, ...] = (
 WIDGET_KEYS: tuple[str, ...] = (
     "user_country_select",  # You and your project: country selectbox
     "indirect_cost_percentage",  # Indirect Costs: project-wide indirect cost rate slider
+    "peer-reviewers",  # Peer review and journal editorial work: peer reviewers slider
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
     "calculator-mode",  # Calculator: simplified or detailed estimates radio
@@ -220,7 +222,7 @@ class CalculatorState:
     @classmethod
     def default(cls) -> CalculatorState:
         """Returns the calculator's starting state, with no researchers, one journal submission with three rounds of
-        peer review, no detailed direct costs, and and zero simplified hours and direct costs.
+        peer review by one peer reviewer, no detailed direct costs, and and zero simplified hours and direct costs.
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
         peer_reviewer: Person = Person(
@@ -234,7 +236,7 @@ class CalculatorState:
             hourly_rate=hourly_rate,
         )
         activities: list[BaseActivity] = [
-            PeerReview(person=peer_reviewer, review_rounds=3, journal_submissions=1, unique_key=1),
+            PeerReview(person=peer_reviewer, review_rounds=3, journal_submissions=1, peer_reviewers=1, unique_key=1),
             JournalEditing(person=journal_editor, journal_submissions=1, unique_key=2),
         ]
         return cls(
@@ -326,6 +328,7 @@ class CalculatorState:
                 person=state.peer_reviewer,
                 review_rounds=peer_review["review_rounds"],
                 journal_submissions=peer_review["journal_submissions"],
+                peer_reviewers=peer_review["peer_reviewers"],
                 unique_key=len(activities) + 1,
             ),
             JournalEditing(
@@ -547,8 +550,10 @@ class CalculatorState:
         session_state["simplified_direct_costs"] = self.simplified_direct_costs
         session_state["publishing_costs"] = self.publishing_costs
         session_state["include_publishing_costs"] = self.include_publishing_costs
+        session_state["peer_reviewers"] = peer_review.peer_reviewers
         session_state["review_rounds"] = peer_review.review_rounds
         session_state["journal_submissions"] = peer_review.journal_submissions
+        session_state["peer-reviewers"] = peer_review.peer_reviewers
         session_state["review-rounds"] = peer_review.review_rounds
         session_state["journal-submissions"] = peer_review.journal_submissions
         for phase in OVERALL_TOTAL_PHASES:

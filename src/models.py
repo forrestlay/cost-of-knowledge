@@ -286,6 +286,8 @@ class PeerReview(BaseActivity):
         person: Person to who this activity is assigned.
         phase: Phase of research this activity belongs to.
         hours: Number of hours allocated to this activity, used to calculate the total cost.
+        peer_reviewers: Average number of peer reviewers per journal submission, each of whom spends the hours of
+            every review round.
         unique_key: Unique numerical identifier for this activity.
     """
 
@@ -296,6 +298,7 @@ class PeerReview(BaseActivity):
     phase: str = "editing"
     initial_round_hours: int | float = 4
     subsequent_round_hours: int | float = 2
+    peer_reviewers: int = 1
     unique_key: int = 1
 
     def get_name(self) -> str:
@@ -313,7 +316,7 @@ class PeerReview(BaseActivity):
         hours_per_submission: int | float = self.initial_round_hours + (
             self.subsequent_round_hours * (self.review_rounds - 1)
         )
-        hours: int | float = self.journal_submissions * hours_per_submission
+        hours: int | float = self.peer_reviewers * self.journal_submissions * hours_per_submission
         return hours
 
     def get_total_cost(self) -> int | float:
@@ -336,6 +339,7 @@ class PeerReview(BaseActivity):
             "journal_submissions": self.journal_submissions,
             "initial_round_hours": self.initial_round_hours,
             "subsequent_round_hours": self.subsequent_round_hours,
+            "peer_reviewers": self.peer_reviewers,
             "unique_key": self.unique_key,
         }
 
@@ -355,6 +359,8 @@ class PeerReview(BaseActivity):
             phase=data["phase"],
             initial_round_hours=data["initial_round_hours"],
             subsequent_round_hours=data["subsequent_round_hours"],
+            # Saved before the number of peer reviewers could be set, when there was always one.
+            peer_reviewers=int(data.get("peer_reviewers", 1)),
             unique_key=int(data["unique_key"]),
         )
 

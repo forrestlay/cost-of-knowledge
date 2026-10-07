@@ -268,6 +268,7 @@ def test_import_replaces_edited_widgets() -> None:
     imported.people["2"] = second
     imported.activities.append(Activity("Data collection", second, "data", 100, 11, 4))
     imported.peer_review.review_rounds = 2
+    imported.peer_review.peer_reviewers = 3
     imported.user_country = "us"
     imported.project_field = "4601"
     restored: CalculatorState = CalculatorState.from_json(imported.to_json())
@@ -286,6 +287,7 @@ def test_import_replaces_edited_widgets() -> None:
     assert at.slider(key="add-item-hours-1").value == 0.0
     assert at.button(key="item-activity-1-edit")
     assert at.slider(key="review-rounds").value == 2
+    assert at.slider(key="peer-reviewers").value == 3
     assert at.selectbox(key="user_country_select").value == "us"
     assert CalculatorState.from_session_state(AppTestSessionState(at)) == restored
 

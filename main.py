@@ -1915,6 +1915,8 @@ st.markdown(PHASE_DESCRIPTIONS["editing"])
 
 # Loading a state writes the sliders' values into their widget state, so seed it here rather than
 # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
+if "peer-reviewers" not in st.session_state:
+    st.session_state["peer-reviewers"] = st.session_state["peer_reviewers"]
 if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
@@ -1934,6 +1936,19 @@ with st.container(border=True):
     st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
     st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
 
+    st.session_state["peer_reviewers"] = st.slider(
+        "Average number of peer reviewers per journal submission",
+        min_value=1,
+        max_value=20,
+        step=1,
+        key="peer-reviewers",
+        help="""The average number of peer reviewers who reviewed the manuscript at each journal it was submitted to.
+        It is estimated that the first round of review involves 4 hours of work by a peer reviewer, with subsequent
+        rounds involving 2 hours each. The median hourly rate for an associate professor in the US is used to calculate
+        the cost of this labor, with a 40% indirect cost rate (see Alam et al., 2026, pp. 11-3) for details).""",
+    )
+    st.session_state["peer_review_activity"].peer_reviewers = st.session_state["peer_reviewers"]
+
     st.session_state["review_rounds"] = st.slider(
         "Average number of review rounds per journal submission",
         min_value=1,
@@ -1941,8 +1956,8 @@ with st.container(border=True):
         step=1,
         key="review-rounds",
         help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
-        across all journal submissions. It is estimated that the first round of review involves 4 hours of work by
-        peer reviewers, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
+        across all journal submissions. It is estimated that the first round of review involves 4 hours of work by a
+        peer reviewer, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
         professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.,
         2026, pp. 11-3) for details).""",
     )

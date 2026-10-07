@@ -125,6 +125,7 @@ def results_frame(projects: list[tuple[dict[str, Any], CalculatorState]]) -> pd.
                 "International collaboration": state.international_collaborators,
                 "Field": field_of_research_display_name(state.project_field),
                 "Researchers": sum(person.quantity for person in state.people.values()),
+                "Peer reviewers": state.peer_review.peer_reviewers,
                 "Peer reviews": state.peer_review.review_rounds,
                 "Journal submissions": state.peer_review.journal_submissions,
                 "Calculator mode": state.calculator_mode.capitalize(),
@@ -149,6 +150,7 @@ def results_frame(projects: list[tuple[dict[str, Any], CalculatorState]]) -> pd.
             "International collaboration",
             "Field",
             "Researchers",
+            "Peer reviewers",
             "Peer reviews",
             "Journal submissions",
             "Calculator mode",
@@ -559,6 +561,7 @@ else:
     )
 detail_tables["Peer review, journal submissions and publishing"] = pd.DataFrame(
     [
+        {"Activity": "Peer reviewers", "Value": state.peer_review.peer_reviewers},
         {"Activity": "Peer review rounds", "Value": state.peer_review.review_rounds},
         {"Activity": "Journal editorial work submissions", "Value": state.journal_editing.journal_submissions},
         {

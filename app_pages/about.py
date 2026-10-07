@@ -51,4 +51,4 @@ st.markdown(
 )
 
 if "tool_version" in st.session_state:
-    st.markdown(f":small[Tool version: v{st.session_state["tool_version"]}]", text_alignment="center")
+    st.markdown(f":small[Tool version: v{st.session_state['tool_version']}]", text_alignment="center")

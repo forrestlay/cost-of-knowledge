@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import streamlit as st
 
 from src import database, sql_store
-from src.calculator_state import PUBLISHING_PHASE, compute_costs
+from src.calculator_state import compute_costs
 from src.figures import (
     build_color_map,
     costs_dataframe,
@@ -37,6 +37,7 @@ from src.figures import (
     costs_pie_chart_alt_text,
     create_social_media_image_alt_text,
     create_social_media_svg,
+    infographic_costs,
     labour_bar_chart,
     labour_bar_chart_alt_text,
     labour_dataframe,
@@ -153,8 +154,11 @@ social_media_card: dict[str, Any] = {
     else state.project_field,
     # Only the people the user added, not the peer reviewer or journal editor.
     "researchers": sum(person.quantity for person in state.people.values()),
-    "total_cost": total_cost,
-    "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    **infographic_costs(
+        total_cost,
+        {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+        state.publishing_costs if state.include_publishing_costs else 0.0,
+    ),
     "format_currency": lambda amount: format_currency(amount, country),
     "version": state.version,
 }
@@ -205,12 +209,7 @@ st.markdown(
 
 k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
-k2.metric(
-    "Estimated direct costs",
-    format_currency(
-        compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE]), country
-    ),
-)
+k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
 
 with st.container(border=True):
     colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
@@ -235,6 +234,10 @@ st.plotly_chart(
     ),
     width="stretch",
     alt=costs_pie_chart_alt_text(costs_df, costs_pie_names, lambda amount: format_currency(amount, country)),
+)
+st.caption(
+    "Breakdown of where the public and institutional investment in the journal article goes. Publishing costs of "
+    f"{format_currency(state.publishing_costs, country)} are not included."
 )
 
 

@@ -488,6 +488,24 @@ def _public_investment(total_cost: float, phase_costs: dict[str, float]) -> floa
     return total_cost - phase_costs.get(RESEARCH_PHASES["publishing"], 0.0)
 
 
+def infographic_costs(
+    total_cost: float, phase_costs: dict[str, float], publishing_costs: float
+) -> dict[str, float | dict[str, float]]:
+    """The total_cost and phase_costs arguments of ``create_social_media_svg`` and
+    ``create_social_media_image_alt_text``, with the publishing costs added as the publisher-borne publishing phase.
+
+    Args:
+        total_cost: The public and institutional investment, which leaves out the publishing costs.
+        phase_costs: Cost per research phase, keyed by phase display name, without the publishing costs.
+        publishing_costs: The publishing costs to show in the infographic, or 0 to leave them out.
+    """
+    publishing_name: str = RESEARCH_PHASES["publishing"]
+    return {
+        "total_cost": total_cost + publishing_costs,
+        "phase_costs": {**phase_costs, publishing_name: phase_costs.get(publishing_name, 0.0) + publishing_costs},
+    }
+
+
 def _social_media_subtitle_parts(researchers: int, country: str, international_collaborators: bool) -> list[str]:
     """The parts of the social-media card's subtitle: the number of researchers and contributors, then where they are.
 

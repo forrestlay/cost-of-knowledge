@@ -459,7 +459,7 @@ st.dataframe(
     results,
     hide_index=True,
     column_config={
-        "Link":st.column_config.LinkColumn(
+        "Link": st.column_config.LinkColumn(
             "Link",
             help="Open this result's page.",
             display_text=f"{database.PROJECT_ID_QUERY_PARAM}=(.*)$",
@@ -480,7 +480,8 @@ st.dataframe(
         ),
         "Include publishing costs": st.column_config.CheckboxColumn(
             "Include publishing costs",
-            help="Whether the publishing cost estimate counts towards the total.",
+            help="Whether the publishing cost estimate is shown in the infographic. Results saved by older versions of "
+            "the tool counted it towards the total; publishing costs no longer count towards the total.",
         ),
         **{
             label: st.column_config.NumberColumn(label, format="localized")
@@ -565,8 +566,8 @@ detail_tables["Peer review, journal submissions and publishing"] = pd.DataFrame(
         {"Activity": "Peer review rounds", "Value": state.peer_review.review_rounds},
         {"Activity": "Journal editorial work submissions", "Value": state.journal_editing.journal_submissions},
         {
-            "Activity": f"Publishing cost estimate ({COUNTRY_CURRENCIES.get(state.user_country, ('USD', ''))[0]})"
-            f"{'' if state.include_publishing_costs else ', not included in the total'}",
+            "Activity": f"Publishing cost estimate ({COUNTRY_CURRENCIES.get(state.user_country, ('USD', ''))[0]}), "
+            "not included in the total",
             "Value": state.publishing_costs,
         },
     ],

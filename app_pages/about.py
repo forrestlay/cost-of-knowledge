@@ -23,4 +23,32 @@ with st.sidebar:
     st.page_link(CALCULATOR_PAGE, icon=":material/calculate:")
 
 st.title("About the Cost of Knowledge Calculator")
-st.markdown("About the Cost of Knowledge Calculator.")
+st.markdown(
+    """
+    Every journal article starts as public investment: researcher time, university resources, grant funding.
+    By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog post>.
+
+    This tool enables faculty to quantify the public and institutional investment that underpins their work
+    (primarily in the form of their own labor) using a costing model described in this companion publication <link>
+    — and to compare that with publisher investment. Through this comparison, this resource raises important
+    questions about who contributes what, who controls the final publication, and who profits most <link to
+    profitability report>.
+    """
+)
+
+st.divider()
+st.markdown(
+    """
+    :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
+    Lay, Loh, and Tanima.
+    :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
+    International License](https://creativecommons.org/licenses/by/4.0/).]
+
+    :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
+    [Github](https://github.com/forrestlay/cost-of-knowledge)]
+    """,
+    text_alignment="center",
+)
+
+if "tool_version" in st.session_state:
+    st.markdown(f":small[Tool version: v{st.session_state['tool_version']}]", text_alignment="center")

@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import streamlit as st
 
 from src import database, sql_store
-from src.calculator_state import PUBLISHING_PHASE, compute_costs
+from src.calculator_state import compute_costs
 from src.figures import (
     build_color_map,
     costs_dataframe,
@@ -148,13 +148,23 @@ st.markdown(
 social_media_card: dict[str, Any] = {
     "country": COUNTRY_NAMES.get(country, ""),
     "international_collaborators": state.international_collaborators,
-    "project_field": FIELDS_OF_RESEARCH[state.project_field].name
-    if state.project_field in FIELDS_OF_RESEARCH
-    else state.project_field,
+    # Only the group name, as the division name would be too long for the card. Projects saved before Field of
+    # Research codes were used hold a broad field name instead.
+    "project_field": (
+        FIELDS_OF_RESEARCH[state.project_field].name
+        if state.project_field in FIELDS_OF_RESEARCH
+        else state.project_field
+    ),
     # Only the people the user added, not the peer reviewer or journal editor.
     "researchers": sum(person.quantity for person in state.people.values()),
     "total_cost": total_cost,
-    "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+    # Publishing is a publisher-borne cost, shown separately for comparison rather than in the breakdown.
+    "phase_costs": {
+        label: compute_costs(combined_costs_list, phase=key)
+        for key, label in RESEARCH_PHASES.items()
+        if key != "publishing"
+    },
+    "publishing_costs": state.publishing_costs if state.include_publishing_costs else 0.0,
     "format_currency": lambda amount: format_currency(amount, country),
     "version": state.version,
 }
@@ -205,15 +215,7 @@ st.markdown(
 
 k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
-k2.metric(
-    "Estimated direct costs",
-    format_currency(
-        compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE]), country
-    ),
-)
-
-with st.container(border=True):
-    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
+k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
 
 
 st.subheader("Total cost breakdown")
@@ -231,10 +233,14 @@ st.plotly_chart(
         costs_pie_names,
         phase_color_map,
         item_color_map,
-        hatching=colorblind_safe_graphs,
+        hatching=True,
     ),
     width="stretch",
     alt=costs_pie_chart_alt_text(costs_df, costs_pie_names, lambda amount: format_currency(amount, country)),
+)
+st.caption(
+    "Breakdown of where the public and institutional investment in the journal article goes. Publishing costs of "
+    f"{format_currency(state.publishing_costs, country)} are not included."
 )
 
 
@@ -250,9 +256,7 @@ if state.calculator_mode == "detailed":
                 the phase or person again to return to the parent view.
                 """)
     st.plotly_chart(
-        labour_sunburst_chart(
-            labour_df, phase_color_map, total_cost, currency_code(country), hatching=colorblind_safe_graphs
-        ),
+        labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(country), hatching=True),
         width="stretch",
         alt=labour_sunburst_chart_alt_text(labour_df, total_cost, lambda amount: format_currency(amount, country)),
     )
@@ -269,7 +273,7 @@ st.plotly_chart(
         phase_color_map,
         currency_code(country),
         currency_prefix(country),
-        hatching=colorblind_safe_graphs,
+        hatching=True,
     ),
     width="stretch",
     alt=labour_bar_chart_alt_text(

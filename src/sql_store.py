@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS activities (
     initial_round_hours NUMERIC,
     subsequent_round_hours NUMERIC,
     hours_per_submission NUMERIC,
+    peer_reviewers INTEGER,
     PRIMARY KEY (project_id, unique_key),
     FOREIGN KEY (project_id, person_key) REFERENCES people (project_id, unique_key)
 );
@@ -222,6 +223,7 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         initial_round_hours DOUBLE,
         subsequent_round_hours DOUBLE,
         hours_per_submission DOUBLE,
+        peer_reviewers INTEGER,
         PRIMARY KEY (project_id, unique_key),
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
         FOREIGN KEY (project_id, person_key) REFERENCES people (project_id, unique_key)
@@ -295,6 +297,7 @@ _ACTIVITY_COLUMNS: tuple[str, ...] = (
     "initial_round_hours",
     "subsequent_round_hours",
     "hours_per_submission",
+    "peer_reviewers",
 )
 
 

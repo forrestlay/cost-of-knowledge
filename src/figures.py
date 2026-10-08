@@ -459,44 +459,56 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
     return lines or [""]
 
 
-# Words left lowercase when title-casing field names, including te reo Māori particles (e.g. "o te Māori").
-_TITLE_CASE_MINOR_WORDS: set[str] = {"and", "of", "me", "o", "te"}
+# Blurb of the social-media card, beginning the sentence that the headline continues.
+SOCIAL_MEDIA_BLURB: str = "Using the Cost of Knowledge calculator, I estimated that"
+
+# Headline of the social-media card, continuing the blurb and leading into the breakdown and the total cost below it.
+SOCIAL_MEDIA_HEADLINE: str = "The public and institutional investment in my peer-reviewed journal article is"
 
 
-def _title_case(text: str) -> str:
-    """Capitalises each word of a field name except minor words, e.g. "Agricultural Biotechnology"."""
-    words: list[str] = text.split()
-    return " ".join(
-        word if index > 0 and word in _TITLE_CASE_MINOR_WORDS else word[:1].upper() + word[1:]
-        for index, word in enumerate(words)
+def _social_media_comparison(publishing_costs: float, format_currency: Callable[[float], str]) -> str | None:
+    """The social-media card's line comparing the publisher investment, or None if the publishing costs are left out."""
+    if publishing_costs <= 0:
+        return None
+    return (
+        f"For comparison, the publisher investment in my peer-reviewed article is {format_currency(publishing_costs)}."
     )
 
 
-# Blurb above the social-media card's title, beginning the sentence the title continues.
-SOCIAL_MEDIA_BLURB: str = "Using the Cost of Knowledge Calculator, I estimated that"
+def _wrap_parts(parts: list[str], separator: str, max_chars: int) -> list[str]:
+    """Greedily packs parts into lines of at most ``max_chars`` characters, joining parts on a line with ``separator``.
 
-
-def _social_media_title(project_field: str) -> str:
-    """Builds the social-media card's title, which continues the blurb and leads into the estimated total cost."""
-    return " ".join(
-        f"The public and institutional investment in my {_title_case(project_field)} journal article is".split()
-    )
-
-
-def _public_investment(total_cost: float, phase_costs: dict[str, float]) -> float:
-    """The total cost less the publishing phase, which journal publishers bear, not the public and institutions."""
-    return total_cost - phase_costs.get(RESEARCH_PHASES["publishing"], 0.0)
-
-
-def _social_media_subtitle_parts(researchers: int, country: str, international_collaborators: bool) -> list[str]:
-    """The parts of the social-media card's subtitle: the number of researchers and contributors, then where they are.
-
-    Where they are is "International" for projects with international collaborators, otherwise the country, and is left
-    out if there is no country.
+    A part only starts a new line if it does not fit on the current one, and a part too long for a line of its own is
+    word-wrapped, the parts after it continuing on its last line.
     """
-    parts: list[str] = [
-        "1 researcher" if researchers == 1 else f"{researchers:,} researchers and contributors",
-    ]
+    lines: list[str] = []
+    current: str = ""
+    for part in parts:
+        candidate: str = f"{current}{separator}{part}" if current else part
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+        wrapped: list[str] = _wrap_text(part, max_chars)
+        lines.extend(wrapped[:-1])
+        current = wrapped[-1]
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _social_media_subtitle_parts(
+    project_field: str, researchers: int, country: str, international_collaborators: bool
+) -> list[str]:
+    """The parts of the social-media card's subtitle: the field of research, the number of researchers and
+    contributors, then where they are.
+
+    The field of research is left out if there is none. Where they are is "International" for projects with
+    international collaborators, otherwise the country, and is left out if there is no country.
+    """
+    parts: list[str] = [project_field.strip()] if project_field.strip() else []
+    parts.append("1 researcher" if researchers == 1 else f"{researchers:,} researchers and contributors")
     place: str = "International" if international_collaborators else country.strip()
     if place:
         parts.append(place)
@@ -510,6 +522,7 @@ def create_social_media_svg(
     researchers: int,
     total_cost: float,
     phase_costs: dict[str, float],
+    publishing_costs: float,
     format_currency: Callable[[float], str],
     version: str | None = None,
 ) -> draw.Drawing:
@@ -522,12 +535,16 @@ def create_social_media_svg(
         country: Display name of the researcher's country.
         international_collaborators: Whether the project has collaborators from other countries; shows "International"
             in place of the country.
-        project_field: Name of the Field of Research group the project sits in, shown in the title.
+        project_field: Name of the Field of Research group the project sits in, shown before the researchers and
+            country, or "" to leave it out.
         researchers: Number of researchers and contributors the user added, counting each person's quantity, but not
             the peer reviewer or journal editor.
-        total_cost: Estimated total cost in the chosen country's currency. The headline figure leaves out the
-            publishing phase, showing only the public and institutional investment.
-        phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name.
+        total_cost: Estimated public and institutional investment in the chosen country's currency, leaving out the
+            publishing costs.
+        phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name, leaving out
+            the publishing costs.
+        publishing_costs: The publisher investment in the chosen country's currency, shown for comparison below the
+            divider, or 0 to leave it out.
         format_currency: Formats an amount as a string in the chosen country's currency.
         version: Version of the tool that produced the estimate (e.g. "0.1.2"), shown in the bottom-left corner, or
             None to leave it out.
@@ -563,7 +580,7 @@ def create_social_media_svg(
         )
     )
 
-    # Blurb, beginning the sentence that the title continues.
+    # Blurb, beginning the sentence that the headline continues.
     image.append(
         draw.Text(
             SOCIAL_MEDIA_BLURB,
@@ -575,130 +592,101 @@ def create_social_media_svg(
         )
     )
 
-    # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting
-    # library is needed. The block is anchored to the bottom of the card so the
-    # layout stays balanced whatever the title length. Streamlit's placeholder
-    # palette renders near-black outside the app, so choose real colours here,
-    # one stable colour per phase.
+    # Vertical layout. The headline, breakdown and total flow down from the blurb, while the subtitle, divider,
+    # comparison and footer are anchored to the bottom of the card. The space left over, which depends on the number
+    # of phases and wrapped lines, is shared between the gaps above the bar, above the total and below the total's
+    # caption, the largest share setting the total apart from the subtitle.
+    headline_size: int = 52
+    headline_line_height: float = 1.2
+    headline_lines: list[str] = _wrap_text(SOCIAL_MEDIA_HEADLINE, 31)
+    # The first baseline sits a fixed gap below the blurb.
+    headline_top: float = 196 + headline_size * 0.8
+    headline_bottom: float = headline_top + headline_size * headline_line_height * (len(headline_lines) - 1)
+
     phase_names: list[str] = list(phase_costs.keys())
+    breakdown_total: float = sum(phase_costs.values())
+    visible_phases: list[str] = [name for name in phase_names if phase_costs[name] > 0] or phase_names
+    bar_h: int = 88
+    legend_row_h: int = 48
+    legend_font: int = 28
+    # From the last headline baseline to the top of the bar, from the bottom of the bar to the first legend baseline,
+    # and from the last legend baseline to the total's baseline.
+    headline_bar_gap: float = 56
+    bar_legend_gap: float = 70
+    legend_total_gap: float = 120
+    total_size: int = 88
+    # From the total's baseline to its caption's baseline, and the least space from the caption to the subtitle.
+    total_caption_gap: float = 50
+    caption_size: int = 30
+    caption_subtitle_gap: float = 72
+
+    subtitle_size: int = 34
+    subtitle_line_height: float = 1.2
+    # The field of research, researchers and country share a line where they fit, wrapping onto more lines if not.
+    subtitle_lines: list[str] = _wrap_parts(
+        _social_media_subtitle_parts(project_field, researchers, country, international_collaborators), " · ", 58
+    )
+    subtitle_block_h: float = subtitle_size * subtitle_line_height * (len(subtitle_lines) - 1)
+
+    # Bottom-anchored block: the call to action's baseline, then the comparison and divider above it.
+    cta_y: float = height - 108
+    comparison_size: int = 28
+    comparison_line_height: float = 1.25
+    comparison: str | None = _social_media_comparison(publishing_costs, format_currency)
+    comparison_lines: list[str] = _wrap_text(comparison, 72) if comparison else []
+    if comparison_lines:
+        comparison_last_y: float = cta_y - 72
+        comparison_first_y: float = comparison_last_y - comparison_size * comparison_line_height * (
+            len(comparison_lines) - 1
+        )
+        divider_y: float = comparison_first_y - 58
+    else:
+        divider_y = cta_y - 72
+    subtitle_divider_gap: float = 46
+
+    content_bottom: float = (
+        headline_bottom
+        + headline_bar_gap
+        + bar_h
+        + bar_legend_gap
+        + (len(visible_phases) - 1) * legend_row_h
+        + legend_total_gap
+        + total_caption_gap
+        + caption_subtitle_gap
+        + subtitle_block_h
+        + subtitle_divider_gap
+    )
+    slack: float = max(0.0, divider_y - content_bottom)
+    bar_y: float = headline_bottom + headline_bar_gap + slack / 4
+    legend_first_y: float = bar_y + bar_h + bar_legend_gap
+    total_y: float = legend_first_y + (len(visible_phases) - 1) * legend_row_h + legend_total_gap + slack / 4
+    # The subtitle sits on the divider, so the rest of the slack falls between it and the total's caption.
+    subtitle_y: float = divider_y - subtitle_divider_gap - subtitle_block_h
+
+    # Headline
+    image.append(
+        draw.Text(
+            headline_lines,
+            headline_size,
+            margin,
+            headline_top,
+            fill=ink,
+            font_family=SOCIAL_MEDIA_FONT,
+            font_weight="bold",
+            line_height=headline_line_height,
+        )
+    )
+
+    # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting library is needed. Streamlit's
+    # placeholder palette renders near-black outside the app, so choose real colours here, one stable colour per phase.
     palette: dict[str, str] = {
         name: _PHASE_PALETTE[i % len(_PHASE_PALETTE)] for i, name in enumerate(dict.fromkeys(phase_names))
     }
     fills: dict[str, draw.Pattern | str] = {
         name: _hatched_fill(palette[name], i) for i, name in enumerate(dict.fromkeys(phase_names))
     }
-    breakdown_total: float = sum(phase_costs.values())
-    visible_phases: list[str] = [name for name in phase_names if phase_costs[name] > 0] or phase_names
-
-    legend_row_h: int = 48
-    legend_font: int = 28
-    # Bottom of the legend sits above the three footer lines, with generous padding
-    # around the larger, centred call-to-action line that follows it.
-    legend_last_y: float = height - 194
-    # Publishing is paid for by journal publishers rather than the public and institutions, so a dotted divider in an
-    # extra gap separates it from the phases listed before it.
-    publishing_name: str = RESEARCH_PHASES["publishing"]
-    publishing_divider: bool = (
-        breakdown_total > 0 and phase_costs.get(publishing_name, 0) > 0 and visible_phases[0] != publishing_name
-    )
-    legend_divider_gap: int = 24 if publishing_divider else 0
-    legend_first_y: float = legend_last_y - (len(visible_phases) - 1) * legend_row_h - legend_divider_gap
     bar_x: int = margin
     bar_w: int = width - 2 * margin
-    bar_h: int = 88
-    bar_y: float = legend_first_y - 26 - 46 - bar_h
-    bar_label_y: float = bar_y - 24
-
-    # Country and divider, sitting just above the breakdown. The country wraps upwards from the divider.
-    divider_y: float = bar_label_y - 58
-    # The researchers and the country share a line if they fit, otherwise the country moves to a second line.
-    subtitle_parts: list[str] = _social_media_subtitle_parts(researchers, country, international_collaborators)
-    subtitle: str = " · ".join(subtitle_parts)
-    subtitle_line_height: float = 1.2
-    subtitle_lines: list[str] = (
-        [subtitle] if len(subtitle) <= 48 else [line for part in subtitle_parts for line in _wrap_text(part, 48)]
-    )
-    subtitle_y: float = divider_y - 34 - 34 * subtitle_line_height * (len(subtitle_lines) - 1)
-
-    # Space for the headline figure, between the title and the country.
-    figures_block_h: int = 72
-    figures_gap: int = 50
-    zone_bottom: float = subtitle_y - 26 - 40
-
-    # Title: continues the blurb into the total cost, at a single font size. Some Field of Research names are long,
-    # so the font shrinks until the wrapped title leaves room for the headline figure, with the characters per line
-    # scaled to match.
-    title: str = _social_media_title(project_field)
-    title_line_height: float = 1.2
-    title_bottom_limit: float = zone_bottom - figures_block_h - figures_gap
-    for title_size in (56, 52, 48, 44, 40, 36):
-        title_lines: list[str] = _wrap_text(title, int(26 * 62 / title_size))
-        # The first baseline sits a fixed gap below the blurb, whatever the font size.
-        title_top: float = 196 + title_size * 0.8
-        title_bottom: float = title_top + title_size * title_line_height * (len(title_lines) - 1)
-        if title_bottom <= title_bottom_limit:
-            break
-    image.append(
-        draw.Text(
-            title_lines,
-            title_size,
-            margin,
-            title_top,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
-            line_height=title_line_height,
-        )
-    )
-
-    image.append(
-        draw.Text(
-            subtitle_lines,
-            34,
-            margin,
-            subtitle_y,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=subtitle_line_height,
-        )
-    )
-    image.append(
-        draw.Line(
-            margin,
-            divider_y,
-            width - margin,
-            divider_y,
-            stroke="#ffffff",
-            stroke_width=2,
-            stroke_opacity=0.6,
-        )
-    )
-
-    # Headline figure, vertically centred between the title and the country. Offsets are from the top of the block.
-    zone_top: float = title_bottom + figures_gap
-    figures_y: float = zone_top + max(0.0, (zone_bottom - zone_top - figures_block_h) / 2)
-    image.append(
-        draw.Text(
-            format_currency(_public_investment(total_cost, phase_costs)),
-            88,
-            margin,
-            figures_y + 64,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
-            font_weight="bold",
-        )
-    )
-
-    image.append(
-        draw.Text(
-            "Estimated investment in my journal article",
-            30,
-            margin,
-            bar_label_y,
-            fill=muted,
-            font_family=SOCIAL_MEDIA_FONT,
-        )
-    )
     if breakdown_total > 0:
         cursor: float = bar_x
         for name in phase_names:
@@ -725,42 +713,23 @@ def create_social_media_svg(
 
     # Legend: one row per phase that has a cost.
     row_index: int = 0
-    row_offset: float = 0.0
     for name in phase_names:
         amount: float = phase_costs[name]
         if amount <= 0:
             continue
-        if publishing_divider and name == publishing_name and row_index > 0:
-            # Midway between the swatches of the previous row and this one.
-            row_offset = legend_divider_gap
-            divider_line_y: float = legend_first_y + row_index * legend_row_h + row_offset / 2 - legend_row_h / 2 - 8
-            image.append(
-                draw.Line(
-                    margin,
-                    divider_line_y,
-                    width - margin,
-                    divider_line_y,
-                    stroke=muted,
-                    stroke_width=3,
-                    stroke_dasharray="1 9",
-                    stroke_linecap="round",
-                )
-            )
-        row_y: float = legend_first_y + row_index * legend_row_h + row_offset
+        row_y: float = legend_first_y + row_index * legend_row_h
         share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
         image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=fills[name]))
-        legend_label: draw.Text = draw.Text(
-            name,
-            legend_font,
-            margin + 48,
-            row_y,
-            fill=ink,
-            font_family=SOCIAL_MEDIA_FONT,
+        image.append(
+            draw.Text(
+                name,
+                legend_font,
+                margin + 48,
+                row_y,
+                fill=ink,
+                font_family=SOCIAL_MEDIA_FONT,
+            )
         )
-        if name == publishing_name:
-            # SVG collapses a leading space, so the gap before the note is an offset instead.
-            legend_label.append(draw.TSpan("(publisher-borne cost)", dx=8, fill=muted))
-        image.append(legend_label)
         image.append(
             draw.Text(
                 f"{format_currency(amount)}  ({share:.0f}%)",
@@ -774,12 +743,73 @@ def create_social_media_svg(
         )
         row_index += 1
 
+    # Total cost, answering the headline, right-aligned with its caption.
+    image.append(
+        draw.Text(
+            format_currency(total_cost),
+            total_size,
+            width - margin,
+            total_y,
+            fill=ink,
+            text_anchor="end",
+            font_family=SOCIAL_MEDIA_FONT,
+            font_weight="bold",
+        )
+    )
+    image.append(
+        draw.Text(
+            "Total",
+            caption_size,
+            width - margin,
+            total_y + total_caption_gap,
+            fill=muted,
+            text_anchor="end",
+            font_family=SOCIAL_MEDIA_FONT,
+        )
+    )
+
+    image.append(
+        draw.Text(
+            subtitle_lines,
+            subtitle_size,
+            margin,
+            subtitle_y,
+            fill=muted,
+            font_family=SOCIAL_MEDIA_FONT,
+            line_height=subtitle_line_height,
+        )
+    )
+    image.append(
+        draw.Line(
+            margin,
+            divider_y,
+            width - margin,
+            divider_y,
+            stroke="#ffffff",
+            stroke_width=2,
+            stroke_opacity=0.6,
+        )
+    )
+
+    if comparison_lines:
+        image.append(
+            draw.Text(
+                comparison_lines,
+                comparison_size,
+                margin,
+                comparison_first_y,
+                fill=ink,
+                font_family=SOCIAL_MEDIA_FONT,
+                line_height=comparison_line_height,
+            )
+        )
+
     image.append(
         draw.Text(
             "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
             28,
             width / 2,
-            height - 108,
+            cta_y,
             text_anchor="middle",
             fill=accent,
             font_weight="bold",
@@ -821,6 +851,7 @@ def create_social_media_image_alt_text(
     researchers: int,
     total_cost: float,
     phase_costs: dict[str, float],
+    publishing_costs: float,
     format_currency: Callable[[float], str],
     version: str | None = None,
 ) -> str:
@@ -829,43 +860,35 @@ def create_social_media_image_alt_text(
     Repeats the card's text in reading order and describes the stacked bar as the share of the cost taken by each
     phase, so the card is accessible to screen-reader users. Takes the same arguments as ``create_social_media_svg``.
     """
-    title: str = _social_media_title(project_field)
-    subtitle: str = ", ".join(_social_media_subtitle_parts(researchers, country, international_collaborators))
+    subtitle: str = ", ".join(
+        _social_media_subtitle_parts(project_field, researchers, country, international_collaborators)
+    )
 
     sentences: list[str] = [
         'An infographic intended for sharing on social media, titled "The Cost of Knowledge".',
         "The text of the infographic is as follows: ",
-        (
-            # The title is capitalised on the card, but continues the blurb's sentence here.
-            f"{SOCIAL_MEDIA_BLURB} {title[:1].lower()}{title[1:]} "
-            f"{format_currency(_public_investment(total_cost, phase_costs))}."
-        ),
+        # The total sits below the breakdown on the card, but completes the headline's sentence here.
+        f"{SOCIAL_MEDIA_BLURB} {SOCIAL_MEDIA_HEADLINE} {format_currency(total_cost)} total.",
     ]
-    sentences.append(f"{subtitle}.")
 
     breakdown_total: float = sum(phase_costs.values())
-    publishing_name: str = RESEARCH_PHASES["publishing"]
     phase_shares: list[str] = [
-        f"{name}{' (publisher-borne cost)' if name == publishing_name else ''}: {format_currency(amount)} "
-        f"({amount / breakdown_total * 100:.0f}%)"
+        f"{name}: {format_currency(amount)} ({amount / breakdown_total * 100:.0f}%)"
         for name, amount in phase_costs.items()
         if amount > 0
     ]
     if breakdown_total > 0 and phase_shares:
         sentences.append(
-            f"Estimated investment in my journal article: a horizontal stacked bar chart splits the total cost across "
+            f"A horizontal stacked bar chart splits the total cost across "
             f"{_plural(len(phase_shares), 'research phase')}, from left to right: {_join_list(phase_shares)}."
         )
-        if phase_costs.get(publishing_name, 0) > 0 and len(phase_shares) > 1:
-            sentences.append(
-                f"In the legend, a dotted line separates {publishing_name}, a cost borne by journal publishers, from "
-                "the phases above it, which are borne by the public and institutions."
-            )
     else:
-        sentences.append(
-            "Estimated investment in my journal article: an empty bar chart, as no research phase has a cost."
-        )
+        sentences.append("An empty bar chart, as no research phase has a cost.")
 
+    sentences.append(f"{subtitle}.")
+    comparison: str | None = _social_media_comparison(publishing_costs, format_currency)
+    if comparison:
+        sentences.append(comparison)
     sentences.append("Estimate your own Cost of Knowledge at https://costofknowledge.org.")
     sentences.append("The University of Sydney and SPARC. Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026.")
     if version is not None:

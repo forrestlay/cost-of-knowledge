@@ -43,7 +43,6 @@ from src.calculator_state import (
     DEFAULT_PUBLISHING_COSTS,
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
-    PUBLISHING_PHASE,
     WIDGET_KEYS,
     CalculatorState,
     compute_costs,
@@ -123,6 +122,9 @@ COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # Version of the tool, shown in the footer and recorded with each saved result. Whenever this tool is changed
 # substantially such that users may approach answering the questions differently, increment this.
 COST_OF_KNOWLEDGE_VERSION: str = "0.1.4"
+# Persist version across pages.
+if "tool_version" not in st.session_state:
+    st.session_state["tool_version"] = COST_OF_KNOWLEDGE_VERSION
 
 
 # Anchors of the page's main sections, and the table of contents in the sidebar that links to them.
@@ -1146,21 +1148,28 @@ def show_footer() -> None:
     st.divider()
     st.markdown(
         """
-        :small[<sup>1, 4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
-        Knowledge. Preprint available on Zenodo.]
-
-        :small[<sup>2</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
+        :small[<sup>1</sup> Jones, B. F., & Summers, L. H. (Eds.). (2022). *A Calculation of the Social Returns to
         Innovation.* In Innovation and Public Policy (pp. 13–60). University of Chicago Press.
         https://doi.org/10.7208/chicago/9780226805597.003.0002;
         Salter, A. J., & Martin, B. R. (2001). *The economic benefits of publicly funded basic research: A critical
         review.* Research Policy, 30(3), 509–532. https://doi.org/10.1016/S0048-7333(00)00091-3.]
 
+        :small[<sup>2</sup> American Association of University Professors (2026). *Annual Report on the Economic Status
+        of the Profession, 2025-26.* https://www.aaup.org/sites/default/files/2026-06/ARES_2025-26.pdf;
+        National Center for Science and Engineering Statistics (2026). *Survey of Earned Doctorates 2024.*
+        https://ncses.nsf.gov/surveys/earned-doctorates/2024;
+        US Bureau of Labor Statistics (2026). *Occupational Employment and Wage Statistics May 2025.*
+        https://data.bls.gov/oes/#/area/0000000/2025]
+
         :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
         Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
         the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
-        :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing
-        services. F1000Research. https://doi.org/10.12688/f1000research.27468.2]
+        :small[<sup>4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
+        Knowledge. Preprint available on Zenodo.]
+
+        :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). *Current market rates for scholarly publishing
+        services.* F1000Research. https://doi.org/10.12688/f1000research.27468.2]
         """,
         unsafe_allow_html=True,
     )
@@ -1226,6 +1235,38 @@ def reset_publishing_costs() -> None:
     rate: float = 1.0 if usd_to_currency is None else usd_to_currency
     st.session_state["publishing-costs"] = round(DEFAULT_PUBLISHING_COSTS * rate, 2)
     st.session_state["publishing_costs"] = st.session_state["publishing-costs"]
+
+
+# Keys of the two toggles that show the publishing costs in the infographic: one in the publishing section, and its
+# repeat beside the infographic.
+INCLUDE_PUBLISHING_COSTS_KEYS: tuple[str, ...] = ("include-publishing-costs", "include-publishing-costs-share")
+
+
+def sync_include_publishing_costs(source_key: str) -> None:
+    """Callback for the toggles that show the publishing costs in the infographic. Copies the value of the toggle that
+    changed to include_publishing_costs and to the other toggle, so both toggles always agree.
+    """
+    st.session_state["include_publishing_costs"] = st.session_state[source_key]
+    for key in INCLUDE_PUBLISHING_COSTS_KEYS:
+        st.session_state[key] = st.session_state["include_publishing_costs"]
+
+
+def include_publishing_costs_toggle(key: str) -> None:
+    """Shows a toggle, kept in sync with the other INCLUDE_PUBLISHING_COSTS_KEYS toggle, that shows the publishing
+    costs in the infographic as a publisher-borne cost. The costs never count towards the total.
+    """
+    # The repeat beside the infographic is not rendered until the results are shown, so Streamlit forgets its value in
+    # the meantime; it starts from include_publishing_costs.
+    if key not in st.session_state:
+        st.session_state[key] = st.session_state["include_publishing_costs"]
+    st.toggle(
+        "Include publisher investment in the shareable infographic of your results",
+        key=key,
+        on_change=sync_include_publishing_costs,
+        args=(key,),
+        help="Adds the publisher investment in the journal article to the shareable infographic generated by this "
+        "tool.",
+    )
 
 
 def clear_simplified_estimates() -> None:
@@ -1522,40 +1563,24 @@ with st.sidebar:
 
 toggletip_styles()
 
+
 st.title("The Cost of Knowledge Calculator")
 st.markdown(
     """
-        <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
-        journal article from ideation to publication?**</span>
+    *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
+    again.*
 
-        Discussions about the economics of scholarly publishing often focus on subscription fees, article processing
-        charges, publisher revenues, and profit margins. Less attention is given to the costs of producing the research
-        that makes scholarly publishing possible. This tool makes those investments visible.
+    This tool enables you to estimate the full costs involved in the process of preparing and publishing one of
+    your refereed journal articles (including the cost of academic labor and institutional resources).
 
-        Using this tool, you can estimate the full costs involved in the process of preparing and publishing one of
-        your refereed journal articles (including the cost of academic labor and institutional resources). Use your
-        **best estimate** of the time and costs involved - if you aren't sure, we have provided conservative estimates
-        of the time required to prepare a single author social science journal article for publication.{footnote_1}
-
-        *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
-        again.*
-
-        **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
-        involved in preparing a refereed journal article. Prior literature has established that research provides
-        substantial economic and social returns{footnote_2}, and with this tool we instead seek to draw attention
-        to the resources required for scholarly publishing.
-        """.replace(
-        "{footnote_1}",
+    **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
+    involved in preparing a refereed journal article. Prior literature has established that research provides
+    substantial economic and social returns{footnote_returns}, and with this tool we instead seek to draw attention
+    to the resources required for scholarly publishing.
+    """.replace(
+        "{footnote_returns}",
         toggletip(
             "<sup>1</sup>",
-            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
-            available on Zenodo.""",
-            key="footnote-1",
-        ),
-    ).replace(
-        "{footnote_2}",
-        toggletip(
-            "<sup>2</sup>",
             "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
             "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
             "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
@@ -1573,21 +1598,36 @@ st.info(
 )
 
 with st.expander("About the data", expanded=False):
-    st.markdown("""
-                The hourly rates offered for each researcher role are median US rates including indirect on-costs, and
-                are converted to your country's currency along with the direct costs. You can replace any rate or cost
-                with your own figure.
-                """)
+    st.markdown(
+        """
+        The hourly rates offered for each researcher role are median US rates including indirect costs,
+        derived from widely cited national salary surveys{footnote_surveys}. Where appropriate, these are converted to
+        your country's currency along with the direct costs. You can replace any rate or cost with your own figure.
+        """.replace(
+            "{footnote_surveys}",
+            toggletip(
+                "<sup>2</sup>",
+                """American Association of University Professors (2026). Annual Report on the Economic Status of
+                the Profession, 2025-26. https://www.aaup.org/sites/default/files/2026-06/ARES_2025-26.pdf;
+                National Center for Science and Engineering Statistics (2026). Survey of Earned Doctorates 2024.
+                https://ncses.nsf.gov/surveys/earned-doctorates/2024;
+                US Bureau of Labor Statistics (2026). Occupational Employment and Wage Statistics May 2025.
+                https://data.bls.gov/oes/#/area/0000000/2025""",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 # -----------------------------------------------
 # User and Project
 # -----------------------------------------------
 
+st.space()
 st.header(":material/article: Your Refereed Journal Article", anchor=ARTICLE_ANCHOR)
 st.markdown("""
-            Please fill in some details about a **single refereed journal article** for which you will estimate the cost
-            of.
+            Please fill in some details about a **single refereed journal article** for which you will estimate the
+            cost.
             """)
 
 with st.container(border=True):
@@ -1640,10 +1680,10 @@ st.markdown(
     licences, and open access publishing agreements**.
 
     To capture these costs, an Indirect Cost Rate is applied to the hourly cost of labor. By default, we use a
-    rate of 40% sourced from Azoulay et al. (2026){footnote_3}, being an approximate middle ground within
+    rate of 40% sourced from Azoulay et al. (2026){footnote_azoulay}, being an approximate middle ground within
     the range of effective indirect cost recovery rates they observe from a sample of US universities.
     """.replace(
-        "{footnote_3}",
+        "{footnote_azoulay}",
         toggletip(
             "<sup>3</sup>",
             """Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
@@ -1653,28 +1693,28 @@ st.markdown(
     ),
     unsafe_allow_html=True,
 )
-with st.expander("Optional: Adjust indirect cost rate"):
-    # The widget's own session_state entry persists the rate across reruns; the salary dialog reads it from there.
-    st.markdown(
-        """
-        If you are aware of your institution's Indirect Cost Rate (also known as an Indirect Cost Recovery rate or
-        an On-cost Rate), you may adjust that rate here.
-        """
-    )
-    st.slider(
-        "Project-wide indirect cost rate (%)",
-        step=1,
-        min_value=0,
-        max_value=100,
-        key="indirect_cost_percentage",
-        on_change=apply_indirect_cost_rate,
-        help="Applied equally to every hourly rate calculated from a salary.",
-    )
+# The widget's own session_state entry persists the rate across reruns; the salary dialog reads it from there.
+st.markdown(
+    """
+    If you are aware of your institution's Indirect Cost Rate (also known as an Indirect Cost Recovery rate or
+    an On-cost Rate), you may adjust that rate here.
+    """
+)
+st.slider(
+    "Project-wide indirect cost rate (%)",
+    step=1,
+    min_value=0,
+    max_value=100,
+    key="indirect_cost_percentage",
+    on_change=apply_indirect_cost_rate,
+    help="Applied equally to every hourly rate calculated from a salary.",
+)
 
 # -----------------------------------------------
 # Study team
 # -----------------------------------------------
 
+st.space()
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
@@ -1735,6 +1775,7 @@ for person in st.session_state["people"].values():
 # Calculator
 # -----------------------------------------------
 
+st.space()
 st.header(":material/request_quote: Calculator", anchor=CALCULATOR_ANCHOR)
 
 # Loading a state writes the radio's value into its widget state, so seed it here rather than passing index=, which
@@ -1757,28 +1798,33 @@ st.session_state["calculator_mode"] = st.radio(
 
 st.markdown(
     """
-            To estimate the full cost of producing your journal article, the process is divided into five phases:
+    To estimate the full cost of producing your journal article, the process is divided into five phases:
 
-            - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
-              applying for research funding (whether successful or not).
-            - **Data Collection and Analysis**: Gathering data, conducting fieldwork or experiments, cleaning data,
-              and carrying out analyses.
-            - **Manuscript Preparation**: Writing, obtaining peer feedback through conferencing, revising, formatting,
-              and preparing the article for submission.
-            - **Peer Review and Journal Editorial Work**: The labor of journal editors in managing submitted articles
-              and assigning them for review, and of peer reviewers in reviewing submitted articles.
-            - **Publishing (optional)**: The publication and dissemination of the journal article, generally performed
-              by the journal publisher.
+    - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
+        applying for research funding (whether successful or not).
+    - **Data Collection and Analysis**: Gathering data, conducting fieldwork or experiments, cleaning data,
+        and carrying out analyses.
+    - **Manuscript Preparation**: Writing, obtaining peer feedback through conferencing, revising, formatting,
+        and preparing the article for submission.
+    - **Peer Review and Journal Editorial Work**: The labor of journal editors in managing submitted articles
+        and assigning them for review, and of peer reviewers in reviewing submitted articles.
+    - **Publishing (optional)**: The publication and dissemination of the journal article, generally performed
+        by the journal publisher.
+    """
+)
 
-            Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
-            refereed journal article. If you would like a starting point, you can click the button below to load default
-            estimates, which are the conservative estimates for a single author social sciences journal
-            article{footnote_alam}.
+st.subheader("Load default estimates or start from scratch")
+st.markdown(
+    """
+    Provide your best estimate of the hours and {direct costs} involved in each phase of preparing your
+    refereed journal article. If you would like a starting point, you can click the button below to load default
+    estimates, which are the conservative estimates for a single author social sciences journal
+    article{footnote_alam}.
 
-            For activities, input the estimated hours performed by each researcher. If there are multiple researchers
-            with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
-            per person).
-            """.replace(
+    For activities, input the estimated hours performed by each researcher. If there are multiple researchers
+    with the same hourly rate, select the total hours that group has performed for the given activity (i.e. not
+    per person).
+    """.replace(
         "{footnote_alam}",
         toggletip(
             "<sup>4</sup>",
@@ -1802,55 +1848,51 @@ st.markdown(
     unsafe_allow_html=True,
 )
 if st.session_state["calculator_mode"] == "simplified":
-    reset_defaults_column, clear_column, _ = st.columns([1, 1, 2])
-    reset_defaults_column.button(
-        "Load defaults from Alam et al. (2026)",
-        key="load-simplified-defaults",
-        icon=":material/download:",
-        type="primary",
-        on_click=load_simplified_defaults,
-        disabled=not st.session_state["people"],
-        help=(
-            "Loads the default hours for Researcher 1 only, as it assumes a single author."
-            if st.session_state["people"]
-            else "Add a researcher to assign the hours to first."
-        ),
-        width="stretch",
-    )
-    clear_column.button(
-        "Set all hours and costs to zero",
-        key="clear-simplified-estimates",
-        icon=":material/delete_sweep:",
-        on_click=clear_simplified_estimates,
-        disabled=not st.session_state["people"],
-        help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
-        width="stretch",
-    )
+    with st.container(horizontal=True, horizontal_alignment="left"):
+        st.button(
+            "Load defaults from Alam et al. (2026)",
+            key="load-simplified-defaults",
+            icon=":material/download:",
+            type="primary",
+            on_click=load_simplified_defaults,
+            disabled=not st.session_state["people"],
+            help=(
+                "Loads the default hours for Researcher 1 only, as it assumes a single author."
+                if st.session_state["people"]
+                else "Add a researcher to assign the hours to first."
+            ),
+        )
+        st.button(
+            "Set all hours and costs to zero",
+            key="clear-simplified-estimates",
+            icon=":material/delete_sweep:",
+            on_click=clear_simplified_estimates,
+            disabled=not st.session_state["people"],
+            help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
+        )
 if st.session_state["calculator_mode"] == "detailed":
-    defaults_column, reset_column, _ = st.columns([1, 1, 2])
-    defaults_column.button(
-        "Load defaults from Alam et al. (2026)",
-        key="load-alam-defaults",
-        icon=":material/download:",
-        type="primary",
-        on_click=load_alam_defaults,
-        disabled=not st.session_state["people"],
-        help=None if st.session_state["people"] else "Add a researcher to assign the activities to first.",
-        width="stretch",
-    )
-    has_items: bool = bool(
-        st.session_state["cost_list"]
-        or any(isinstance(activity, Activity) for activity in st.session_state["activity_list"])
-    )
-    if reset_column.button(
-        "Reset all activities and costs",
-        key="reset-activities-and-costs",
-        icon=":material/restart_alt:",
-        disabled=not has_items,
-        help=None if has_items else "There are no activities or direct costs to remove.",
-        width="stretch",
-    ):
-        confirm_reset()
+    with st.container(horizontal=True, horizontal_alignment="left"):
+        st.button(
+            "Load defaults from Alam et al. (2026)",
+            key="load-alam-defaults",
+            icon=":material/download:",
+            type="primary",
+            on_click=load_alam_defaults,
+            disabled=not st.session_state["people"],
+            help=None if st.session_state["people"] else "Add a researcher to assign the activities to first.",
+        )
+        has_items: bool = bool(
+            st.session_state["cost_list"]
+            or any(isinstance(activity, Activity) for activity in st.session_state["activity_list"])
+        )
+        if st.button(
+            "Reset all activities and costs",
+            key="reset-activities-and-costs",
+            icon=":material/restart_alt:",
+            disabled=not has_items,
+            help=None if has_items else "There are no activities or direct costs to remove.",
+        ):
+            confirm_reset()
     # Keeps the add form in view while the list of phases scrolls. Sticky positioning only works if the form's column
     # stretches to the height of the list, and is only applied when the columns sit side by side (wide screens).
     st.html(
@@ -1904,6 +1946,8 @@ st.markdown(PHASE_DESCRIPTIONS["editing"])
 
 # Loading a state writes the sliders' values into their widget state, so seed it here rather than
 # passing value=, which would raise Streamlit's default-value-and-Session-State warning.
+if "peer-reviewers" not in st.session_state:
+    st.session_state["peer-reviewers"] = st.session_state["peer_reviewers"]
 if "review-rounds" not in st.session_state:
     st.session_state["review-rounds"] = st.session_state["review_rounds"]
 if "journal-submissions" not in st.session_state:
@@ -1923,6 +1967,19 @@ with st.container(border=True):
     st.session_state["peer_review_activity"].journal_submissions = st.session_state["journal_submissions"]
     st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
 
+    st.session_state["peer_reviewers"] = st.slider(
+        "Average number of peer reviewers per journal submission",
+        min_value=1,
+        max_value=20,
+        step=1,
+        key="peer-reviewers",
+        help="""The average number of peer reviewers who reviewed the manuscript at each journal it was submitted to.
+        It is estimated that the first round of review involves 4 hours of work by a peer reviewer, with subsequent
+        rounds involving 2 hours each. The median hourly rate for an associate professor in the US is used to calculate
+        the cost of this labor, with a 40% indirect cost rate (see Alam et al., 2026, pp. 11-3) for details).""",
+    )
+    st.session_state["peer_review_activity"].peer_reviewers = st.session_state["peer_reviewers"]
+
     st.session_state["review_rounds"] = st.slider(
         "Average number of review rounds per journal submission",
         min_value=1,
@@ -1930,15 +1987,15 @@ with st.container(border=True):
         step=1,
         key="review-rounds",
         help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
-        across all journal submissions. It is estimated that the first round of review involves 4 hours of work by
-        peer reviewers, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
+        across all journal submissions. It is estimated that the first round of review involves 4 hours of work by a
+        peer reviewer, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
         professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.,
         2026, pp. 11-3) for details).""",
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
 # The publishing phase also requires a special full width section
-st.subheader(f"{RESEARCH_PHASES['publishing']} (optional)")
+st.subheader("Publisher Investment (optional)")
 st.markdown(
     cleandoc(
         """
@@ -1946,14 +2003,21 @@ st.markdown(
         go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
         journal article for a full service journal publisher with in-house staff that relies on volunteer editors and
         peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs, 2021,
-        p. 6).{footnote_5}
+        p. 6).{footnote_grossmann}
 
-        By default, this cost is not included in the total cost calculated by this tool as it focuses on the costs
-        of producing the research that make scholarly publishing possible. However, you may choose to include these
-        costs in the results to provide a closer approximation of the total cost of your refereed journal article.
+        **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is strictly
+        required of a publisher to disseminate an article), while price is driven by what individuals are willing to
+        pay for a publication. Based on the profitability of the largest publishers <link to profitability report>,
+        using an APC price is likely to significantly overstate necessary costs.**
+
+        Publishing cost is not included in the total cost calculated by this tool, as these costs represent a
+        publisher's investment in the work rather than investment from researchers, the public, or institutions.
+        This tool aims to enable faculty to compare their and the public's investment with that of publishers and
+        reflect on questions this may raise about who contributes what, who controls the final publication, and whose
+        interests are served.
         """
     ).replace(
-        "{footnote_5}",
+        "{footnote_grossmann}",
         toggletip(
             "<sup>5</sup>",
             """Grossmann, A., & Brembs, B. (2021). Current market rates for scholarly publishing services.
@@ -1963,16 +2027,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if "include-publishing-costs" not in st.session_state:
-    st.session_state["include-publishing-costs"] = st.session_state["include_publishing_costs"]
 if "publishing-costs" not in st.session_state:
     st.session_state["publishing-costs"] = float(st.session_state["publishing_costs"])
 
 with st.container(border=True):
-    st.session_state["include_publishing_costs"] = st.toggle(
-        "Include the cost of publishing in the total cost",
-        key="include-publishing-costs",
-    )
     st.session_state["publishing_costs"] = st.number_input(
         f"Cost of publishing a refereed journal article ({currency_code()})",
         min_value=0.0,
@@ -1982,8 +2040,9 @@ with st.container(border=True):
         "for a full service journal publisher with in-house staff using volunteer editors "
         "(Grossmann & Brembs, 2021, p. 6).",
     )
+    include_publishing_costs_toggle("include-publishing-costs")
     st.button(
-        "Reset to default",
+        "Reset cost to default",
         key="reset-publishing-costs",
         icon=":material/restart_alt:",
         on_click=reset_publishing_costs,
@@ -1999,26 +2058,26 @@ if "show_results" not in st.session_state:
 if DATABASE_TYPE in ("sqlite", "mysql"):
     st.markdown(
         """
-        You may save your result so that you may share an abbreviated version of the results with other people. The
-        abbreviated version will not display details of the hours of labor performed by each researcher, as this may
-        potentially be used to calculate an approximation of a researcher's salary.
+        You may optionally choose to save your result, which can enable future research on differences across
+        disciplines and geography. If you choose to save your result, you consent to [SPARC](https://sparcopen.org/)
+        storing all data you enterinto this tool and to potential use of this data by SPARC for future research.
+        Data will be retained for as long as necessary to fulfil the purposes set out in this paragraph or
+        in [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/). Please refer to
+        [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for further details about how your data will
+        be handled.
 
-        If you choose to save your result, you consent to [SPARC](https://sparcopen.org/) storing all data you enter
-        into this tool (including the primary country, the quantity and hourly rate of researchers, and details of
-        activities and direct costs), and to potential use of this data by SPARC for future research. Data will be
-        retained for a minimum of 5 years, after which it will be retained for as long as necessary to fulfil the
-        purposes set out in this paragraph or in [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/).
-        Please refer to [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for further details about
-        how your data will be handled.
+        Saving your result will also allow you to share an abbreviated version of the results that will be shown below
+        with other people. To protect user privacy, the abbreviated version will not display details of the hours of
+        labor performed by each researcher.
 
-        If you continue without saving your result, please download the generated infographic to keep a record of the
-        total cost you have calculated. Reloading this page will reset all information entered and you will have to
-        re-enter your data to view the results.
+        If you continue without saving your result, please download the generated infographic below to keep a record
+        of the total cost you have calculated. Reloading this page will reset all information entered and you will have
+        to re-enter your data to view the results.
         """
     )
     st.container(border=True).toggle(
-        """Save my result so I can share it. I consent to SPARC retaining the data I have entered into this tool
-        and using it for future research.""",
+        """Save my result so I can share it and to enable future research. I consent to SPARC retaining the data
+        I have entered into this tool and using it for future research.""",
         key="save_result_to_database",
         value=False,
     )
@@ -2078,6 +2137,7 @@ item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" f
 person_color_map: dict[str, str] = build_color_map([activity.get_person().label for activity in results_activities])
 
 
+st.space()
 st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
 
 
@@ -2102,15 +2162,7 @@ if st.session_state.pop("scroll_to_results", False):
 k1, k2, k3 = st.columns(3)
 k1.metric("Estimated total cost", format_currency(total_cost))
 k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
-k3.metric(
-    "Estimated direct costs",
-    # The publishing costs are borne by the publisher, not the researchers, so they are not a direct cost here.
-    format_currency(compute_costs([cost for cost in results_direct_costs if cost.get_phase() != PUBLISHING_PHASE])),
-)
-
-
-with st.container(border=True):
-    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
+k3.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs)))
 
 
 # Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the plot, or
@@ -2147,7 +2199,7 @@ costs_pie_alt_text: str = costs_pie_chart_alt_text(costs_df, costs_pie_names, fo
 
 with st.container(key="wide-chart-costs-pie"):
     st.plotly_chart(
-        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=colorblind_safe_graphs),
+        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=True),
         width="stretch",
         alt=costs_pie_alt_text,
     )
@@ -2159,17 +2211,21 @@ with st.container(key="narrow-chart-costs-pie"):
             phase_color_map,
             item_color_map,
             legend_below=True,
-            hatching=colorblind_safe_graphs,
+            hatching=True,
         ),
         width="stretch",
         alt=costs_pie_alt_text,
     )
+costs_pie_caption: str = "Breakdown of where the public and institutional investment in the journal article goes."
+if st.session_state["include_publishing_costs"]:
+    costs_pie_caption += (
+        f" Publishing costs of {format_currency(st.session_state['publishing_costs'])} are not included."
+    )
+st.caption(costs_pie_caption)
 
 
 # Labour cost bar chart
 st.subheader("Labor activity breakdown")
-if st.session_state["include_publishing_costs"]:
-    st.caption("Labor associated with publishing and dissemination of the refereed journal article is not included.")
 
 
 labour_df = labour_dataframe(results_activities)
@@ -2184,9 +2240,7 @@ if st.session_state["calculator_mode"] == "detailed":
     sunburst_alt_text: str = labour_sunburst_chart_alt_text(labour_df, total_cost, format_currency)
     with st.container(key="wide-chart-sunburst"):
         st.plotly_chart(
-            labour_sunburst_chart(
-                labour_df, phase_color_map, total_cost, currency_code(), hatching=colorblind_safe_graphs
-            ),
+            labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(), hatching=True),
             width="stretch",
             alt=sunburst_alt_text,
         )
@@ -2198,7 +2252,7 @@ if st.session_state["calculator_mode"] == "detailed":
                 total_cost,
                 currency_code(),
                 legend_below=True,
-                hatching=colorblind_safe_graphs,
+                hatching=True,
             ),
             width="stretch",
             alt=sunburst_alt_text,
@@ -2249,7 +2303,7 @@ for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart
                 currency_code(),
                 currency_prefix(),
                 legend_below=legend_below,
-                hatching=colorblind_safe_graphs,
+                hatching=True,
             ),
             width="stretch",
             alt=labour_bar_alt_text,
@@ -2315,8 +2369,8 @@ with share_left:
     social_media_card: dict[str, Any] = {
         "country": COUNTRY_NAMES.get(st.session_state["user_country"], ""),
         "international_collaborators": st.session_state["international_collaborators"],
-        # Only the group name, as the division name would make the title too long for the card. Projects saved before
-        # Field of Research codes were used hold a broad field name instead.
+        # Only the group name, as the division name would be too long for the card. Projects saved before Field of
+        # Research codes were used hold a broad field name instead.
         "project_field": (
             FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
             if st.session_state["project_field"] in FIELDS_OF_RESEARCH
@@ -2325,12 +2379,23 @@ with share_left:
         # Only the people the user added, not the peer reviewer or journal editor.
         "researchers": sum(person.quantity for person in st.session_state["people"].values()),
         "total_cost": total_cost,
-        "phase_costs": {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
+        # Publishing is a publisher-borne cost, shown separately for comparison rather than in the breakdown.
+        "phase_costs": {
+            label: compute_costs(combined_costs_list, phase=key)
+            for key, label in RESEARCH_PHASES.items()
+            if key != "publishing"
+        },
+        "publishing_costs": (
+            st.session_state["publishing_costs"] if st.session_state["include_publishing_costs"] else 0.0
+        ),
         "format_currency": format_currency,
         "version": COST_OF_KNOWLEDGE_VERSION,
     }
     social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()
     social_media_alt_text: str = create_social_media_image_alt_text(**social_media_card)
+
+    with st.container(border=True):
+        include_publishing_costs_toggle("include-publishing-costs-share")
 
     with st.container(horizontal=True, horizontal_alignment="left"):
         st.download_button(

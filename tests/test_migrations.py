@@ -61,6 +61,23 @@ def test_0_1_to_0_1_2_leaves_new_sqlite_database_unchanged() -> None:
         assert project["version"] == "0.1.2"
 
 
+def test_0_1_4_to_0_1_5_adds_peer_reviewers_column() -> None:
+    migration: ModuleType = load_migration("0.1.4_to_0.1.5_migration")
+    with closing(sql_store.connect(":memory:")) as conn:
+        public_id: str = sql_store.save_project(conn, CalculatorState.default(), "0.1.4")
+        # The 0.1.4 schema has no peer_reviewers column.
+        conn.execute("ALTER TABLE activities DROP COLUMN peer_reviewers")
+
+        migration.migrate(conn)
+        migration.migrate(conn)
+
+        assert sql_store.load_project(conn, public_id) == CalculatorState.default()
+        state: CalculatorState = CalculatorState.default()
+        state.peer_review.peer_reviewers = 3
+        sql_store.update_project(conn, public_id, state, "0.1.5")
+        assert sql_store.load_project(conn, public_id).peer_review.peer_reviewers == 3
+
+
 def test_find_migrations_orders_by_version(tmp_path: Path) -> None:
     for name in ("0.10_to_0.11_migration.py", "0.2_to_0.10_migration.py", "0.1_to_0.2_migration.py", "notes.py"):
         (tmp_path / name).write_text("", encoding="utf-8")
@@ -72,7 +89,7 @@ def test_find_migrations_orders_by_version(tmp_path: Path) -> None:
 
 
 def test_run_migrations_migrates_old_database_once(old_conn: sqlite3.Connection) -> None:
-    assert migrate.run_migrations(old_conn) == ["0.1_to_0.1.2_migration"]
+    assert migrate.run_migrations(old_conn) == ["0.1_to_0.1.2_migration", "0.1.4_to_0.1.5_migration"]
     [project] = sql_store.list_projects(old_conn)
     assert project["version"] == "0.1"
 
@@ -84,7 +101,7 @@ def test_run_migrations_creates_new_database_without_migrating(tmp_path: Path) -
         assert migrate.run_migrations(conn) == []
         sql_store.save_project(conn, CalculatorState.default(), "0.1.2")
         applied: list[str] = [row[0] for row in conn.execute("SELECT name FROM schema_migrations")]
-        assert applied == [path.stem for path in migrate.find_migrations()]
+        assert sorted(applied) == sorted(path.stem for path in migrate.find_migrations())
         assert migrate.run_migrations(conn) == []
 
 

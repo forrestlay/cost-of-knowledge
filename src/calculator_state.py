@@ -49,9 +49,10 @@ type SessionStateKey = str | int
 # Version 2 removed the user's name, the project's name and people's names, and added people's roles. Version 1 data
 # is read by ignoring the names, with no roles. Version 3 added the calculator mode and the simplified estimates. Older
 # data is read in detailed mode with no simplified estimates. Version 4 added the publishing cost. Older data is read
-# with the default publishing cost.
-SCHEMA_VERSION: int = 4
-SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4)
+# with the default publishing cost. Version 5 added the number of peer reviewers to the peer review activity. Older data
+# is read with one peer reviewer.
+SCHEMA_VERSION: int = 5
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4, 5)
 # The two ways of estimating activities and costs in the calculator. Simplified takes an overall number of hours per
 # researcher and an overall direct cost for each phase in OVERALL_TOTAL_PHASES. Detailed takes individual activities and
 # direct costs.
@@ -77,14 +78,14 @@ WIDGET_KEY_PREFIXES: tuple[str, ...] = (
 WIDGET_KEYS: tuple[str, ...] = (
     "user_country_select",  # You and your project: country selectbox
     "indirect_cost_percentage",  # Indirect Costs: project-wide indirect cost rate slider
+    "peer-reviewers",  # Peer review and journal editorial work: peer reviewers slider
     "review-rounds",  # Peer review and journal editorial work: review rounds slider
     "journal-submissions",  # Peer review and journal editorial work: journal submissions slider
     "calculator-mode",  # Calculator: simplified or detailed estimates radio
     "publishing-costs",  # Publishing: cost of publishing a refereed journal article slider
-    "include-publishing-costs",  # Publishing: toggle to include the publishing costs in the totals
+    "include-publishing-costs",  # Publishing: toggle to show the publishing costs in the infographic
+    "include-publishing-costs-share",  # Share your result: repeat of the toggle above, beside the infographic
 )
-# Phase key of the publishing costs, which are not part of the researchers' activities and direct costs.
-PUBLISHING_PHASE: str = "publishing"
 # Conservative estimates of the activities and costs of a social sciences journal article from Alam et al. (2026),
 # loaded from data/default_costs.json, and the starting hourly rate of the calculator's people.
 _DEFAULT_COSTS: dict[str, Any] = json.loads(
@@ -184,8 +185,8 @@ class CalculatorState:
             entries are 0.
         publishing_costs: The user's estimate of the cost of publishing their refereed journal article, which is borne
             by the journal publisher.
-        include_publishing_costs: Whether publishing_costs count towards the totals, as a direct cost in the
-            publishing phase.
+        include_publishing_costs: Whether publishing_costs are shown in the infographic as a publisher-borne cost.
+            They never count towards the totals.
         version: Version of the tool that the state was saved under in the database (e.g. "0.1.2"), or None if it
             was not loaded from the database. It is not an input to the calculator, so it is left out of session state
             and comparisons between states.
@@ -220,7 +221,7 @@ class CalculatorState:
     @classmethod
     def default(cls) -> CalculatorState:
         """Returns the calculator's starting state, with no researchers, one journal submission with three rounds of
-        peer review, no detailed direct costs, and and zero simplified hours and direct costs.
+        peer review by one peer reviewer, no detailed direct costs, and and zero simplified hours and direct costs.
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
         peer_reviewer: Person = Person(
@@ -234,7 +235,7 @@ class CalculatorState:
             hourly_rate=hourly_rate,
         )
         activities: list[BaseActivity] = [
-            PeerReview(person=peer_reviewer, review_rounds=3, journal_submissions=1, unique_key=1),
+            PeerReview(person=peer_reviewer, review_rounds=3, journal_submissions=1, peer_reviewers=1, unique_key=1),
             JournalEditing(person=journal_editor, journal_submissions=1, unique_key=2),
         ]
         return cls(
@@ -276,8 +277,8 @@ class CalculatorState:
     def effective_direct_costs(self) -> list[DirectCost]:
         """Returns the direct costs that count towards the totals in the current calculator mode.
 
-        In simplified mode these are an "(Overall Total)" direct cost for each phase with a cost. In either mode, the
-        publishing costs are added as a direct cost in the publishing phase if they are included and above 0.
+        In simplified mode these are an "(Overall Total)" direct cost for each phase with a cost. The publishing costs
+        are borne by the journal publisher, so they never count towards the totals.
         """
         direct_costs: list[DirectCost]
         if self.calculator_mode != "simplified":
@@ -288,11 +289,6 @@ class CalculatorState:
                 for key, phase in enumerate(OVERALL_TOTAL_PHASES, start=1)
                 if self.simplified_direct_costs.get(phase, 0.0) > 0
             ]
-        if self.include_publishing_costs and self.publishing_costs > 0:
-            key: int = max((direct_cost.unique_key for direct_cost in direct_costs), default=0) + 1
-            direct_costs.append(
-                DirectCost(RESEARCH_PHASES[PUBLISHING_PHASE], PUBLISHING_PHASE, self.publishing_costs, key)
-            )
         return direct_costs
 
     def with_default_costs(self, usd_to_currency: float = 1.0) -> CalculatorState:
@@ -326,6 +322,7 @@ class CalculatorState:
                 person=state.peer_reviewer,
                 review_rounds=peer_review["review_rounds"],
                 journal_submissions=peer_review["journal_submissions"],
+                peer_reviewers=peer_review["peer_reviewers"],
                 unique_key=len(activities) + 1,
             ),
             JournalEditing(
@@ -547,8 +544,10 @@ class CalculatorState:
         session_state["simplified_direct_costs"] = self.simplified_direct_costs
         session_state["publishing_costs"] = self.publishing_costs
         session_state["include_publishing_costs"] = self.include_publishing_costs
+        session_state["peer_reviewers"] = peer_review.peer_reviewers
         session_state["review_rounds"] = peer_review.review_rounds
         session_state["journal_submissions"] = peer_review.journal_submissions
+        session_state["peer-reviewers"] = peer_review.peer_reviewers
         session_state["review-rounds"] = peer_review.review_rounds
         session_state["journal-submissions"] = peer_review.journal_submissions
         for phase in OVERALL_TOTAL_PHASES:

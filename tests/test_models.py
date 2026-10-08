@@ -63,6 +63,21 @@ def test_peer_review_round_trip(people: dict[str, Person]) -> None:
     assert restored.get_hours() == peer_review.get_hours()
 
 
+def test_peer_review_hours_scale_with_peer_reviewers(people: dict[str, Person]) -> None:
+    peer_review: PeerReview = PeerReview(people["Peer reviewer"], review_rounds=3, journal_submissions=2)
+    # 2 submissions of 4 + 2 * 2 hours each.
+    assert peer_review.get_hours() == 16
+    peer_review.peer_reviewers = 3
+    assert peer_review.get_hours() == 48
+    assert PeerReview.from_dict(peer_review.to_dict(), people) == peer_review
+
+
+def test_peer_review_without_peer_reviewers_has_one(people: dict[str, Person]) -> None:
+    data = PeerReview(people["Peer reviewer"], review_rounds=2, journal_submissions=1, peer_reviewers=4).to_dict()
+    del data["peer_reviewers"]
+    assert PeerReview.from_dict(data, people).peer_reviewers == 1
+
+
 def test_journal_editing_round_trip(people: dict[str, Person]) -> None:
     journal_editing: JournalEditing = JournalEditing(
         people["Peer reviewer"], journal_submissions=3, hours_per_submission=10, unique_key=10

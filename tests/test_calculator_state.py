@@ -27,6 +27,7 @@ def modified_state() -> CalculatorState:
     state.people["2"] = second
     state.activities.append(Activity("Data collection", second, "data", 20, 11, 4))
     state.peer_review.review_rounds = 5
+    state.peer_review.peer_reviewers = 2
     state.peer_reviewer.hourly_rate = 100
     return state
 

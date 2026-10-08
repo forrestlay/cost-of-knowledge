@@ -37,7 +37,6 @@ from src.figures import (
     costs_pie_chart_alt_text,
     create_social_media_image_alt_text,
     create_social_media_svg,
-    infographic_costs,
     labour_bar_chart,
     labour_bar_chart_alt_text,
     labour_dataframe,
@@ -149,16 +148,23 @@ st.markdown(
 social_media_card: dict[str, Any] = {
     "country": COUNTRY_NAMES.get(country, ""),
     "international_collaborators": state.international_collaborators,
-    "project_field": FIELDS_OF_RESEARCH[state.project_field].name
-    if state.project_field in FIELDS_OF_RESEARCH
-    else state.project_field,
+    # Only the group name, as the division name would be too long for the card. Projects saved before Field of
+    # Research codes were used hold a broad field name instead.
+    "project_field": (
+        FIELDS_OF_RESEARCH[state.project_field].name
+        if state.project_field in FIELDS_OF_RESEARCH
+        else state.project_field
+    ),
     # Only the people the user added, not the peer reviewer or journal editor.
     "researchers": sum(person.quantity for person in state.people.values()),
-    **infographic_costs(
-        total_cost,
-        {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-        state.publishing_costs if state.include_publishing_costs else 0.0,
-    ),
+    "total_cost": total_cost,
+    # Publishing is a publisher-borne cost, shown separately for comparison rather than in the breakdown.
+    "phase_costs": {
+        label: compute_costs(combined_costs_list, phase=key)
+        for key, label in RESEARCH_PHASES.items()
+        if key != "publishing"
+    },
+    "publishing_costs": state.publishing_costs if state.include_publishing_costs else 0.0,
     "format_currency": lambda amount: format_currency(amount, country),
     "version": state.version,
 }
@@ -250,9 +256,7 @@ if state.calculator_mode == "detailed":
                 the phase or person again to return to the parent view.
                 """)
     st.plotly_chart(
-        labour_sunburst_chart(
-            labour_df, phase_color_map, total_cost, currency_code(country), hatching=True
-        ),
+        labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(country), hatching=True),
         width="stretch",
         alt=labour_sunburst_chart_alt_text(labour_df, total_cost, lambda amount: format_currency(amount, country)),
     )

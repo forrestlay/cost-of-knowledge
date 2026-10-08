@@ -60,7 +60,6 @@ from src.figures import (
     create_social_media_image_alt_text,
     create_social_media_svg,
     hours_per_person_chart_alt_text,
-    infographic_costs,
     labour_bar_chart,
     labour_bar_chart_alt_text,
     labour_dataframe,
@@ -2241,9 +2240,7 @@ if st.session_state["calculator_mode"] == "detailed":
     sunburst_alt_text: str = labour_sunburst_chart_alt_text(labour_df, total_cost, format_currency)
     with st.container(key="wide-chart-sunburst"):
         st.plotly_chart(
-            labour_sunburst_chart(
-                labour_df, phase_color_map, total_cost, currency_code(), hatching=True
-            ),
+            labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(), hatching=True),
             width="stretch",
             alt=sunburst_alt_text,
         )
@@ -2372,8 +2369,8 @@ with share_left:
     social_media_card: dict[str, Any] = {
         "country": COUNTRY_NAMES.get(st.session_state["user_country"], ""),
         "international_collaborators": st.session_state["international_collaborators"],
-        # Only the group name, as the division name would make the title too long for the card. Projects saved before
-        # Field of Research codes were used hold a broad field name instead.
+        # Only the group name, as the division name would be too long for the card. Projects saved before Field of
+        # Research codes were used hold a broad field name instead.
         "project_field": (
             FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
             if st.session_state["project_field"] in FIELDS_OF_RESEARCH
@@ -2381,10 +2378,15 @@ with share_left:
         ),
         # Only the people the user added, not the peer reviewer or journal editor.
         "researchers": sum(person.quantity for person in st.session_state["people"].values()),
-        **infographic_costs(
-            total_cost,
-            {label: compute_costs(combined_costs_list, phase=key) for key, label in RESEARCH_PHASES.items()},
-            st.session_state["publishing_costs"] if st.session_state["include_publishing_costs"] else 0.0,
+        "total_cost": total_cost,
+        # Publishing is a publisher-borne cost, shown separately for comparison rather than in the breakdown.
+        "phase_costs": {
+            label: compute_costs(combined_costs_list, phase=key)
+            for key, label in RESEARCH_PHASES.items()
+            if key != "publishing"
+        },
+        "publishing_costs": (
+            st.session_state["publishing_costs"] if st.session_state["include_publishing_costs"] else 0.0
         ),
         "format_currency": format_currency,
         "version": COST_OF_KNOWLEDGE_VERSION,

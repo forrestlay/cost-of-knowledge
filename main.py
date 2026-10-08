@@ -121,7 +121,7 @@ for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # Version of the tool, shown in the footer and recorded with each saved result. Whenever this tool is changed
 # substantially such that users may approach answering the questions differently, increment this.
-COST_OF_KNOWLEDGE_VERSION: str = "0.1.4"
+COST_OF_KNOWLEDGE_VERSION: str = "1.0.0"
 # Persist version across pages.
 if "tool_version" not in st.session_state:
     st.session_state["tool_version"] = COST_OF_KNOWLEDGE_VERSION

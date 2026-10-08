@@ -462,17 +462,26 @@ def _wrap_text(text: str, max_chars: int) -> list[str]:
 # Blurb of the social-media card, beginning the sentence that the headline continues.
 SOCIAL_MEDIA_BLURB: str = "Using the Cost of Knowledge calculator, I estimated that"
 
-# Headline of the social-media card, continuing the blurb and leading into the breakdown and the total cost below it.
+# Headline of the social-media card, continuing the blurb and leading into the total cost below it.
 SOCIAL_MEDIA_HEADLINE: str = "The public and institutional investment in my peer-reviewed journal article is"
 
+# Question of the social-media card, accented above the call to action.
+SOCIAL_MEDIA_QUESTION: str = "Who contributes what, who controls the final publication, and who profits most?"
 
-def _social_media_comparison(publishing_costs: float, format_currency: Callable[[float], str]) -> str | None:
-    """The social-media card's line comparing the publisher investment, or None if the publishing costs are left out."""
+
+# Legend label of the publisher investment on the social-media card's bar chart.
+SOCIAL_MEDIA_PUBLISHER_LABEL: str = "Publisher investment"
+
+# Heading of the research phases in the social-media card's legend.
+SOCIAL_MEDIA_PHASES_HEADING: str = "What public and institutional investment funded"
+
+
+def _social_media_breakdown(phase_costs: dict[str, float], publishing_costs: float) -> dict[str, float]:
+    """The segments of the social-media card's bar chart: the cost of each research phase, then the publisher
+    investment if the publishing costs are included."""
     if publishing_costs <= 0:
-        return None
-    return (
-        f"For comparison, the publisher investment in my peer-reviewed article is {format_currency(publishing_costs)}."
-    )
+        return dict(phase_costs)
+    return {**phase_costs, SOCIAL_MEDIA_PUBLISHER_LABEL: publishing_costs}
 
 
 def _wrap_parts(parts: list[str], separator: str, max_chars: int) -> list[str]:
@@ -543,8 +552,8 @@ def create_social_media_svg(
             publishing costs.
         phase_costs: Cost in the chosen country's currency per research phase, keyed by phase display name, leaving out
             the publishing costs.
-        publishing_costs: The publisher investment in the chosen country's currency, shown for comparison below the
-            divider, or 0 to leave it out.
+        publishing_costs: The publisher investment in the chosen country's currency, shown as the last segment of the
+            bar chart, or 0 to leave it out.
         format_currency: Formats an amount as a string in the chosen country's currency.
         version: Version of the tool that produced the estimate (e.g. "0.1.2"), shown in the bottom-left corner, or
             None to leave it out.
@@ -592,10 +601,10 @@ def create_social_media_svg(
         )
     )
 
-    # Vertical layout. The headline, breakdown and total flow down from the blurb, while the subtitle, divider,
-    # comparison and footer are anchored to the bottom of the card. The space left over, which depends on the number
-    # of phases and wrapped lines, is shared between the gaps above the bar, above the total and below the total's
-    # caption, the largest share setting the total apart from the subtitle.
+    # Vertical layout. The headline, total and subtitle flow down from the blurb, then the divider, breakdown and
+    # legend, while the question, call to action and footer are anchored to the bottom of the card. The
+    # space left over, which depends on the number of phases and wrapped lines, is shared between the gaps above the
+    # total, above the divider and below the legend.
     headline_size: int = 52
     headline_line_height: float = 1.2
     headline_lines: list[str] = _wrap_text(SOCIAL_MEDIA_HEADLINE, 31)
@@ -603,22 +612,14 @@ def create_social_media_svg(
     headline_top: float = 196 + headline_size * 0.8
     headline_bottom: float = headline_top + headline_size * headline_line_height * (len(headline_lines) - 1)
 
-    phase_names: list[str] = list(phase_costs.keys())
-    breakdown_total: float = sum(phase_costs.values())
-    visible_phases: list[str] = [name for name in phase_names if phase_costs[name] > 0] or phase_names
-    bar_h: int = 88
-    legend_row_h: int = 48
-    legend_font: int = 28
-    # From the last headline baseline to the top of the bar, from the bottom of the bar to the first legend baseline,
-    # and from the last legend baseline to the total's baseline.
-    headline_bar_gap: float = 56
-    bar_legend_gap: float = 70
-    legend_total_gap: float = 120
+    breakdown: dict[str, float] = _social_media_breakdown(phase_costs, publishing_costs)
+    phase_names: list[str] = list(breakdown.keys())
+    breakdown_total: float = sum(breakdown.values())
+    visible_phases: list[str] = [name for name in phase_names if breakdown[name] > 0] or phase_names
+    # From the last headline baseline to the total's baseline, and from the total's baseline to the subtitle's.
+    headline_total_gap: float = 110
     total_size: int = 88
-    # From the total's baseline to its caption's baseline, and the least space from the caption to the subtitle.
-    total_caption_gap: float = 50
-    caption_size: int = 30
-    caption_subtitle_gap: float = 72
+    total_subtitle_gap: float = 76
 
     subtitle_size: int = 34
     subtitle_line_height: float = 1.2
@@ -627,41 +628,54 @@ def create_social_media_svg(
         _social_media_subtitle_parts(project_field, researchers, country, international_collaborators), " · ", 58
     )
     subtitle_block_h: float = subtitle_size * subtitle_line_height * (len(subtitle_lines) - 1)
-
-    # Bottom-anchored block: the call to action's baseline, then the comparison and divider above it.
-    cta_y: float = height - 108
-    comparison_size: int = 28
-    comparison_line_height: float = 1.25
-    comparison: str | None = _social_media_comparison(publishing_costs, format_currency)
-    comparison_lines: list[str] = _wrap_text(comparison, 72) if comparison else []
-    if comparison_lines:
-        comparison_last_y: float = cta_y - 72
-        comparison_first_y: float = comparison_last_y - comparison_size * comparison_line_height * (
-            len(comparison_lines) - 1
-        )
-        divider_y: float = comparison_first_y - 58
-    else:
-        divider_y = cta_y - 72
+    # From the last subtitle baseline to the divider, and from the divider to the top of the bar.
     subtitle_divider_gap: float = 46
+    divider_bar_gap: float = 52
+
+    bar_h: int = 88
+    legend_row_h: int = 48
+    legend_font: int = 28
+    # The research phases' heading, if any phase is shown, takes the place of the first legend row's baseline, the
+    # rows following a gap below it. Text has no swatch reaching above it, so the heading sits closer to the bar.
+    phases_heading: bool = any(name != SOCIAL_MEDIA_PUBLISHER_LABEL for name in visible_phases)
+    bar_legend_gap: float = 56 if phases_heading else 70
+    heading_legend_gap: float = 48 if phases_heading else 0
+    # The least space from the last legend baseline to the question.
+    legend_question_gap: float = 72
+    # Extra space before the publisher investment's legend row, which a dashed line sets apart from the research
+    # phases above it.
+    publisher_separated: bool = SOCIAL_MEDIA_PUBLISHER_LABEL in visible_phases and len(visible_phases) > 1
+    publisher_gap: float = 24 if publisher_separated else 0
+
+    # Bottom-anchored block: the call to action's baseline, then the question above it.
+    cta_y: float = height - 108
+    cta_size: int = 28
+    question_line_height: float = 1.25
+    question_lines: list[str] = _wrap_text(SOCIAL_MEDIA_QUESTION, 58)
+    question_last_y: float = cta_y - 48
+    question_first_y: float = question_last_y - cta_size * question_line_height * (len(question_lines) - 1)
+    content_limit: float = question_first_y - legend_question_gap
 
     content_bottom: float = (
         headline_bottom
-        + headline_bar_gap
-        + bar_h
-        + bar_legend_gap
-        + (len(visible_phases) - 1) * legend_row_h
-        + legend_total_gap
-        + total_caption_gap
-        + caption_subtitle_gap
+        + headline_total_gap
+        + total_subtitle_gap
         + subtitle_block_h
         + subtitle_divider_gap
+        + divider_bar_gap
+        + bar_h
+        + bar_legend_gap
+        + heading_legend_gap
+        + (len(visible_phases) - 1) * legend_row_h
+        + publisher_gap
     )
-    slack: float = max(0.0, divider_y - content_bottom)
-    bar_y: float = headline_bottom + headline_bar_gap + slack / 4
-    legend_first_y: float = bar_y + bar_h + bar_legend_gap
-    total_y: float = legend_first_y + (len(visible_phases) - 1) * legend_row_h + legend_total_gap + slack / 4
-    # The subtitle sits on the divider, so the rest of the slack falls between it and the total's caption.
-    subtitle_y: float = divider_y - subtitle_divider_gap - subtitle_block_h
+    slack: float = max(0.0, content_limit - content_bottom)
+    total_y: float = headline_bottom + headline_total_gap + slack / 3
+    subtitle_y: float = total_y + total_subtitle_gap
+    divider_y: float = subtitle_y + subtitle_block_h + subtitle_divider_gap + slack / 3
+    bar_y: float = divider_y + divider_bar_gap
+    heading_y: float = bar_y + bar_h + bar_legend_gap
+    legend_first_y: float = heading_y + heading_legend_gap
 
     # Headline
     image.append(
@@ -677,94 +691,16 @@ def create_social_media_svg(
         )
     )
 
-    # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting library is needed. Streamlit's
-    # placeholder palette renders near-black outside the app, so choose real colours here, one stable colour per phase.
-    palette: dict[str, str] = {
-        name: _PHASE_PALETTE[i % len(_PHASE_PALETTE)] for i, name in enumerate(dict.fromkeys(phase_names))
-    }
-    fills: dict[str, draw.Pattern | str] = {
-        name: _hatched_fill(palette[name], i) for i, name in enumerate(dict.fromkeys(phase_names))
-    }
-    bar_x: int = margin
-    bar_w: int = width - 2 * margin
-    if breakdown_total > 0:
-        cursor: float = bar_x
-        for name in phase_names:
-            segment: float = bar_w * (phase_costs[name] / breakdown_total)
-            if segment <= 0:
-                continue
-            image.append(draw.Rectangle(cursor, bar_y, segment, bar_h, fill=fills[name]))
-            cursor += segment
-    else:
-        image.append(draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4))
-    image.append(
-        draw.Rectangle(
-            bar_x,
-            bar_y,
-            bar_w,
-            bar_h,
-            rx=10,
-            fill="none",
-            # Ink rather than white, so the bar's edge has 3:1 contrast against the background.
-            stroke=ink,
-            stroke_width=3,
-        )
-    )
-
-    # Legend: one row per phase that has a cost.
-    row_index: int = 0
-    for name in phase_names:
-        amount: float = phase_costs[name]
-        if amount <= 0:
-            continue
-        row_y: float = legend_first_y + row_index * legend_row_h
-        share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
-        image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=fills[name]))
-        image.append(
-            draw.Text(
-                name,
-                legend_font,
-                margin + 48,
-                row_y,
-                fill=ink,
-                font_family=SOCIAL_MEDIA_FONT,
-            )
-        )
-        image.append(
-            draw.Text(
-                f"{format_currency(amount)}  ({share:.0f}%)",
-                legend_font,
-                width - margin,
-                row_y,
-                fill=muted,
-                text_anchor="end",
-                font_family=SOCIAL_MEDIA_FONT,
-            )
-        )
-        row_index += 1
-
-    # Total cost, answering the headline, right-aligned with its caption.
+    # Total cost, answering the headline.
     image.append(
         draw.Text(
             format_currency(total_cost),
             total_size,
-            width - margin,
+            margin,
             total_y,
             fill=ink,
-            text_anchor="end",
             font_family=SOCIAL_MEDIA_FONT,
             font_weight="bold",
-        )
-    )
-    image.append(
-        draw.Text(
-            "Total",
-            caption_size,
-            width - margin,
-            total_y + total_caption_gap,
-            fill=muted,
-            text_anchor="end",
-            font_family=SOCIAL_MEDIA_FONT,
         )
     )
 
@@ -791,23 +727,117 @@ def create_social_media_svg(
         )
     )
 
-    if comparison_lines:
+    # Cost breakdown by phase, drawn as a plain SVG stacked bar so no charting library is needed. Streamlit's
+    # placeholder palette renders near-black outside the app, so choose real colours here, one stable colour per phase.
+    palette: dict[str, str] = {
+        name: _PHASE_PALETTE[i % len(_PHASE_PALETTE)] for i, name in enumerate(dict.fromkeys(phase_names))
+    }
+    fills: dict[str, draw.Pattern | str] = {
+        name: _hatched_fill(palette[name], i) for i, name in enumerate(dict.fromkeys(phase_names))
+    }
+    bar_x: int = margin
+    bar_w: int = width - 2 * margin
+    if breakdown_total > 0:
+        cursor: float = bar_x
+        for name in phase_names:
+            segment: float = bar_w * (breakdown[name] / breakdown_total)
+            if segment <= 0:
+                continue
+            image.append(draw.Rectangle(cursor, bar_y, segment, bar_h, fill=fills[name]))
+            cursor += segment
+    else:
+        image.append(draw.Rectangle(bar_x, bar_y, bar_w, bar_h, fill="#ffffff", fill_opacity=0.4))
+    image.append(
+        draw.Rectangle(
+            bar_x,
+            bar_y,
+            bar_w,
+            bar_h,
+            rx=10,
+            fill="none",
+            # Ink rather than white, so the bar's edge has 3:1 contrast against the background.
+            stroke=ink,
+            stroke_width=3,
+        )
+    )
+
+    if phases_heading:
         image.append(
             draw.Text(
-                comparison_lines,
-                comparison_size,
+                SOCIAL_MEDIA_PHASES_HEADING,
+                legend_font,
                 margin,
-                comparison_first_y,
+                heading_y,
                 fill=ink,
                 font_family=SOCIAL_MEDIA_FONT,
-                line_height=comparison_line_height,
+                font_weight="bold",
             )
         )
 
+    # Legend: one row per phase that has a cost, the publisher investment set apart below a dashed line.
+    row_index: int = 0
+    for name in phase_names:
+        amount: float = breakdown[name]
+        if amount <= 0:
+            continue
+        row_y: float = legend_first_y + row_index * legend_row_h
+        if name == SOCIAL_MEDIA_PUBLISHER_LABEL and publisher_separated:
+            row_y += publisher_gap
+            # Midway between the swatches of the rows above and below.
+            separator_y: float = row_y - (legend_row_h + publisher_gap) / 2 - 8
+            image.append(
+                draw.Line(
+                    margin,
+                    separator_y,
+                    width - margin,
+                    separator_y,
+                    stroke=muted,
+                    stroke_width=2,
+                    stroke_dasharray="8 8",
+                )
+            )
+        share: float = amount / breakdown_total * 100 if breakdown_total else 0.0
+        image.append(draw.Rectangle(margin, row_y - 24, 32, 32, rx=7, fill=fills[name]))
+        image.append(
+            draw.Text(
+                name,
+                legend_font,
+                margin + 48,
+                row_y,
+                fill=ink,
+                font_family=SOCIAL_MEDIA_FONT,
+            )
+        )
+        image.append(
+            draw.Text(
+                f"{format_currency(amount)}  ({share:.0f}%)",
+                legend_font,
+                width - margin,
+                row_y,
+                fill=muted,
+                text_anchor="end",
+                font_family=SOCIAL_MEDIA_FONT,
+            )
+        )
+        row_index += 1
+
+    image.append(
+        draw.Text(
+            question_lines,
+            cta_size,
+            width / 2,
+            question_first_y,
+            text_anchor="middle",
+            fill=accent,
+            font_weight="bold",
+            font_family=SOCIAL_MEDIA_FONT,
+            line_height=question_line_height,
+        )
+    )
     image.append(
         draw.Text(
             "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
-            28,
+            cta_size,
             width / 2,
             cta_y,
             text_anchor="middle",
@@ -867,28 +897,31 @@ def create_social_media_image_alt_text(
     sentences: list[str] = [
         'An infographic intended for sharing on social media, titled "The Cost of Knowledge".',
         "The text of the infographic is as follows: ",
-        # The total sits below the breakdown on the card, but completes the headline's sentence here.
-        f"{SOCIAL_MEDIA_BLURB} {SOCIAL_MEDIA_HEADLINE} {format_currency(total_cost)} total.",
+        f"{SOCIAL_MEDIA_BLURB} {SOCIAL_MEDIA_HEADLINE} {format_currency(total_cost)}.",
+        f"{subtitle}.",
     ]
 
-    breakdown_total: float = sum(phase_costs.values())
+    breakdown: dict[str, float] = _social_media_breakdown(phase_costs, publishing_costs)
+    breakdown_total: float = sum(breakdown.values())
     phase_shares: list[str] = [
         f"{name}: {format_currency(amount)} ({amount / breakdown_total * 100:.0f}%)"
-        for name, amount in phase_costs.items()
+        for name, amount in breakdown.items()
         if amount > 0
     ]
     if breakdown_total > 0 and phase_shares:
+        researched_phases: int = sum(1 for amount in phase_costs.values() if amount > 0)
+        split: str = _plural(researched_phases, "research phase")
+        if publishing_costs > 0:
+            split = f"{split} and the publisher investment" if researched_phases else "the publisher investment"
+        legend: str = f', with a legend headed "{SOCIAL_MEDIA_PHASES_HEADING}",' if researched_phases else ""
         sentences.append(
-            f"A horizontal stacked bar chart splits the total cost across "
-            f"{_plural(len(phase_shares), 'research phase')}, from left to right: {_join_list(phase_shares)}."
+            f"A horizontal stacked bar chart{legend} splits the cost across {split}, from left to right: "
+            f"{_join_list(phase_shares)}."
         )
     else:
         sentences.append("An empty bar chart, as no research phase has a cost.")
 
-    sentences.append(f"{subtitle}.")
-    comparison: str | None = _social_media_comparison(publishing_costs, format_currency)
-    if comparison:
-        sentences.append(comparison)
+    sentences.append(SOCIAL_MEDIA_QUESTION)
     sentences.append("Estimate your own Cost of Knowledge at https://costofknowledge.org.")
     sentences.append("The University of Sydney and SPARC. Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026.")
     if version is not None:

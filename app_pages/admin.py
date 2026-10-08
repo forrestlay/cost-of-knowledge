@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
@@ -45,20 +46,18 @@ if TYPE_CHECKING:
     from src.calculator_state import CalculatorState
     from src.models import Cost
 
-# The login providers configured in the [auth] section of secrets.toml, and their button labels.
-LOGIN_PROVIDERS: dict[str, str] = {"google": "Google", "microsoft": "Microsoft"}
+# Button labels for the named login providers that may be configured in the [auth] section of secrets.toml, e.g.
+# [auth.google]. Providers not listed here are labelled with their name in title case.
+LOGIN_PROVIDER_LABELS: dict[str, str] = {"google": "Google", "microsoft": "Microsoft"}
 
-# Environment variables for the [auth] section of secrets.toml, which st.login reads. Each maps to its path in that
-# section, e.g. GOOGLE_CLIENT_ID is [auth.google] client_id.
-AUTH_ENVIRONMENT_VARIABLES: dict[str, tuple[str, ...]] = {
-    "AUTH_REDIRECT_URI": ("redirect_uri",),
-    "COOKIE_SECRET": ("cookie_secret",),
-    "GOOGLE_CLIENT_ID": ("google", "client_id"),
-    "GOOGLE_CLIENT_SECRET": ("google", "client_secret"),
-    "GOOGLE_METADATA_URL": ("google", "server_metadata_url"),
-    "MSFT_CLIENT_ID": ("microsoft", "client_id"),
-    "MSFT_CLIENT_SECRET": ("microsoft", "client_secret"),
-    "MSFT_METADATA_URL": ("microsoft", "server_metadata_url"),
+# Environment variables for the [auth] section of secrets.toml, which st.login reads, mapped to their keys in that
+# section. They configure a single login provider, e.g. CLIENT_ID is [auth] client_id.
+AUTH_ENVIRONMENT_VARIABLES: dict[str, str] = {
+    "AUTH_REDIRECT_URI": "redirect_uri",
+    "COOKIE_SECRET": "cookie_secret",
+    "CLIENT_ID": "client_id",
+    "CLIENT_SECRET": "client_secret",
+    "SERVER_METADATA_URL": "server_metadata_url",
 }
 
 # url_path of this page, set in main.py.
@@ -183,28 +182,47 @@ def inject_auth_secrets() -> None:
     st.login reads only the [auth] section of secrets.toml. Settings that are already in st.secrets take precedence over
     environment variables, and variables that are not set or are empty are ignored.
     """
-    environment_auth: dict[str, Any] = {}
-    for variable, path in AUTH_ENVIRONMENT_VARIABLES.items():
-        value: str | None = os.environ.get(variable)
-        if not value:
-            continue
-        section: dict[str, Any] = environment_auth
-        for key in path[:-1]:
-            section = section.setdefault(key, {})
-        section[path[-1]] = value
+    environment_auth: dict[str, str] = {
+        key: value for variable, key in AUTH_ENVIRONMENT_VARIABLES.items() if (value := os.environ.get(variable))
+    }
     if not environment_auth:
         return
 
     # merge_programmatic_secrets replaces whole top-level keys, so the existing [auth] section is merged in first.
-    existing_auth: dict[str, Any] = (
-        dict(st.secrets.to_dict().get("auth", {})) if st.secrets.load_if_toml_exists() else {}
-    )
+    existing_auth: dict[str, Any] = auth_secrets()
     merged_auth: dict[str, Any] = {**environment_auth, **existing_auth}
-    for provider in ("google", "microsoft"):
-        if provider in environment_auth and provider in existing_auth:
-            merged_auth[provider] = {**environment_auth[provider], **existing_auth[provider]}
     if merged_auth != existing_auth:
         st.secrets.merge_programmatic_secrets({"auth": merged_auth})
+
+
+def auth_secrets() -> dict[str, Any]:
+    """Returns the [auth] section of st.secrets, or an empty dict when there is none."""
+    try:
+        auth: object = st.secrets.get("auth")
+    except Exception:  # noqa: BLE001 - no secrets file
+        auth = None
+    return (
+        {key: dict(value) if isinstance(value, Mapping) else value for key, value in auth.items()}
+        if isinstance(auth, Mapping)
+        else {}
+    )
+
+
+def login_providers() -> dict[str | None, str]:
+    """Returns the login providers configured in st.secrets, mapped to their button labels.
+
+    The single provider set directly in the [auth] section, such as by environment variables, is keyed by None, which
+    st.login uses when given no provider. When it is set, it is the only provider. Otherwise, named providers from
+    secrets.toml, e.g. [auth.google], are keyed by name.
+    """
+    auth: dict[str, Any] = auth_secrets()
+    if auth.get("client_id"):
+        return {None: "Log in"}
+    return {
+        name: f"Log in with {LOGIN_PROVIDER_LABELS.get(name, name.title())}"
+        for name, settings in auth.items()
+        if isinstance(settings, dict)
+    }
 
 
 def user_claim(name: str) -> str | None:
@@ -390,8 +408,8 @@ if database.get_database_type() == "none":
 if not st.user.is_logged_in:
     st.info("Log in to view the saved results.", icon=":material/lock:")
     with st.container(horizontal=True):
-        for provider, label in LOGIN_PROVIDERS.items():
-            st.button(f"Log in with {label}", icon=":material/login:", on_click=st.login, args=(provider,))
+        for provider, label in login_providers().items():
+            st.button(label, icon=":material/login:", on_click=st.login, args=(provider,))
     st.stop()
 
 try:

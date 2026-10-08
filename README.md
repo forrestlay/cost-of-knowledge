@@ -35,12 +35,9 @@ Configuration is read from environment variables listed below. The database and
 | `DATABASE_SSL_CA`        | No                      | Contents of the CA certificate (PEM), not a file path. Encrypts and verifies the MySQL connection. See below.                                       |
 | `AUTH_REDIRECT_URI`      | For OIDC authentication | The redirect URL for OIDC authentication. Should be the `BASE_URL/oauth2callback`.                                                                  |
 | `COOKIE_SECRET`          | For OIDC authentication | A strong, randomly generated string. Needed for OIDC authentication.                                                                                |
-| `GOOGLE_CLIENT_ID`       | Google authentication   | Google OIDC login client ID.                                                                                                                        |
-| `GOOGLE_CLIENT_SECRET`   | Google authentication   | Google OIDC login client secret.                                                                                                                    |
-| `GOOGLE_METADATA_URL`    | Google authentication   | Google OIDC login metadata url.                                                                                                                     |
-| `MSFT_CLIENT_ID`         | Microsoft auth          | Microsoft OIDC login client ID.                                                                                                                     |
-| `MSFT_CLIENT_SECRET`     | Microsoft auth          | Microsoft OIDC login client secret.                                                                                                                 |
-| `MSFT_METADATA_URL`      | Microsoft auth          | Microsoft OIDC login metadata url.                                                                                                                  |
+| `CLIENT_ID`              | For OIDC authentication | OIDC login client ID from the login provider.                                                                                                       |
+| `CLIENT_SECRET`          | For OIDC authentication | OIDC login client secret from the login provider.                                                                                                   |
+| `SERVER_METADATA_URL`    | For OIDC authentication | OIDC login provider metadata url, e.g. `https://accounts.google.com/.well-known/openid-configuration`.                                              |
 | `ADMIN_OWNER_EMAIL`      | Recommended for admin   | Email address allowed to become the admin owner. Without it, the first account to log in becomes the owner.                                         |
 
 It is also suggested that the `STREAMLIT_BROWSER_GATHER_USAGE_STATS` environment variable or its

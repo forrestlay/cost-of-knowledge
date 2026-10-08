@@ -624,7 +624,7 @@ def create_social_media_svg(
     subtitle_line_height: float = 1.2
     # The field of research, researchers and country share a line where they fit, wrapping onto more lines if not.
     subtitle_lines: list[str] = _wrap_parts(
-        _social_media_subtitle_parts(project_field, researchers, country, international_collaborators), " · ", 48
+        _social_media_subtitle_parts(project_field, researchers, country, international_collaborators), " · ", 58
     )
     subtitle_block_h: float = subtitle_size * subtitle_line_height * (len(subtitle_lines) - 1)
 
@@ -633,7 +633,7 @@ def create_social_media_svg(
     comparison_size: int = 28
     comparison_line_height: float = 1.25
     comparison: str | None = _social_media_comparison(publishing_costs, format_currency)
-    comparison_lines: list[str] = _wrap_text(comparison, 60) if comparison else []
+    comparison_lines: list[str] = _wrap_text(comparison, 72) if comparison else []
     if comparison_lines:
         comparison_last_y: float = cta_y - 72
         comparison_first_y: float = comparison_last_y - comparison_size * comparison_line_height * (

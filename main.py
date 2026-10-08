@@ -2166,10 +2166,6 @@ k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
 k3.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs)))
 
 
-with st.container(border=True):
-    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
-
-
 # Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the plot, or
 # the narrow version (for phones) with its legend listed beneath the plot.
 st.html(
@@ -2204,7 +2200,7 @@ costs_pie_alt_text: str = costs_pie_chart_alt_text(costs_df, costs_pie_names, fo
 
 with st.container(key="wide-chart-costs-pie"):
     st.plotly_chart(
-        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=colorblind_safe_graphs),
+        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=True),
         width="stretch",
         alt=costs_pie_alt_text,
     )
@@ -2216,15 +2212,17 @@ with st.container(key="narrow-chart-costs-pie"):
             phase_color_map,
             item_color_map,
             legend_below=True,
-            hatching=colorblind_safe_graphs,
+            hatching=True,
         ),
         width="stretch",
         alt=costs_pie_alt_text,
     )
-st.caption(
-    "Breakdown of where the public and institutional investment in the journal article goes. Publishing costs of "
-    f"{format_currency(st.session_state['publishing_costs'])} are not included."
-)
+costs_pie_caption: str = "Breakdown of where the public and institutional investment in the journal article goes."
+if st.session_state["include_publishing_costs"]:
+    costs_pie_caption += (
+        f" Publishing costs of {format_currency(st.session_state['publishing_costs'])} are not included."
+    )
+st.caption(costs_pie_caption)
 
 
 # Labour cost bar chart
@@ -2244,7 +2242,7 @@ if st.session_state["calculator_mode"] == "detailed":
     with st.container(key="wide-chart-sunburst"):
         st.plotly_chart(
             labour_sunburst_chart(
-                labour_df, phase_color_map, total_cost, currency_code(), hatching=colorblind_safe_graphs
+                labour_df, phase_color_map, total_cost, currency_code(), hatching=True
             ),
             width="stretch",
             alt=sunburst_alt_text,
@@ -2257,7 +2255,7 @@ if st.session_state["calculator_mode"] == "detailed":
                 total_cost,
                 currency_code(),
                 legend_below=True,
-                hatching=colorblind_safe_graphs,
+                hatching=True,
             ),
             width="stretch",
             alt=sunburst_alt_text,
@@ -2308,7 +2306,7 @@ for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart
                 currency_code(),
                 currency_prefix(),
                 legend_below=legend_below,
-                hatching=colorblind_safe_graphs,
+                hatching=True,
             ),
             width="stretch",
             alt=labour_bar_alt_text,

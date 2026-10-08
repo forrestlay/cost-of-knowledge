@@ -211,9 +211,6 @@ k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))
 k2.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs), country))
 
-with st.container(border=True):
-    colorblind_safe_graphs: bool = st.toggle("Enable colorblind safe graphs", value=False, key="colorblind_safe_graphs")
-
 
 st.subheader("Total cost breakdown")
 
@@ -230,7 +227,7 @@ st.plotly_chart(
         costs_pie_names,
         phase_color_map,
         item_color_map,
-        hatching=colorblind_safe_graphs,
+        hatching=True,
     ),
     width="stretch",
     alt=costs_pie_chart_alt_text(costs_df, costs_pie_names, lambda amount: format_currency(amount, country)),
@@ -254,7 +251,7 @@ if state.calculator_mode == "detailed":
                 """)
     st.plotly_chart(
         labour_sunburst_chart(
-            labour_df, phase_color_map, total_cost, currency_code(country), hatching=colorblind_safe_graphs
+            labour_df, phase_color_map, total_cost, currency_code(country), hatching=True
         ),
         width="stretch",
         alt=labour_sunburst_chart_alt_text(labour_df, total_cost, lambda amount: format_currency(amount, country)),
@@ -272,7 +269,7 @@ st.plotly_chart(
         phase_color_map,
         currency_code(country),
         currency_prefix(country),
-        hatching=colorblind_safe_graphs,
+        hatching=True,
     ),
     width="stretch",
     alt=labour_bar_chart_alt_text(

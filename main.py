@@ -83,7 +83,15 @@ from src.reference_data import (
     ROLES,
     field_of_research_display_name,
 )
-from src.ui import CALCULATOR_PAGE, colored_container_key, primary_fill_styles, row_styles, toggletip, toggletip_styles
+from src.ui import (
+    CALCULATOR_PAGE,
+    colored_container_key,
+    primary_fill_styles,
+    row_styles,
+    theme_color,
+    toggletip,
+    toggletip_styles,
+)
 
 if TYPE_CHECKING:
     from src.models import Cost
@@ -1562,6 +1570,36 @@ with st.sidebar:
 
 
 toggletip_styles()
+
+# Highlight the introduction with the theme's orange (accent) background and a primary-coloured border.
+st.html(
+    f"""
+    <style>
+    .st-key-intro {{
+        background-color: {theme_color("orangeBackgroundColor", "#f6ede6", "#3f2d1f")};
+        border-color: {theme_color("primaryColor", "#a04b09", "#f37d21")} !important;
+    }}
+    .st-key-intro :is(p, li, span) {{
+        color: {theme_color("textColor", "#14110f", "#f5f1ee")};
+    }}
+    .st-key-intro a {{
+        color: {theme_color("linkColor", "#a04b09", "#f37d21")};
+    }}
+    </style>
+    """
+)
+st.container(border=True, key="intro").markdown(
+    """
+    Every journal article starts as public investment: researcher time, university resources, grant funding.
+    By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog post>.
+
+    This tool enables faculty to quantify the public and institutional investment that underpins their work
+    (primarily in the form of their own labor) using a costing model described in this companion publication <link>
+    — and to compare that with publisher investment. Through this comparison, this resource raises important
+    questions about who contributes what, who controls the final publication, and who profits most <link to
+    profitability report>.
+    """
+)
 
 
 st.title("The Cost of Knowledge Calculator")

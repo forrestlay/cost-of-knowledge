@@ -278,6 +278,36 @@ def load_result() -> None:
         st.session_state.admin_show_json = False
 
 
+@st.dialog("Delete result")
+def confirm_delete_result(public_id: str) -> None:
+    """Asks the user to confirm deleting the saved result, then deletes it and clears it from the details section."""
+    st.write(f"Delete result **{public_id}**? Its link will stop working. This cannot be undone.")
+    with st.container(horizontal=True, horizontal_alignment="right"):
+        if st.button("Cancel"):
+            st.rerun()
+        if not st.button("Delete", type="primary", icon=":material/delete:"):
+            return
+    acting_user_id: str = sql_store.admin_user_id(user_claim("iss"), user_claim("sub") or "")
+    try:
+        with closing(database.connect()) as conn:
+            # Checked again here, as the dialog reruns on its own without the access checks at the top of the page.
+            if not any(
+                user["user_id"] == acting_user_id and user["is_authorised"] for user in sql_store.list_admin_users(conn)
+            ):
+                st.error("You are not authorised to delete results.", icon=":material/error:")
+                return
+            sql_store.delete_project(conn, public_id)
+    except database.DATABASE_ERRORS as error:
+        st.error(f"Could not delete the result: {error}", icon=":material/error:")
+        return
+    count_saved.clear()
+    load_saved.clear()
+    load_one.clear()
+    st.session_state.admin_selected_id = None
+    st.session_state.admin_show_json = False
+    st.rerun()
+
+
 def show_authorisation_section(current_user: dict[str, Any]) -> None:
     """Shows the users who have logged in and, to the owner, buttons to authorise, reject, delete or make owner."""
     st.divider()
@@ -589,6 +619,8 @@ with st.container(horizontal=True, horizontal_alignment="right"):
         icon=":material/download:",
         on_click="ignore",
     )
+    if st.button("Delete loaded result", icon=":material/delete:"):
+        confirm_delete_result(str(st.session_state.admin_selected_id))
 
 st.markdown("**Researchers**")
 st.dataframe(

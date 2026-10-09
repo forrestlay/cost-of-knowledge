@@ -29,10 +29,19 @@ st.markdown(
     By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog post>.
 
     This tool enables faculty to quantify the public and institutional investment that underpins their work
-    (primarily in the form of their own labor) using a costing model described in this companion publication <link>
+    (primarily in the form of their own labor) using a costing model described in this
+    [companion publication](https://doi.org/10.5281/zenodo.23030223)
     — and to compare that with publisher investment. Through this comparison, this resource raises important
-    questions about who contributes what, who controls the final publication, and who profits most <link to
+    questions about who contributes what, who controls the final publication, and who profits <link to
     profitability report>.
+    """
+)
+
+st.subheader("Technical issues with the Calculator")
+st.markdown(
+    """
+    If you have a technical or security-related issue with the Calculator, please report it to the associated
+    [Github repository](https://github.com/forrestlay/cost-of-knowledge) as an issue.
     """
 )
 
@@ -40,7 +49,7 @@ st.divider()
 st.markdown(
     """
     :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
-    Lay, Loh, and Tanima.
+    Lay, Loh, Tanima and SPARC.
     :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
     International License](https://creativecommons.org/licenses/by/4.0/).]
 

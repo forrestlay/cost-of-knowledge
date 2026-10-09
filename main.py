@@ -1173,8 +1173,8 @@ def show_footer() -> None:
         Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
         the Economy, 5, 133–182. https://doi.org/10.1086/738903]
 
-        :small[<sup>4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of
-        Knowledge. Preprint available on Zenodo.]
+        :small[<sup>4</sup> For more details about these estimates, see Alam et al. (2026, pp. 14-5) *The Cost of
+        Knowledge.* Zenodo. https://doi.org/10.5281/zenodo.23030223]
 
         :small[<sup>5</sup> Grossmann, A., & Brembs, B. (2021). *Current market rates for scholarly publishing
         services.* F1000Research. https://doi.org/10.12688/f1000research.27468.2]
@@ -1185,15 +1185,15 @@ def show_footer() -> None:
     st.markdown(
         """
         :small[:material/copyright: Copyright 2026 Alam, Andrew, Baker, Coupe, Koh,
-        Lay, Loh, and Tanima.
+        Lay, Loh, Tanima and SPARC.
         :material/license: The content on this website is subject to the [Creative Commons Attribution 4.0
         International License](https://creativecommons.org/licenses/by/4.0/).]
 
         :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
         [Github](https://github.com/forrestlay/cost-of-knowledge)]
 
-        :small[Tool version: v{version}]
-        """.replace("{version}", COST_OF_KNOWLEDGE_VERSION),
+        :small[Tool version: v{version} • [Admin]({base_url}/admin)]
+        """.replace("{version}", COST_OF_KNOWLEDGE_VERSION).replace("{base_url}", COST_OF_KNOWLEDGE_URL),
         text_alignment="center",
     )
 
@@ -1594,9 +1594,10 @@ st.container(border=True, key="intro").markdown(
     By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog post>.
 
     This tool enables faculty to quantify the public and institutional investment that underpins their work
-    (primarily in the form of their own labor) using a costing model described in this companion publication <link>
+    (primarily in the form of their own labor) using a costing model described in this
+    [companion publication](https://doi.org/10.5281/zenodo.23030223)
     — and to compare that with publisher investment. Through this comparison, this resource raises important
-    questions about who contributes what, who controls the final publication, and who profits most <link to
+    questions about who contributes what, who controls the final publication, and who profits <link to
     profitability report>.
     """
 )

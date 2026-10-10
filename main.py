@@ -1351,8 +1351,7 @@ def confirm_reset() -> None:
 def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
-        f"Using the University of Sydney and SPARC Cost of Knowledge Calculator, I estimated that my research "
-        "publication cost "
+        f"I estimated that the public and institutional investment in my peer-reviewed journal article is "
         f"{format_currency(total_cost)}."
     )
 
@@ -1365,13 +1364,26 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
             link is shared.
     """
     if saved_url is None:
-        return COST_OF_KNOWLEDGE_URL, "Estimate your own Cost of Knowledge"
-    return saved_url, "See my result and estimate your own Cost of Knowledge"
+        return (
+            COST_OF_KNOWLEDGE_URL,
+            (
+                "I invite you to estimate your own Cost of Knowledge"
+            ),
+        )
+    return (
+        saved_url,
+        (
+            "I invite you to see my result and estimate your own Cost of Knowledge"
+        ),
+    )
 
 
 def share_footer() -> str:
     """Footer text for the social media and email post."""
-    return "Cost of Knowledge Calculator by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+    return (
+        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
+        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+    )
 
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
@@ -1401,7 +1413,7 @@ def facebook_share_url(saved_url: str | None) -> str:
 def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
     url, call_to_action = share_link(saved_url)
-    subject: str = "The Cost of Knowledge of my research publication"
+    subject: str = "Sharing with you the public and institutional investment in my journal article"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
     body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}\r\n\r\n{share_footer()}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
@@ -1595,10 +1607,8 @@ st.container(border=True, key="intro").markdown(
 
     This tool enables faculty to quantify the public and institutional investment that underpins their work
     (primarily in the form of their own labor) using a costing model described in this
-    [companion publication](https://doi.org/10.5281/zenodo.23030223)
-    — and to compare that with publisher investment. Through this comparison, this resource raises important
-    questions about who contributes what, who controls the final publication, and who profits <link to
-    profitability report>.
+    [companion publication](https://doi.org/10.5281/zenodo.23030223). Through this quantification, this tool
+    makes visible the resources that sustain scholarly publishing and who contributes those resources.
     """
 )
 
@@ -2051,9 +2061,7 @@ st.markdown(
 
         Publishing cost is not included in the total cost calculated by this tool, as these costs represent a
         publisher's investment in the work rather than investment from researchers, the public, or institutions.
-        This tool aims to enable faculty to compare their and the public's investment with that of publishers and
-        reflect on questions this may raise about who contributes what, who controls the final publication, and whose
-        interests are served.
+        This question aims to have faculty reflect on who contributes the resources towards the final publication.
         """
     ).replace(
         "{footnote_grossmann}",

@@ -465,12 +465,8 @@ SOCIAL_MEDIA_BLURB: str = "Using the Cost of Knowledge calculator, I estimated t
 # Headline of the social-media card, continuing the blurb and leading into the total cost below it.
 SOCIAL_MEDIA_HEADLINE: str = "The public and institutional investment in my peer-reviewed journal article is"
 
-# Question of the social-media card, accented above the call to action.
-SOCIAL_MEDIA_QUESTION: str = "Who contributes what, who controls the final publication, and who profits most?"
-
-
 # Legend label of the publisher investment on the social-media card's bar chart.
-SOCIAL_MEDIA_PUBLISHER_LABEL: str = "Publisher investment"
+SOCIAL_MEDIA_PUBLISHER_LABEL: str = "Estimated publisher investment"
 
 # Heading of the research phases in the social-media card's legend.
 SOCIAL_MEDIA_PHASES_HEADING: str = "What public and institutional investment funded"
@@ -602,7 +598,7 @@ def create_social_media_svg(
     )
 
     # Vertical layout. The headline, total and subtitle flow down from the blurb, then the divider, breakdown and
-    # legend, while the question, call to action and footer are anchored to the bottom of the card. The
+    # legend, while the call to action and footer are anchored to the bottom of the card. The
     # space left over, which depends on the number of phases and wrapped lines, is shared between the gaps above the
     # total, above the divider and below the legend.
     headline_size: int = 52
@@ -640,21 +636,17 @@ def create_social_media_svg(
     phases_heading: bool = any(name != SOCIAL_MEDIA_PUBLISHER_LABEL for name in visible_phases)
     bar_legend_gap: float = 56 if phases_heading else 70
     heading_legend_gap: float = 48 if phases_heading else 0
-    # The least space from the last legend baseline to the question.
-    legend_question_gap: float = 72
+    # The least space from the last legend baseline to the call to action's baseline.
+    legend_cta_gap: float = 100
     # Extra space before the publisher investment's legend row, which a dashed line sets apart from the research
     # phases above it.
     publisher_separated: bool = SOCIAL_MEDIA_PUBLISHER_LABEL in visible_phases and len(visible_phases) > 1
     publisher_gap: float = 24 if publisher_separated else 0
 
-    # Bottom-anchored block: the call to action's baseline, then the question above it.
+    # Bottom-anchored call to action's baseline.
     cta_y: float = height - 108
     cta_size: int = 28
-    question_line_height: float = 1.25
-    question_lines: list[str] = _wrap_text(SOCIAL_MEDIA_QUESTION, 58)
-    question_last_y: float = cta_y - 48
-    question_first_y: float = question_last_y - cta_size * question_line_height * (len(question_lines) - 1)
-    content_limit: float = question_first_y - legend_question_gap
+    content_limit: float = cta_y - legend_cta_gap
 
     content_bottom: float = (
         headline_bottom
@@ -823,19 +815,6 @@ def create_social_media_svg(
 
     image.append(
         draw.Text(
-            question_lines,
-            cta_size,
-            width / 2,
-            question_first_y,
-            text_anchor="middle",
-            fill=accent,
-            font_weight="bold",
-            font_family=SOCIAL_MEDIA_FONT,
-            line_height=question_line_height,
-        )
-    )
-    image.append(
-        draw.Text(
             "Estimate your own Cost of Knowledge at https://costofknowledge.org.",
             cta_size,
             width / 2,
@@ -921,7 +900,6 @@ def create_social_media_image_alt_text(
     else:
         sentences.append("An empty bar chart, as no research phase has a cost.")
 
-    sentences.append(SOCIAL_MEDIA_QUESTION)
     sentences.append("Estimate your own Cost of Knowledge at https://costofknowledge.org.")
     sentences.append("The University of Sydney and SPARC. Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima 2026.")
     if version is not None:

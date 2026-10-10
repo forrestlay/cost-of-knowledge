@@ -30,10 +30,8 @@ st.markdown(
 
     This tool enables faculty to quantify the public and institutional investment that underpins their work
     (primarily in the form of their own labor) using a costing model described in this
-    [companion publication](https://doi.org/10.5281/zenodo.23030223)
-    — and to compare that with publisher investment. Through this comparison, this resource raises important
-    questions about who contributes what, who controls the final publication, and who profits <link to
-    profitability report>.
+    [companion publication](https://doi.org/10.5281/zenodo.23030223). Through this quantification, this tool
+    makes visible the resources that sustain scholarly publishing and who contributes those resources.
     """
 )
 

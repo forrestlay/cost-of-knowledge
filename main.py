@@ -1619,8 +1619,9 @@ st.markdown(
     *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
     again.*
 
-    This tool enables you to estimate the full costs involved in the process of preparing and publishing one of
-    your refereed journal articles (including the cost of academic labor and institutional resources).
+    This tool enables you to estimate the full costs involved in the process of preparing one of your refereed journal
+    articles, from ideation to acceptance by a journal (including the cost of academic labor and institutional
+    resources).
 
     **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
     involved in preparing a refereed journal article. Prior literature has established that research provides
@@ -1847,7 +1848,7 @@ st.session_state["calculator_mode"] = st.radio(
 
 st.markdown(
     """
-    To estimate the full cost of producing your journal article, the process is divided into five phases:
+    To estimate the cost of producing your journal article, the process is divided into five phases:
 
     - **Incubation**: Developing ideas, identifying research questions, preparing ethics applications, and
         applying for research funding (whether successful or not).
@@ -2207,7 +2208,7 @@ if st.session_state.pop("scroll_to_results", False):
 
 
 k1, k2, k3 = st.columns(3)
-k1.metric("Estimated total cost", format_currency(total_cost))
+k1.metric("Estimated total cost from ideation to acceptance", format_currency(total_cost))
 k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
 k3.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs)))
 

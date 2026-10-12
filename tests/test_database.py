@@ -370,7 +370,7 @@ def test_share_buttons_link_to_saved_result(monkeypatch: pytest.MonkeyPatch) -> 
     at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
     run(at)
     meet_results_requirements(at)
-    share_labels: set[str] = {"Share on LinkedIn", "Share on X", "Share on Facebook", "Share via email"}
+    share_labels: set[str] = {"Share on LinkedIn", "Share on Bluesky", "Share on Facebook", "Share via email"}
     before: list[str] = [button.proto.url for button in at.get("link_button") if button.proto.label in share_labels]
     assert len(before) == len(share_labels)
     assert not [url for url in before if "project_id" in unquote(url)]

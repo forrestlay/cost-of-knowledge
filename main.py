@@ -1419,11 +1419,14 @@ def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
-def x_share_url(total_cost: float, saved_url: str | None) -> str:
-    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to share."""
+def bluesky_share_url(total_cost: float, saved_url: str | None) -> str:
+    """Builds a link that opens Bluesky's post composer pre-filled with a summary of the estimate and a link to share.
+
+    Bluesky's compose intent only accepts text, so the link is included in the text, where Bluesky detects it.
+    """
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)} {call_to_action}:"
-    return f"https://x.com/intent/post?text={quote(text)}&url={quote(url, safe='')}"
+    text: str = f"{share_summary(total_cost)} {call_to_action}: {url}"
+    return f"https://bsky.app/intent/compose?text={quote(text)}"
 
 
 def facebook_share_url(saved_url: str | None) -> str:
@@ -2400,7 +2403,7 @@ if st.session_state["show_results"] and not results_requirements:
         if saved_result_url is not None:
             share_intro += """ In addition, because you have saved your result, please use the "copy link" button
             to save a link to the result so you may return to it at a later time. This result link will also be
-            included in your LinkedIn, X, Facebook, or email message by default."""
+            included in your LinkedIn, Bluesky, Facebook, or email message by default."""
         else:
             share_intro += f""" If you would like to save your result to share an abbreviated version of the above
             graphs, please return to the "[Calculate the cost and share your results](#{CALCULATE_ANCHOR})" section
@@ -2481,10 +2484,10 @@ if st.session_state["show_results"] and not results_requirements:
                 help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
             )
             st.link_button(
-                "Share on X",
-                x_share_url(total_cost, saved_result_url),
+                "Share on Bluesky",
+                bluesky_share_url(total_cost, saved_result_url),
                 icon=":material/share:",
-                help="Share this tool on X. Download the image first and attach it to your post.",
+                help="Share this tool on Bluesky. Download the image first and attach it to your post.",
             )
             st.link_button(
                 "Share on Facebook",

@@ -435,7 +435,15 @@ if not current_user["is_authorised"]:
     st.button("Log out", icon=":material/logout:", on_click=st.logout)
     st.stop()
 
-st.button("Log out", icon=":material/logout:", on_click=st.logout)
+with st.container(horizontal=True):
+    st.button("Log out", icon=":material/logout:", on_click=st.logout)
+    # streamlit_analytics2 shows its dashboard on the calculator when it is opened with analytics=on.
+    st.link_button(
+        "View analytics",
+        calculator_url() + "?analytics=on",
+        icon=":material/analytics:",
+        help="Open the calculator with the analytics dashboard shown. You will be asked for the analytics password.",
+    )
 
 with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center"):
     st.caption("Every result saved from the calculator. Costs are in the currency of each result's country.")

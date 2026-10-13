@@ -39,6 +39,7 @@ Configuration is read from environment variables listed below. The database and
 | `CLIENT_SECRET`          | For OIDC authentication | OIDC login client secret from the login provider.                                                                                                   |
 | `SERVER_METADATA_URL`    | For OIDC authentication | OIDC login provider metadata url, e.g. `https://accounts.google.com/.well-known/openid-configuration`.                                              |
 | `ADMIN_OWNER_EMAIL`      | Recommended for admin   | Email address allowed to become the admin owner. Without it, the first account to log in becomes the owner.                                         |
+| `ANALYTICS_PASSWORD`     | Recommended             | Password for the analytics dashboard. Without it, anyone can view the dashboard. See [Analytics](#analytics).                                       |
 
 It is also suggested that the `STREAMLIT_BROWSER_GATHER_USAGE_STATS` environment variable or its
 [config.toml equivalent](https://docs.streamlit.io/develop/concepts/configuration/options) be set to "false" to prevent
@@ -76,8 +77,9 @@ docker run -d \
 
 In PowerShell, replace `$(pwd)` with `${PWD}`, and use a backtick (`` ` ``) instead of `\` for line continuation.
 
-To use `sqlite` for saving, also set `-e DATABASE_TYPE=sqlite` and mount a volume at `/app/data` so the database
-persists when the container is recreated, e.g. `-v costofknowledge/data:/app/data`.
+Mount a volume at `/app/data` so the analytics data persists when the container is recreated, e.g.
+`-v costofknowledge/data:/app/data`. To use `sqlite` for saving, also set `-e DATABASE_TYPE=sqlite`; the database is
+stored in the same volume.
 
 The app is then available at <http://localhost:8501>.
 
@@ -109,7 +111,7 @@ services:
     volumes:
       # Directory containing secrets.toml
       - ./costofknowledge/.streamlit:/app/.streamlit:ro
-      # Persist the sqlite database
+      # Persist the analytics data and sqlite database
       - cost-of-knowledge-data:/app/data
     restart: unless-stopped
 
@@ -136,6 +138,13 @@ first account to login becomes the owner, so anyone who reaches `/admin` first o
 ownership.
 
 The admin page displays all data collected by the tool where the user has consented.
+
+## Analytics
+
+Page views and widget interactions are tracked with [streamlit-analytics2](https://github.com/444B/streamlit-analytics2)
+and stored in `data/analytics.db`. To view the dashboard, add `?analytics=on` to the app's
+URL. Set `ANALYTICS_PASSWORD`, or `analytics_password` in `.streamlit/secrets.toml`, to require a password to view it;
+the environment variable takes precedence. If neither is set, the dashboard is shown to anyone who opens that URL.
 
 ## Attributions
 

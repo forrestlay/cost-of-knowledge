@@ -52,3 +52,6 @@ data/exchange_rates.json.tmp
 # SQLite database, created when DATABASE_TYPE is set to sqlite
 data/cost_of_knowledge.db
 data/cost_of_knowledge.db-journal
+
+# Streamlit analytics
+data/analytics.db

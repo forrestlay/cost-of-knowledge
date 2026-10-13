@@ -2461,15 +2461,15 @@ if st.session_state["show_results"] and not results_requirements:
             include_publishing_costs_toggle("include-publishing-costs-share")
 
         with st.container(horizontal=True, horizontal_alignment="left"):
-            st.download_button(
-                "Download your summary infographic image",
-                data=social_media_svg_to_png(social_media_svg),
-                file_name="cost-of-knowledge-estimate.png",
-                mime="image/png",
-                icon=":material/image:",
-                type="primary",
-            )
             with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+                st.download_button(
+                    "Download your summary infographic image",
+                    data=social_media_svg_to_png(social_media_svg),
+                    file_name="cost-of-knowledge-estimate.png",
+                    mime="image/png",
+                    icon=":material/image:",
+                    type="primary",
+                )
                 st.link_button(
                     "Share on LinkedIn",
                     linkedin_share_url(total_cost, saved_result_url),

@@ -1381,7 +1381,9 @@ def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
         f"I estimated that the public and institutional investment in my peer-reviewed journal article is "
-        f"{format_currency(total_cost)}."
+        f"{format_currency(total_cost)}. "
+        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
+        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
     )
 
 
@@ -1406,8 +1408,8 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
 def share_footer() -> str:
     """Footer text for the social media and email post."""
     return (
-        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
-        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        "How much does academic publishing earn? See the report at "
+        "."
     )
 
 
@@ -1637,10 +1639,14 @@ with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE)
 
         This tool enables faculty to quantify the public and institutional investment that underpins their work
         (primarily in the form of their own labor) using a costing model described in this
-        [companion publication](https://doi.org/10.5281/zenodo.23030223). Through this quantification, this tool
-        makes visible the resources that sustain scholarly publishing and who contributes those resources.
+        [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
+        publisher's investment. Through this quantification, this tool makes visible the resources that sustain
+        scholarly publishing and who contributes those resources. Viewed in combination with an associated publication
+        [link to profitability report], the tool offers greater insight into the scale of public subsidies supporting
+        the commercial publishing industry.
         """
     )
+
 
     st.title("The Cost of Knowledge Calculator")
     st.markdown(

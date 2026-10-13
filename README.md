@@ -41,9 +41,8 @@ Configuration is read from environment variables listed below. The database and
 | `ADMIN_OWNER_EMAIL`      | Recommended for admin   | Email address allowed to become the admin owner. Without it, the first account to log in becomes the owner.                                         |
 | `ANALYTICS_PASSWORD`     | Recommended             | Password for the analytics dashboard. Without it, anyone can view the dashboard. See [Analytics](#analytics).                                       |
 
-It is also suggested that the `STREAMLIT_BROWSER_GATHER_USAGE_STATS` environment variable or its
-[config.toml equivalent](https://docs.streamlit.io/develop/concepts/configuration/options) be set to "false" to prevent
-telemetry data being sent to Streamlit given the data collected.
+By default, the tool disables Streamlit analytics, so the `STREAMLIT_BROWSER_GATHER_USAGE_STATS` environment variable
+does not need to be set.
 
 With `sqlite`, the database is created at `data/cost_of_knowledge.db`.
 

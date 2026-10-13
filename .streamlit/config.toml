@@ -1,3 +1,7 @@
+# Turn off Streamlit analytics.
+[browser]
+gatherUsageStats = false
+
 # Light and dark themes built around the accent colour #f37d21.
 #
 # Every text/background pair meets WCAG AA (4.5:1 for text, 3:1 for widget borders):

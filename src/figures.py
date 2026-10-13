@@ -909,7 +909,7 @@ def create_social_media_image_alt_text(
 
 @st.cache_data(show_spinner=False)
 def social_media_svg_to_png(svg: str) -> bytes:
-    """Rasterises the social-media card for platforms that do not accept SVG uploads (e.g. LinkedIn, X, Facebook).
+    """Rasterises the social-media card for platforms that do not accept SVG uploads (e.g. LinkedIn, Bluesky, Facebook).
 
     Cached on the SVG markup, so the card is only re-rendered when its content changes.
     """

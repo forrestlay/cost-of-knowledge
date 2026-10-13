@@ -1381,7 +1381,9 @@ def share_summary(total_cost: float) -> str:
     """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
     return (
         f"I estimated that the public and institutional investment in my peer-reviewed journal article is "
-        f"{format_currency(total_cost)}."
+        f"{format_currency(total_cost)}. "
+        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
+        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
     )
 
 
@@ -1406,8 +1408,8 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
 def share_footer() -> str:
     """Footer text for the social media and email post."""
     return (
-        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
-        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        "How much does academic publishing earn? See the report at "
+        "."
     )
 
 
@@ -1419,11 +1421,14 @@ def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
-def x_share_url(total_cost: float, saved_url: str | None) -> str:
-    """Builds a link that opens X's post composer pre-filled with a summary of the estimate and a link to share."""
+def bluesky_share_url(total_cost: float, saved_url: str | None) -> str:
+    """Builds a link that opens Bluesky's post composer pre-filled with a summary of the estimate and a link to share.
+
+    Bluesky's compose intent only accepts text, so the link is included in the text, where Bluesky detects it.
+    """
     url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)} {call_to_action}:"
-    return f"https://x.com/intent/post?text={quote(text)}&url={quote(url, safe='')}"
+    text: str = f"{share_summary(total_cost)} {call_to_action}: {url}"
+    return f"https://bsky.app/intent/compose?text={quote(text)}"
 
 
 def facebook_share_url(saved_url: str | None) -> str:
@@ -1634,10 +1639,14 @@ with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE)
 
         This tool enables faculty to quantify the public and institutional investment that underpins their work
         (primarily in the form of their own labor) using a costing model described in this
-        [companion publication](https://doi.org/10.5281/zenodo.23030223). Through this quantification, this tool
-        makes visible the resources that sustain scholarly publishing and who contributes those resources.
+        [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
+        publisher's investment. Through this quantification, this tool makes visible the resources that sustain
+        scholarly publishing and who contributes those resources. Viewed in combination with an associated publication
+        [link to profitability report], the tool offers greater insight into the scale of public subsidies supporting
+        the commercial publishing industry.
         """
     )
+
 
     st.title("The Cost of Knowledge Calculator")
     st.markdown(
@@ -2400,7 +2409,7 @@ if st.session_state["show_results"] and not results_requirements:
         if saved_result_url is not None:
             share_intro += """ In addition, because you have saved your result, please use the "copy link" button
             to save a link to the result so you may return to it at a later time. This result link will also be
-            included in your LinkedIn, X, Facebook, or email message by default."""
+            included in your LinkedIn, Bluesky, Facebook, or email message by default."""
         else:
             share_intro += f""" If you would like to save your result to share an abbreviated version of the above
             graphs, please return to the "[Calculate the cost and share your results](#{CALCULATE_ANCHOR})" section
@@ -2481,10 +2490,10 @@ if st.session_state["show_results"] and not results_requirements:
                 help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
             )
             st.link_button(
-                "Share on X",
-                x_share_url(total_cost, saved_result_url),
+                "Share on Bluesky",
+                bluesky_share_url(total_cost, saved_result_url),
                 icon=":material/share:",
-                help="Share this tool on X. Download the image first and attach it to your post.",
+                help="Share this tool on Bluesky. Download the image first and attach it to your post.",
             )
             st.link_button(
                 "Share on Facebook",

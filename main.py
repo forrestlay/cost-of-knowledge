@@ -27,6 +27,7 @@ limitations under the License.
 
 import json
 import logging
+import os
 from contextlib import closing
 from inspect import cleandoc
 from pathlib import Path
@@ -35,6 +36,8 @@ from urllib.parse import quote, urlsplit
 
 import plotly.express as px
 import streamlit as st
+import streamlit_analytics2 as sa2
+from streamlit.errors import StreamlitSecretNotFoundError
 
 from src import database, reference_data, sql_store
 from src.calculator_state import (
@@ -183,6 +186,32 @@ ACTIVITY_DEFAULT_HOURS: dict[tuple[str, str], float] = {
 COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
     (cost["phase"], cost["name"]): float(cost["default_cost"]) for cost in _COSTS_DATA["direct_costs"]
 }
+
+
+# -----------------------------------------------
+# Analytics
+# -----------------------------------------------
+
+
+# Saved under data/ so that the Docker volume mounted there also persists the analytics events.
+ANALYTICS_FILE: Path = Path(__file__).parent / "data" / "analytics.db"
+
+
+def analytics_password() -> str | None:
+    """Password for the analytics dashboard, from the ANALYTICS_PASSWORD environment variable, falling back to
+    "analytics_password" in Streamlit secrets.
+
+    Returns None if neither is set, which leaves the dashboard without a password. An empty string must not be returned
+    instead, as streamlit_analytics2 would then accept an empty password input.
+    """
+    password: str | None = os.environ.get("ANALYTICS_PASSWORD")
+    if password:
+        return password
+    try:
+        secret: object = st.secrets.get("analytics_password")
+    except StreamlitSecretNotFoundError:
+        return None
+    return str(secret) if secret else None
 
 
 # -----------------------------------------------
@@ -1366,15 +1395,11 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
     if saved_url is None:
         return (
             COST_OF_KNOWLEDGE_URL,
-            (
-                "I invite you to estimate your own Cost of Knowledge"
-            ),
+            ("I invite you to estimate your own Cost of Knowledge"),
         )
     return (
         saved_url,
-        (
-            "I invite you to see my result and estimate your own Cost of Knowledge"
-        ),
+        ("I invite you to see my result and estimate your own Cost of Knowledge"),
     )
 
 
@@ -1548,7 +1573,6 @@ if "database_initialised" not in st.session_state:
 # Header
 # -----------------------------------------------
 
-
 with st.sidebar:
     st.subheader("Contents")
     # Anchor links cannot be st.page_link elements, so style them to look like page links.
@@ -1580,66 +1604,68 @@ with st.sidebar:
     st.divider()
     st.page_link(ABOUT_PAGE)
 
-
 toggletip_styles()
 
-# Highlight the introduction with the theme's orange (accent) background and a primary-coloured border.
-st.html(
-    f"""
-    <style>
-    .st-key-intro {{
-        background-color: {theme_color("orangeBackgroundColor", "#f6ede6", "#3f2d1f")};
-        border-color: {theme_color("primaryColor", "#a04b09", "#f37d21")} !important;
-    }}
-    .st-key-intro :is(p, li, span) {{
-        color: {theme_color("textColor", "#14110f", "#f5f1ee")};
-    }}
-    .st-key-intro a {{
-        color: {theme_color("linkColor", "#a04b09", "#f37d21")};
-    }}
-    </style>
-    """
-)
-st.container(border=True, key="intro").markdown(
-    """
-    Every journal article starts as public investment: researcher time, university resources, grant funding.
-    By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog post>.
+# Add privacy-focused analytics to the app
+with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
 
-    This tool enables faculty to quantify the public and institutional investment that underpins their work
-    (primarily in the form of their own labor) using a costing model described in this
-    [companion publication](https://doi.org/10.5281/zenodo.23030223). Through this quantification, this tool
-    makes visible the resources that sustain scholarly publishing and who contributes those resources.
-    """
-)
+    # Highlight the introduction with the theme's orange (accent) background and a primary-coloured border.
+    st.html(
+        f"""
+        <style>
+        .st-key-intro {{
+            background-color: {theme_color("orangeBackgroundColor", "#f6ede6", "#3f2d1f")};
+            border-color: {theme_color("primaryColor", "#a04b09", "#f37d21")} !important;
+        }}
+        .st-key-intro :is(p, li, span) {{
+            color: {theme_color("textColor", "#14110f", "#f5f1ee")};
+        }}
+        .st-key-intro a {{
+            color: {theme_color("linkColor", "#a04b09", "#f37d21")};
+        }}
+        </style>
+        """
+    )
+    st.container(border=True, key="intro").markdown(
+        """
+        Every journal article starts as public investment: researcher time, university resources, grant funding.
+        By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog
+        post>.
 
+        This tool enables faculty to quantify the public and institutional investment that underpins their work
+        (primarily in the form of their own labor) using a costing model described in this
+        [companion publication](https://doi.org/10.5281/zenodo.23030223). Through this quantification, this tool
+        makes visible the resources that sustain scholarly publishing and who contributes those resources.
+        """
+    )
 
-st.title("The Cost of Knowledge Calculator")
-st.markdown(
-    """
-    *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
-    again.*
+    st.title("The Cost of Knowledge Calculator")
+    st.markdown(
+        """
+        *The estimated time to complete this tool is 10-15 minutes. Reload the page to clear all inputs and start
+        again.*
 
-    This tool enables you to estimate the full costs involved in the process of preparing one of your refereed journal
-    articles, from ideation to acceptance by a journal (including the cost of academic labor and institutional
-    resources).
+        This tool enables you to estimate the full costs involved in the process of preparing one of your refereed
+        journal articles, from ideation to acceptance by a journal (including the cost of academic labor and
+        institutional resources).
 
-    **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
-    involved in preparing a refereed journal article. Prior literature has established that research provides
-    substantial economic and social returns{footnote_returns}, and with this tool we instead seek to draw attention
-    to the resources required for scholarly publishing.
-    """.replace(
-        "{footnote_returns}",
-        toggletip(
-            "<sup>1</sup>",
-            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
-            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
-            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
-            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
-            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
+        **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
+        involved in preparing a refereed journal article. Prior literature has established that research provides
+        substantial economic and social returns{footnote_returns}, and with this tool we instead seek to draw attention
+        to the resources required for scholarly publishing.
+        """.replace(
+            "{footnote_returns}",
+            toggletip(
+                "<sup>1</sup>",
+                "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
+                "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
+                "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
+                "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
+                "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
+            ),
         ),
-    ),
-    unsafe_allow_html=True,
-)
+        unsafe_allow_html=True,
+    )
 
 st.info(
     "If you are unsure what is meant by a question, click on this help icon to the right of "
@@ -1651,8 +1677,9 @@ with st.expander("About the data", expanded=False):
     st.markdown(
         """
         The hourly rates offered for each researcher role are median US rates including indirect costs,
-        derived from widely cited national salary surveys{footnote_surveys}. Where appropriate, these are converted to
-        your country's currency along with the direct costs. You can replace any rate or cost with your own figure.
+        derived from widely cited national salary surveys{footnote_surveys}. Where appropriate, these are converted
+        to your country's currency along with the direct costs. You can replace any rate or cost with your own
+        figure.
         """.replace(
             "{footnote_surveys}",
             toggletip(
@@ -1667,7 +1694,6 @@ with st.expander("About the data", expanded=False):
         ),
         unsafe_allow_html=True,
     )
-
 
 # -----------------------------------------------
 # User and Project
@@ -1699,8 +1725,8 @@ with st.container(border=True):
         index=int(st.session_state["international_collaborators"]),
         format_func=lambda answer: "Yes" if answer else "No",
         horizontal=True,
-        help="This will be reflected on a summary infographic generated by this tool. This has no effect on the cost "
-        "calculation.",
+        help="This will be reflected on a summary infographic generated by this tool. This has no effect on the "
+        "cost calculation.",
     )
     # Options are 4-digit Field of Research codes. Keep a broad field name from a project saved before codes were
     # used selectable, so loading it does not fail.
@@ -1712,11 +1738,13 @@ with st.container(border=True):
         st.selectbox(
             "Field of research your paper/project is located in",
             field_options,
-            index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
+            index=field_options.index(st.session_state["project_field"])
+            if st.session_state["project_field"]
+            else None,
             placeholder="Type in the box to search for a field of research.",
             format_func=field_of_research_display_name,
-            help="Type in the box to search for a field of research. This will be reflected on a summary infographic "
-            "generated by this tool. This has no effect on the cost calculation.",
+            help="Type in the box to search for a field of research. This will be reflected on a summary "
+            "infographic generated by this tool. This has no effect on the cost calculation.",
         )
         or ""
     )
@@ -1737,8 +1765,8 @@ st.markdown(
         toggletip(
             "<sup>3</sup>",
             """Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). Indirect Cost Recovery in US Innovation
-            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the Economy,
-            5, 133–182. https://doi.org/10.1086/738903""",
+            Policy: History, Evidence, and Avenues for Reform. Entrepreneurship and Innovation Policy and the
+            Economy, 5, 133–182. https://doi.org/10.1086/738903""",
         ),
     ),
     unsafe_allow_html=True,
@@ -1767,8 +1795,8 @@ st.slider(
 st.space()
 st.header(":material/groups: People Involved in the Journal Article Preparation Process", anchor=PEOPLE_ANCHOR)
 st.markdown("""
-            Please identify the people involved in preparing the refereed journal article, from ideation to manuscript
-            preparation. Begin with the primary investigator, if any.
+            Please identify the people involved in preparing the refereed journal article, from ideation to
+            manuscript preparation. Begin with the primary investigator, if any.
             """)
 
 with st.container(border=True):
@@ -1829,8 +1857,8 @@ st.space()
 st.header(":material/request_quote: Calculator", anchor=CALCULATOR_ANCHOR)
 
 # Loading a state writes the radio's value into its widget state, so seed it here rather than passing index=, which
-# would raise Streamlit's default-value-and-Session-State warning. Streamlit also drops the widget's state when it is
-# not rendered in a run (e.g. on another page).
+# would raise Streamlit's default-value-and-Session-State warning. Streamlit also drops the widget's state when it
+# is not rendered in a run (e.g. on another page).
 if "calculator-mode" not in st.session_state:
     st.session_state["calculator-mode"] = st.session_state["calculator_mode"]
 st.session_state["calculator_mode"] = st.radio(
@@ -1878,8 +1906,8 @@ st.markdown(
         "{footnote_alam}",
         toggletip(
             "<sup>4</sup>",
-            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge. Preprint
-            available on Zenodo.""",
+            """For more details about these estimates, see Alam et al. (2026, pp. 14-5) The Cost of Knowledge.
+            Preprint available on Zenodo.""",
             key="footnote-4",
         ),
     ).replace(
@@ -1887,11 +1915,11 @@ st.markdown(
         toggletip(
             "direct costs",
             """Direct costs are costs that are directly
-            associated with the preparation of the refereed journal article. This would include incentives provided to
-            participants, databases and software acquired for the data collection and analysis phase by the study team,
-            and the costs of hiring proofreaders/editors. You should not include indirect costs, such as administrative
-            costs, infrastructure costs such as laboratories and equipment that are used across multiple research
-            projects or teams, and library journal subscriptions.
+            associated with the preparation of the refereed journal article. This would include incentives provided
+            to participants, databases and software acquired for the data collection and analysis phase by the
+            study team, and the costs of hiring proofreaders/editors. You should not include indirect costs,
+            such as administrative costs, infrastructure costs such as laboratories and equipment that are used
+            across multiple research projects or teams, and library journal subscriptions.
             """,
         ),
     ),
@@ -1918,7 +1946,9 @@ if st.session_state["calculator_mode"] == "simplified":
             icon=":material/delete_sweep:",
             on_click=clear_simplified_estimates,
             disabled=not st.session_state["people"],
-            help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
+            help=None
+            if st.session_state["people"]
+            else "Add a researcher before adding activities and direct costs.",
         )
 if st.session_state["calculator_mode"] == "detailed":
     with st.container(horizontal=True, horizontal_alignment="left"):
@@ -1943,8 +1973,9 @@ if st.session_state["calculator_mode"] == "detailed":
             help=None if has_items else "There are no activities or direct costs to remove.",
         ):
             confirm_reset()
-    # Keeps the add form in view while the list of phases scrolls. Sticky positioning only works if the form's column
-    # stretches to the height of the list, and is only applied when the columns sit side by side (wide screens).
+    # Keeps the add form in view while the list of phases scrolls. Sticky positioning only works if the form's
+    # column stretches to the height of the list, and is only applied when the columns sit side by side
+    # (wide screens).
     st.html(
         f"""
         <style>
@@ -2023,10 +2054,11 @@ with st.container(border=True):
         max_value=20,
         step=1,
         key="peer-reviewers",
-        help="""The average number of peer reviewers who reviewed the manuscript at each journal it was submitted to.
-        It is estimated that the first round of review involves 4 hours of work by a peer reviewer, with subsequent
-        rounds involving 2 hours each. The median hourly rate for an associate professor in the US is used to calculate
-        the cost of this labor, with a 40% indirect cost rate (see Alam et al., 2026, pp. 11-3) for details).""",
+        help="""The average number of peer reviewers who reviewed the manuscript at each journal it was submitted
+        to. It is estimated that the first round of review involves 4 hours of work by a peer reviewer, with
+        subsequent rounds involving 2 hours each. The median hourly rate for an associate professor in the US is
+        used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al., 2026, pp. 11-3)
+        for details).""",
     )
     st.session_state["peer_review_activity"].peer_reviewers = st.session_state["peer_reviewers"]
 
@@ -2039,8 +2071,8 @@ with st.container(border=True):
         help="""The average number of peer review rounds (i.e. the initial submission plus revise and resubmits)
         across all journal submissions. It is estimated that the first round of review involves 4 hours of work by a
         peer reviewer, with subsequent rounds involving 2 hours each. The median hourly rate for an associate
-        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et al.,
-        2026, pp. 11-3) for details).""",
+        professor in the US is used to calculate the cost of this labor, with a 40% indirect cost rate (see Alam et
+        al., 2026, pp. 11-3) for details).""",
     )
     st.session_state["peer_review_activity"].review_rounds = st.session_state["review_rounds"]
 
@@ -2049,16 +2081,16 @@ st.subheader("Publisher Investment (optional)")
 st.markdown(
     cleandoc(
         """
-        Now that you've calculated the costs from ideation to acceptance, what do you think it costs the publisher to
-        go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
-        journal article for a full service journal publisher with in-house staff that relies on volunteer editors and
-        peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs, 2021,
-        p. 6).{footnote_grossmann}
+        Now that you've calculated the costs from ideation to acceptance, what do you think it costs the publisher
+        to go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
+        journal article for a full service journal publisher with in-house staff that relies on volunteer editors
+        and peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs,
+        2021, p. 6).{footnote_grossmann}
 
-        **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is strictly
-        required of a publisher to disseminate an article), while price is driven by what individuals are willing to
-        pay for a publication. Based on the profitability of the largest publishers <link to profitability report>,
-        using an APC price is likely to significantly overstate necessary costs.**
+        **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is
+        strictly required of a publisher to disseminate an article), while price is driven by what individuals are
+        willing to pay for a publication. Based on the profitability of the largest publishers <link to
+        profitability report>, using an APC price is likely to significantly overstate necessary costs.**
 
         Publishing cost is not included in the total cost calculated by this tool, as these costs represent a
         publisher's investment in the work rather than investment from researchers, the public, or institutions.
@@ -2114,13 +2146,13 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for further details about how your data will
         be handled.
 
-        Saving your result will also allow you to share an abbreviated version of the results that will be shown below
-        with other people. To protect user privacy, the abbreviated version will not display details of the hours of
-        labor performed by each researcher.
+        Saving your result will also allow you to share an abbreviated version of the results that will be shown
+        below with other people. To protect user privacy, the abbreviated version will not display details of the
+        hours of labor performed by each researcher.
 
         If you continue without saving your result, please download the generated infographic below to keep a record
-        of the total cost you have calculated. Reloading this page will reset all information entered and you will have
-        to re-enter your data to view the results.
+        of the total cost you have calculated. Reloading this page will reset all information entered and you will
+        have to re-enter your data to view the results.
         """
     )
     st.container(border=True).toggle(
@@ -2158,329 +2190,316 @@ if st.session_state.get("database_sync_pending", False) and not results_requirem
     sync_database()
 
 # Nothing below the button, apart from the footer, is shown until the cost has been calculated and every requirement
-# is met.
-if not st.session_state["show_results"] or results_requirements:
-    show_footer()
-    st.stop()
+# is met. This is not done with st.stop(), as that would skip the end of the analytics tracking block above, which
+# stores the run's events and shows the analytics dashboard.
+if st.session_state["show_results"] and not results_requirements:
+    # Visualisation pane
 
+    # Calculate total costs and total hours.
+    current_state: CalculatorState = CalculatorState.from_session_state(st.session_state)
+    # Only the activities and direct costs of the chosen calculator mode count towards the results.
+    results_activities: list[BaseActivity] = current_state.effective_activities()
+    results_direct_costs: list[DirectCost] = current_state.effective_direct_costs()
+    combined_costs_list: list[Cost] = [*results_activities, *results_direct_costs]  # ty:ignore[invalid-assignment]
+    total_cost: float = compute_costs(combined_costs_list)
+    total_hours: float = compute_hours(results_activities)
 
-# Visualisation pane
+    # Colour maps shared by the charts below. Derived fresh each run (rather than persisted)
+    # so newly added activities always get a colour; phases always take the same colours and
+    # activity/direct-cost names keep a consistent colour wherever they appear.
+    phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
+    item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
+    person_color_map: dict[str, str] = build_color_map(
+        [activity.get_person().label for activity in results_activities]
+    )
 
+    st.space()
+    st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
 
-# Calculate total costs and total hours.
-current_state: CalculatorState = CalculatorState.from_session_state(st.session_state)
-# Only the activities and direct costs of the chosen calculator mode count towards the results.
-results_activities: list[BaseActivity] = current_state.effective_activities()
-results_direct_costs: list[DirectCost] = current_state.effective_direct_costs()
-combined_costs_list: list[Cost] = [*results_activities, *results_direct_costs]  # ty:ignore[invalid-assignment]
-total_cost: float = compute_costs(combined_costs_list)
-total_hours: float = compute_hours(results_activities)
-
-
-# Colour maps shared by the charts below. Derived fresh each run (rather than persisted)
-# so newly added activities always get a colour; phases always take the same colours and
-# activity/direct-cost names keep a consistent colour wherever they appear.
-phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
-item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
-person_color_map: dict[str, str] = build_color_map([activity.get_person().label for activity in results_activities])
-
-
-st.space()
-st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
-
-
-# Scrolls to the header above once after a button that finishes the calculator is clicked. The flag is removed so later
-# reruns do not scroll. Streamlit has no scrolling API, so this uses JavaScript.
-if st.session_state.pop("scroll_to_results", False):
-    st.html(
-        f"""
-        <script>
-            {{
-                const resultsHeader = document.getElementById("{RESULTS_HEADER_ANCHOR}");
-                if (resultsHeader) {{
-                    resultsHeader.scrollIntoView({{ block: "start" }});
+    # Scrolls to the header above once after a button that finishes the calculator is clicked. The flag is removed
+    # so later reruns do not scroll. Streamlit has no scrolling API, so this uses JavaScript.
+    if st.session_state.pop("scroll_to_results", False):
+        st.html(
+            f"""
+            <script>
+                {{
+                    const resultsHeader = document.getElementById("{RESULTS_HEADER_ANCHOR}");
+                    if (resultsHeader) {{
+                        resultsHeader.scrollIntoView({{ block: "start" }});
+                    }}
                 }}
-            }}
-        </script>
-        """,
-        unsafe_allow_javascript=True,
-    )
-
-
-k1, k2, k3 = st.columns(3)
-k1.metric("Estimated total cost from ideation to acceptance", format_currency(total_cost))
-k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
-k3.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs)))
-
-
-# Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the plot, or
-# the narrow version (for phones) with its legend listed beneath the plot.
-st.html(
-    """
-    <style>
-        @media (max-width: 640px) {
-            [class*="st-key-wide-chart-"] { display: none; }
-        }
-        @media (min-width: 641px) {
-            [class*="st-key-narrow-chart-"] { display: none; }
-        }
-    </style>
-    """
-)
-
-
-# Costs pie chart
-st.subheader("Total cost breakdown")
-
-
-costs_chart_selection = st.pills(
-    "**Show cost breakdown for**",
-    ["phases", "activities and direct costs"],
-    default="phases",
-)
-costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
-
-
-costs_df = costs_dataframe(combined_costs_list)
-costs_pie_alt_text: str = costs_pie_chart_alt_text(costs_df, costs_pie_names, format_currency)
-
-
-with st.container(key="wide-chart-costs-pie"):
-    st.plotly_chart(
-        costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=True),
-        width="stretch",
-        alt=costs_pie_alt_text,
-    )
-with st.container(key="narrow-chart-costs-pie"):
-    st.plotly_chart(
-        costs_pie_chart(
-            costs_df,
-            costs_pie_names,
-            phase_color_map,
-            item_color_map,
-            legend_below=True,
-            hatching=True,
-        ),
-        width="stretch",
-        alt=costs_pie_alt_text,
-    )
-costs_pie_caption: str = "Breakdown of where the public and institutional investment in the journal article goes."
-if st.session_state["include_publishing_costs"]:
-    costs_pie_caption += (
-        f" Publishing costs of {format_currency(st.session_state['publishing_costs'])} are not included."
-    )
-st.caption(costs_pie_caption)
-
-
-# Labour cost bar chart
-st.subheader("Labor activity breakdown")
-
-
-labour_df = labour_dataframe(results_activities)
-
-
-# The sunburst breaks costs down by activity, so it is only shown for the detailed calculator.
-if st.session_state["calculator_mode"] == "detailed":
-    st.markdown("""
-                Click on the phases and people in the charts below to see the breakdown of costs within each. Click on
-                the phase or person again to return to the parent view.
-                """)
-    sunburst_alt_text: str = labour_sunburst_chart_alt_text(labour_df, total_cost, format_currency)
-    with st.container(key="wide-chart-sunburst"):
-        st.plotly_chart(
-            labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(), hatching=True),
-            width="stretch",
-            alt=sunburst_alt_text,
+            </script>
+            """,
+            unsafe_allow_javascript=True,
         )
-    with st.container(key="narrow-chart-sunburst"):
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Estimated total cost from ideation to acceptance", format_currency(total_cost))
+    k2.metric("Estimated labor hours", f"{total_hours:.0f} h")
+    k3.metric("Estimated direct costs", format_currency(compute_costs(results_direct_costs)))
+
+    # Each chart is drawn twice, and CSS media queries show only one: the wide version with its legend beside the
+    # plot, or the narrow version (for phones) with its legend listed beneath the plot.
+    st.html(
+        """
+        <style>
+            @media (max-width: 640px) {
+                [class*="st-key-wide-chart-"] { display: none; }
+            }
+            @media (min-width: 641px) {
+                [class*="st-key-narrow-chart-"] { display: none; }
+            }
+        </style>
+        """
+    )
+
+    # Costs pie chart
+    st.subheader("Total cost breakdown")
+
+    costs_chart_selection = st.pills(
+        "**Show cost breakdown for**",
+        ["phases", "activities and direct costs"],
+        default="phases",
+    )
+    costs_pie_names: Literal["Phase", "Item"] = "Phase" if costs_chart_selection == "phases" else "Item"
+
+    costs_df = costs_dataframe(combined_costs_list)
+    costs_pie_alt_text: str = costs_pie_chart_alt_text(costs_df, costs_pie_names, format_currency)
+
+    with st.container(key="wide-chart-costs-pie"):
         st.plotly_chart(
-            labour_sunburst_chart(
-                labour_df,
+            costs_pie_chart(costs_df, costs_pie_names, phase_color_map, item_color_map, hatching=True),
+            width="stretch",
+            alt=costs_pie_alt_text,
+        )
+    with st.container(key="narrow-chart-costs-pie"):
+        st.plotly_chart(
+            costs_pie_chart(
+                costs_df,
+                costs_pie_names,
                 phase_color_map,
-                total_cost,
-                currency_code(),
+                item_color_map,
                 legend_below=True,
                 hatching=True,
             ),
             width="stretch",
-            alt=sunburst_alt_text,
+            alt=costs_pie_alt_text,
         )
-    st.caption(
-        "Percentages are calculated as a percentage of the total cost of the "
-        "paper, including direct costs that are not shown in this chart."
+    costs_pie_caption: str = (
+        "Breakdown of where the public and institutional investment in the journal article goes."
+    )
+    if st.session_state["include_publishing_costs"]:
+        costs_pie_caption += (
+            f" Publishing costs of {format_currency(st.session_state['publishing_costs'])} are not included."
+        )
+    st.caption(costs_pie_caption)
+
+    # Labour cost bar chart
+    st.subheader("Labor activity breakdown")
+
+    labour_df = labour_dataframe(results_activities)
+
+    # The sunburst breaks costs down by activity, so it is only shown for the detailed calculator.
+    if st.session_state["calculator_mode"] == "detailed":
+        st.markdown("""
+                    Click on the phases and people in the charts below to see the breakdown of costs within each.
+                    Click on the phase or person again to return to the parent view.
+                    """)
+        sunburst_alt_text: str = labour_sunburst_chart_alt_text(labour_df, total_cost, format_currency)
+        with st.container(key="wide-chart-sunburst"):
+            st.plotly_chart(
+                labour_sunburst_chart(labour_df, phase_color_map, total_cost, currency_code(), hatching=True),
+                width="stretch",
+                alt=sunburst_alt_text,
+            )
+        with st.container(key="narrow-chart-sunburst"):
+            st.plotly_chart(
+                labour_sunburst_chart(
+                    labour_df,
+                    phase_color_map,
+                    total_cost,
+                    currency_code(),
+                    legend_below=True,
+                    hatching=True,
+                ),
+                width="stretch",
+                alt=sunburst_alt_text,
+            )
+        st.caption(
+            "Percentages are calculated as a percentage of the total cost of the "
+            "paper, including direct costs that are not shown in this chart."
+        )
+
+    # Hours of labour per person bar chart
+    hours_per_person_df = (
+        labour_df.groupby("Person", as_index=False)["Hours"].sum().sort_values("Hours", ascending=False)
     )
 
+    hours_per_person_chart = px.bar(
+        hours_per_person_df,
+        x="Person",
+        y="Hours",
+        color="Person",
+        color_discrete_map=person_color_map,
+        title="Hours of Labor per Person",
+        text_auto=True,
+    )
+    hours_per_person_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
+    hours_per_person_chart.update_layout(showlegend=False)
+    st.plotly_chart(
+        hours_per_person_chart, width="stretch", alt=hours_per_person_chart_alt_text(hours_per_person_df)
+    )
 
-# Hours of labour per person bar chart
-hours_per_person_df = labour_df.groupby("Person", as_index=False)["Hours"].sum().sort_values("Hours", ascending=False)
+    labour_chart_selection = st.pills(
+        "**Show labor as**",
+        ["Cost", "Hours"],
+        default="Cost",
+        format_func=lambda option: f"Cost ({currency_code()})" if option == "Cost" else option,
+    )
 
+    labour_bar_measure: str = labour_chart_selection or "Cost"
+    labour_bar_title: str = "Cost of and Time Spent on Labor Activities"
+    labour_bar_alt_text: str = labour_bar_chart_alt_text(
+        labour_df, labour_bar_measure, labour_bar_title, format_currency
+    )
+    for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart-labour-bar", True)):
+        with st.container(key=chart_key):
+            st.plotly_chart(
+                labour_bar_chart(
+                    labour_df,
+                    labour_bar_measure,
+                    labour_bar_title,
+                    phase_color_map,
+                    currency_code(),
+                    currency_prefix(),
+                    legend_below=legend_below,
+                    hatching=True,
+                ),
+                width="stretch",
+                alt=labour_bar_alt_text,
+            )
 
-hours_per_person_chart = px.bar(
-    hours_per_person_df,
-    x="Person",
-    y="Hours",
-    color="Person",
-    color_discrete_map=person_color_map,
-    title="Hours of Labor per Person",
-    text_auto=True,
-)
-hours_per_person_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
-hours_per_person_chart.update_layout(showlegend=False)
-st.plotly_chart(hours_per_person_chart, width="stretch", alt=hours_per_person_chart_alt_text(hours_per_person_df))
+    # -----------------------------------------------
+    # Conclusion
+    # -----------------------------------------------
 
+    st.header(":material/share: Share your result", anchor=SHARE_ANCHOR)
 
-labour_chart_selection = st.pills(
-    "**Show labor as**",
-    ["Cost", "Hours"],
-    default="Cost",
-    format_func=lambda option: f"Cost ({currency_code()})" if option == "Cost" else option,
-)
+    # Link to the saved result, which the share buttons use in place of the tool's link once the result is saved.
+    # Saving happens above in the setup pane, so the buttons update in the same run as the save.
+    saved_result_url: str | None = (
+        saved_project_url(st.session_state["database_public_id"])
+        if st.session_state.get("database_public_id") is not None
+        else None
+    )
 
+    share_left, share_right = st.columns(2)
 
-labour_bar_measure: str = labour_chart_selection or "Cost"
-labour_bar_title: str = "Cost of and Time Spent on Labor Activities"
-labour_bar_alt_text: str = labour_bar_chart_alt_text(labour_df, labour_bar_measure, labour_bar_title, format_currency)
-for chart_key, legend_below in (("wide-chart-labour-bar", False), ("narrow-chart-labour-bar", True)):
-    with st.container(key=chart_key):
-        st.plotly_chart(
-            labour_bar_chart(
-                labour_df,
-                labour_bar_measure,
-                labour_bar_title,
-                phase_color_map,
-                currency_code(),
-                currency_prefix(),
-                legend_below=legend_below,
-                hatching=True,
+    with share_left:
+        share_intro: str = "Download your summary infographic and share it using the buttons below."
+        if saved_result_url is not None:
+            share_intro += """ In addition, because you have saved your result, please use the "copy link" button
+            to save a link to the result so you may return to it at a later time. This result link will also be
+            included in your LinkedIn, X, Facebook, or email message by default."""
+        else:
+            share_intro += f""" If you would like to save your result to share an abbreviated version of the above
+            graphs, please return to the "[Calculate the cost and share your results](#{CALCULATE_ANCHOR})" section
+            and opt-in to save your result."""
+        st.markdown(share_intro)
+
+        # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as
+        # the save.
+        if saved_result_url is not None:
+            with st.container(horizontal=True, vertical_alignment="bottom"):
+                st.text_input(
+                    "Link to saved result",
+                    placeholder=saved_result_url,
+                    disabled=True,
+                    label_visibility="collapsed",
+                    key="saved-result-url-display",
+                )
+                st.link_button(
+                    "",
+                    saved_result_url,
+                    icon=":material/open_in_new:",
+                    help="Open your shareable result in new tab",
+                )
+                copy_link_button(
+                    "Copy link to saved result",
+                    saved_result_url,
+                    copied_label="Link copied",
+                    help="Copy a link to your saved result to share it, or to return to it later.",
+                    key="copy-saved-project-link",
+                )
+
+        # Rendered fresh each run from the (persisted) project inputs and computed totals,
+        # so it never needs its own st.session_state entry. The alt text is built from the same content as the card.
+        social_media_card: dict[str, Any] = {
+            "country": COUNTRY_NAMES.get(st.session_state["user_country"], ""),
+            "international_collaborators": st.session_state["international_collaborators"],
+            # Only the group name, as the division name would be too long for the card. Projects saved before Field
+            # of Research codes were used hold a broad field name instead.
+            "project_field": (
+                FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
+                if st.session_state["project_field"] in FIELDS_OF_RESEARCH
+                else st.session_state["project_field"]
             ),
-            width="stretch",
-            alt=labour_bar_alt_text,
-        )
+            # Only the people the user added, not the peer reviewer or journal editor.
+            "researchers": sum(person.quantity for person in st.session_state["people"].values()),
+            "total_cost": total_cost,
+            # Publishing is a publisher-borne cost, shown separately for comparison rather than in the breakdown.
+            "phase_costs": {
+                label: compute_costs(combined_costs_list, phase=key)
+                for key, label in RESEARCH_PHASES.items()
+                if key != "publishing"
+            },
+            "publishing_costs": (
+                st.session_state["publishing_costs"] if st.session_state["include_publishing_costs"] else 0.0
+            ),
+            "format_currency": format_currency,
+            "version": COST_OF_KNOWLEDGE_VERSION,
+        }
+        social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()
+        social_media_alt_text: str = create_social_media_image_alt_text(**social_media_card)
 
+        with st.container(border=True):
+            include_publishing_costs_toggle("include-publishing-costs-share")
 
-# -----------------------------------------------
-# Conclusion
-# -----------------------------------------------
-
-
-st.header(":material/share: Share your result", anchor=SHARE_ANCHOR)
-
-# Link to the saved result, which the share buttons use in place of the tool's link once the result is saved. Saving
-# happens above in the setup pane, so the buttons update in the same run as the save.
-saved_result_url: str | None = (
-    saved_project_url(st.session_state["database_public_id"])
-    if st.session_state.get("database_public_id") is not None
-    else None
-)
-
-share_left, share_right = st.columns(2)
-
-with share_left:
-    share_intro: str = "Download your summary infographic and share it using the buttons below."
-    if saved_result_url is not None:
-        share_intro += """ In addition, because you have saved your result, please use the "copy link" button to save a
-        link to the result so you may return to it at a later time. This result link will also be included in your
-        LinkedIn, X, Facebook, or email message by default."""
-    else:
-        share_intro += f""" If you would like to save your result to share an abbreviated version of the above graphs,
-        please return to the "[Calculate the cost and share your results](#{CALCULATE_ANCHOR})" section and opt-in to
-        save your result."""
-    st.markdown(share_intro)
-
-    # Shown once the result is saved, which happens above in the setup pane, so it appears in the same run as the
-    # save.
-    if saved_result_url is not None:
-        with st.container(horizontal=True, vertical_alignment="bottom"):
-            st.text_input(
-                "Link to saved result",
-                placeholder=saved_result_url,
-                disabled=True,
-                label_visibility="collapsed",
-                key="saved-result-url-display",
+        with st.container(horizontal=True, horizontal_alignment="left"):
+            st.download_button(
+                "Download your summary infographic image",
+                data=social_media_svg_to_png(social_media_svg),
+                file_name="cost-of-knowledge-estimate.png",
+                mime="image/png",
+                icon=":material/image:",
+                type="primary",
             )
             st.link_button(
-                "",
-                saved_result_url,
-                icon=":material/open_in_new:",
-                help="Open your shareable result in new tab",
+                "Share on LinkedIn",
+                linkedin_share_url(total_cost, saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
             )
-            copy_link_button(
-                "Copy link to saved result",
-                saved_result_url,
-                copied_label="Link copied",
-                help="Copy a link to your saved result to share it, or to return to it later.",
-                key="copy-saved-project-link",
+            st.link_button(
+                "Share on X",
+                x_share_url(total_cost, saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on X. Download the image first and attach it to your post.",
             )
-
-    # Rendered fresh each run from the (persisted) project inputs and computed totals,
-    # so it never needs its own st.session_state entry. The alt text is built from the same content as the card.
-    social_media_card: dict[str, Any] = {
-        "country": COUNTRY_NAMES.get(st.session_state["user_country"], ""),
-        "international_collaborators": st.session_state["international_collaborators"],
-        # Only the group name, as the division name would be too long for the card. Projects saved before Field of
-        # Research codes were used hold a broad field name instead.
-        "project_field": (
-            FIELDS_OF_RESEARCH[st.session_state["project_field"]].name
-            if st.session_state["project_field"] in FIELDS_OF_RESEARCH
-            else st.session_state["project_field"]
-        ),
-        # Only the people the user added, not the peer reviewer or journal editor.
-        "researchers": sum(person.quantity for person in st.session_state["people"].values()),
-        "total_cost": total_cost,
-        # Publishing is a publisher-borne cost, shown separately for comparison rather than in the breakdown.
-        "phase_costs": {
-            label: compute_costs(combined_costs_list, phase=key)
-            for key, label in RESEARCH_PHASES.items()
-            if key != "publishing"
-        },
-        "publishing_costs": (
-            st.session_state["publishing_costs"] if st.session_state["include_publishing_costs"] else 0.0
-        ),
-        "format_currency": format_currency,
-        "version": COST_OF_KNOWLEDGE_VERSION,
-    }
-    social_media_svg: str = create_social_media_svg(**social_media_card).as_svg()
-    social_media_alt_text: str = create_social_media_image_alt_text(**social_media_card)
-
-    with st.container(border=True):
-        include_publishing_costs_toggle("include-publishing-costs-share")
-
-    with st.container(horizontal=True, horizontal_alignment="left"):
-        st.download_button(
-            "Download your summary infographic image",
-            data=social_media_svg_to_png(social_media_svg),
-            file_name="cost-of-knowledge-estimate.png",
-            mime="image/png",
-            icon=":material/image:",
-            type="primary",
-        )
-        st.link_button(
-            "Share on LinkedIn",
-            linkedin_share_url(total_cost, saved_result_url),
-            icon=":material/share:",
-            help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-        )
-        st.link_button(
-            "Share on X",
-            x_share_url(total_cost, saved_result_url),
-            icon=":material/share:",
-            help="Share this tool on X. Download the image first and attach it to your post.",
-        )
-        st.link_button(
-            "Share on Facebook",
-            facebook_share_url(saved_result_url),
-            icon=":material/share:",
-            help="Share this tool on Facebook. Download the image first and attach it to your post.",
-        )
-        st.link_button(
-            "Share via email",
-            email_share_url(total_cost, saved_result_url),
-            icon=":material/email:",
-            help="Share this tool via email. Download the image first and attach it to your email.",
-        )
-share_right.container(horizontal=True, horizontal_alignment="center").image(
-    social_media_svg, width=540, alt=social_media_alt_text
-)
-
+            st.link_button(
+                "Share on Facebook",
+                facebook_share_url(saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on Facebook. Download the image first and attach it to your post.",
+            )
+            st.link_button(
+                "Share via email",
+                email_share_url(total_cost, saved_result_url),
+                icon=":material/email:",
+                help="Share this tool via email. Download the image first and attach it to your email.",
+            )
+    share_right.container(horizontal=True, horizontal_alignment="center").image(
+        social_media_svg, width=540, alt=social_media_alt_text
+    )
 
 show_footer()

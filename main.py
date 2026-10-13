@@ -2461,38 +2461,39 @@ if st.session_state["show_results"] and not results_requirements:
             include_publishing_costs_toggle("include-publishing-costs-share")
 
         with st.container(horizontal=True, horizontal_alignment="left"):
-            st.download_button(
-                "Download your summary infographic image",
-                data=social_media_svg_to_png(social_media_svg),
-                file_name="cost-of-knowledge-estimate.png",
-                mime="image/png",
-                icon=":material/image:",
-                type="primary",
-            )
-            st.link_button(
-                "Share on LinkedIn",
-                linkedin_share_url(total_cost, saved_result_url),
-                icon=":material/share:",
-                help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-            )
-            st.link_button(
-                "Share on Bluesky",
-                bluesky_share_url(total_cost, saved_result_url),
-                icon=":material/share:",
-                help="Share this tool on Bluesky. Download the image first and attach it to your post.",
-            )
-            st.link_button(
-                "Share on Facebook",
-                facebook_share_url(saved_result_url),
-                icon=":material/share:",
-                help="Share this tool on Facebook. Download the image first and attach it to your post.",
-            )
-            st.link_button(
-                "Share via email",
-                email_share_url(total_cost, saved_result_url),
-                icon=":material/email:",
-                help="Share this tool via email. Download the image first and attach it to your email.",
-            )
+            with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+                st.download_button(
+                    "Download your summary infographic image",
+                    data=social_media_svg_to_png(social_media_svg),
+                    file_name="cost-of-knowledge-estimate.png",
+                    mime="image/png",
+                    icon=":material/image:",
+                    type="primary",
+                )
+                st.link_button(
+                    "Share on LinkedIn",
+                    linkedin_share_url(total_cost, saved_result_url),
+                    icon=":material/share:",
+                    help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
+                )
+                st.link_button(
+                    "Share on Bluesky",
+                    bluesky_share_url(total_cost, saved_result_url),
+                    icon=":material/share:",
+                    help="Share this tool on Bluesky. Download the image first and attach it to your post.",
+                )
+                st.link_button(
+                    "Share on Facebook",
+                    facebook_share_url(saved_result_url),
+                    icon=":material/share:",
+                    help="Share this tool on Facebook. Download the image first and attach it to your post.",
+                )
+                st.link_button(
+                    "Share via email",
+                    email_share_url(total_cost, saved_result_url),
+                    icon=":material/email:",
+                    help="Share this tool via email. Download the image first and attach it to your email.",
+                )
     share_right.container(horizontal=True, horizontal_alignment="center").image(
         social_media_svg, width=540, alt=social_media_alt_text
     )

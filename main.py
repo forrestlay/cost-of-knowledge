@@ -789,7 +789,8 @@ def save_item(key: str, item_kind: str | None = None, item_id: int | None = None
     if not name:
         st.toast(f"Choose or enter a name for the {ITEM_KINDS[kind].lower()} first.", icon=":material/error:")
         return
-    name = name.strip()[: sql_store.MAX_TEXT_LENGTH]
+    # Escaped so that a custom name cannot show as HTML, such as a link, in the Plotly charts.
+    name = sql_store.escape_name(name.strip(), sql_store.MAX_TEXT_LENGTH)
 
     # Adding an item that is already in the list overwrites it.
     overwriting: bool = False
@@ -1407,10 +1408,7 @@ def share_link(saved_url: str | None) -> tuple[str, str]:
 
 def share_footer() -> str:
     """Footer text for the social media and email post."""
-    return (
-        "How much does academic publishing earn? See the report at "
-        "."
-    )
+    return "How much does academic publishing earn? See the report at ."
 
 
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
@@ -1613,7 +1611,6 @@ toggletip_styles()
 
 # Add privacy-focused analytics to the app
 with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
-
     # Highlight the introduction with the theme's orange (accent) background and a primary-coloured border.
     st.html(
         f"""
@@ -1646,7 +1643,6 @@ with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE)
         the commercial publishing industry.
         """
     )
-
 
     st.title("The Cost of Knowledge Calculator")
     st.markdown(
@@ -1747,9 +1743,7 @@ with st.container(border=True):
         st.selectbox(
             "Field of research your paper/project is located in",
             field_options,
-            index=field_options.index(st.session_state["project_field"])
-            if st.session_state["project_field"]
-            else None,
+            index=field_options.index(st.session_state["project_field"]) if st.session_state["project_field"] else None,
             placeholder="Type in the box to search for a field of research.",
             format_func=field_of_research_display_name,
             help="Type in the box to search for a field of research. This will be reflected on a summary "
@@ -1955,9 +1949,7 @@ if st.session_state["calculator_mode"] == "simplified":
             icon=":material/delete_sweep:",
             on_click=clear_simplified_estimates,
             disabled=not st.session_state["people"],
-            help=None
-            if st.session_state["people"]
-            else "Add a researcher before adding activities and direct costs.",
+            help=None if st.session_state["people"] else "Add a researcher before adding activities and direct costs.",
         )
 if st.session_state["calculator_mode"] == "detailed":
     with st.container(horizontal=True, horizontal_alignment="left"):
@@ -2218,9 +2210,7 @@ if st.session_state["show_results"] and not results_requirements:
     # activity/direct-cost names keep a consistent colour wherever they appear.
     phase_color_map: dict[str, str] = build_color_map(list(RESEARCH_PHASES.values()))
     item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" for item in combined_costs_list])
-    person_color_map: dict[str, str] = build_color_map(
-        [activity.get_person().label for activity in results_activities]
-    )
+    person_color_map: dict[str, str] = build_color_map([activity.get_person().label for activity in results_activities])
 
     st.space()
     st.header("The Cost of Your Refereed Journal Article", anchor=RESULTS_HEADER_ANCHOR)
@@ -2294,9 +2284,7 @@ if st.session_state["show_results"] and not results_requirements:
             width="stretch",
             alt=costs_pie_alt_text,
         )
-    costs_pie_caption: str = (
-        "Breakdown of where the public and institutional investment in the journal article goes."
-    )
+    costs_pie_caption: str = "Breakdown of where the public and institutional investment in the journal article goes."
     if st.session_state["include_publishing_costs"]:
         costs_pie_caption += (
             f" Publishing costs of {format_currency(st.session_state['publishing_costs'])} are not included."
@@ -2355,9 +2343,7 @@ if st.session_state["show_results"] and not results_requirements:
     )
     hours_per_person_chart.update_traces(texttemplate="%{y:.1f} hours", textposition="outside")
     hours_per_person_chart.update_layout(showlegend=False)
-    st.plotly_chart(
-        hours_per_person_chart, width="stretch", alt=hours_per_person_chart_alt_text(hours_per_person_df)
-    )
+    st.plotly_chart(hours_per_person_chart, width="stretch", alt=hours_per_person_chart_alt_text(hours_per_person_df))
 
     labour_chart_selection = st.pills(
         "**Show labor as**",

@@ -315,6 +315,28 @@ MAX_HOURS: float = 1_000_000
 MAX_COST: float = 1_000_000_000_000
 
 
+# Characters escaped in activity and direct cost names. Plotly renders a subset of HTML in chart text, so a name holding
+# a tag such as <a href="..."> would show as a link. "&" is left alone, so names like "R&D" show unchanged in the tables
+# and inputs, and escaping a name twice does not change it.
+_NAME_ESCAPES: dict[str, str] = {"<": "&lt;", ">": "&gt;"}
+
+
+def escape_name(name: str, max_length: int | None = None) -> str:
+    """Returns an activity or direct cost name with "<" and ">" escaped, so Plotly cannot render it as HTML.
+
+    Args:
+        name: Name to escape.
+        max_length: If given, the escaped name is cut to at most this many characters, without splitting an escape.
+    """
+    escaped: str = ""
+    for char in name:
+        piece: str = _NAME_ESCAPES.get(char, char)
+        if max_length is not None and len(escaped) + len(piece) > max_length:
+            break
+        escaped += piece
+    return escaped
+
+
 def _check_table(table: str) -> str:
     """Returns the table name if it is a known table, as names are interpolated into queries rather than bound."""
     if table not in _SELECTABLE_TABLES:
@@ -495,7 +517,14 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
             f" VALUES (?, ?, {', '.join('?' for _ in _ACTIVITY_COLUMNS)})",
         ),
         [
-            (project_id, position, *(activity.get(column) for column in _ACTIVITY_COLUMNS))
+            (
+                project_id,
+                position,
+                *(
+                    escape_name(activity["name"]) if column == "name" and activity["name"] else activity.get(column)
+                    for column in _ACTIVITY_COLUMNS
+                ),
+            )
             for position, activity in enumerate(data["activities"])
         ],
     )
@@ -505,7 +534,7 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
             "INSERT INTO direct_costs (project_id, position, unique_key, name, phase, cost) VALUES (?, ?, ?, ?, ?, ?)",
         ),
         [
-            (project_id, position, cost["unique_key"], cost["name"], cost["phase"], cost["cost"])
+            (project_id, position, cost["unique_key"], escape_name(cost["name"]), cost["phase"], cost["cost"])
             for position, cost in enumerate(data["direct_costs"])
         ],
     )

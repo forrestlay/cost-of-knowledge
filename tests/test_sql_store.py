@@ -284,6 +284,26 @@ def test_save_rejects_oversize_text(conn: Connection) -> None:
     assert count_rows(conn, "projects") == 0
 
 
+def test_escape_name() -> None:
+    assert sql_store.escape_name('<a href="https://example.com">R&D</a>') == (
+        '&lt;a href="https://example.com"&gt;R&D&lt;/a&gt;'
+    )
+    assert sql_store.escape_name(sql_store.escape_name("<b>")) == "&lt;b&gt;"
+    # Cutting to a length does not split an escape.
+    assert sql_store.escape_name("ab<c", 5) == "ab"
+    assert sql_store.escape_name("ab<c", 6) == "ab&lt;"
+
+
+def test_save_escapes_item_names(conn: Connection) -> None:
+    state: CalculatorState = modified_state()
+    state.activities[-1].name = '<a href="https://example.com">Link</a>'
+    state.direct_costs[0].name = "<b>Bold</b> & more"
+    public_id: str = sql_store.save_project(conn, state, COST_OF_KNOWLEDGE_VERSION)
+    restored: CalculatorState = sql_store.load_project(conn, public_id)
+    assert restored.activities[-1].name == '&lt;a href="https://example.com"&gt;Link&lt;/a&gt;'
+    assert restored.direct_costs[0].name == "&lt;b&gt;Bold&lt;/b&gt; & more"
+
+
 def test_save_rejects_negative_or_huge_numbers(conn: Connection) -> None:
     state: CalculatorState = default_with_researcher()
     state.peer_reviewer.hourly_rate = -1

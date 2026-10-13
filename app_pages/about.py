@@ -39,7 +39,7 @@ st.subheader("Technical issues with the Calculator")
 st.markdown(
     """
     If you have a technical or security-related issue with the Calculator, please report it to the associated
-    [Github repository](https://github.com/forrestlay/cost-of-knowledge) as an issue.
+    [GitHub repository](https://github.com/forrestlay/cost-of-knowledge) as an issue.
     """
 )
 
@@ -52,7 +52,7 @@ st.markdown(
     International License](https://creativecommons.org/licenses/by/4.0/).]
 
     :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
-    [Github](https://github.com/forrestlay/cost-of-knowledge)]
+    [GitHub](https://github.com/forrestlay/cost-of-knowledge)]
     """,
     text_alignment="center",
 )

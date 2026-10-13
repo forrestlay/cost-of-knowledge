@@ -304,7 +304,7 @@ st.markdown(
     International License](https://creativecommons.org/licenses/by/4.0/).]
 
     :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
-    [Github](https://github.com/forrestlay/cost-of-knowledge)]
+    [GitHub](https://github.com/forrestlay/cost-of-knowledge)]
 
     :small[Tool version: v{version}]
     """.replace("{version}", state.version or "unknown"),

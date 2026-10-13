@@ -221,7 +221,7 @@ class CalculatorState:
     @classmethod
     def default(cls) -> CalculatorState:
         """Returns the calculator's starting state, with no researchers, one journal submission with three rounds of
-        peer review by one peer reviewer, no detailed direct costs, and and zero simplified hours and direct costs.
+        peer review by one peer reviewer, no detailed direct costs, and zero simplified hours and direct costs.
         """
         hourly_rate: int | float = _DEFAULT_COSTS["hourly_rate_usd"]
         peer_reviewer: Person = Person(

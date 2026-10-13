@@ -5,7 +5,7 @@ and publishing an academic research article.
 
 This repository is part of the Cost of Knowledge research project conducted by academics from The University of Sydney
 School of Accounting, Governance and Regulation in collaboration with [SPARC](https://sparcopen.org).
-Cost of Knowledge Project Team: Nurul Alam, Jane Andrew, Max BAker, Janine Coupe, Tai-Joo Koh, Ben Lay,
+Cost of Knowledge Project Team: Nurul Alam, Jane Andrew, Max Baker, Janine Coupe, Tai-Joo Koh, Ben Lay,
 Chang-yuan Loh, Farzana Tanima
 Primary tool contributors: Nurul Alam, Ben Lay
 
@@ -152,7 +152,7 @@ Country data and flag assets sourced from [lipis/flag-icons](https://github.com/
 ## LLM Use Disclosure
 
 LLMs were used to assist with the coding of this tool. Specifically, LLMs were used to generate the initial proof of
-concept, which was used as the basis for manual development of the tool, before LLM assistant was used again to
+concept, which was used as the basis for manual development of the tool, before LLM assistance was used again to
 implement certain features (beginning with commit 8cfd02835d2c14a01154de5b1352fc696af23bb7).
 
 ## License

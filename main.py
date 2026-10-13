@@ -581,7 +581,7 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         postdoctoral commitments of research doctorate recipients in the National Center for
         Science and Engineering Statistics Survey of Doctorate Recipients 2024. The hourly rate for a research
         assistant is based on the median hourly wage for a social science research assistant in the US Bureau of
-        Labor Statistics National Wage Data May 2026.""",
+        Labor Statistics Occupational Employment and Wage Statistics May 2025.""",
     )
     with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
         if choice == MANUAL_SALARY_OPTION:
@@ -1219,7 +1219,7 @@ def show_footer() -> None:
         International License](https://creativecommons.org/licenses/by/4.0/).]
 
         :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
-        [Github](https://github.com/forrestlay/cost-of-knowledge)]
+        [GitHub](https://github.com/forrestlay/cost-of-knowledge)]
 
         :small[Tool version: v{version} • [Admin]({base_url}/admin)]
         """.replace("{version}", COST_OF_KNOWLEDGE_VERSION).replace("{base_url}", COST_OF_KNOWLEDGE_URL),
@@ -2093,7 +2093,7 @@ st.markdown(
         Now that you've calculated the costs from ideation to acceptance, what do you think it costs the publisher
         to go from acceptance to dissemination? The default value provided here corresponds to the cost per refereed
         journal article for a full service journal publisher with in-house staff that relies on volunteer editors
-        and peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossman & Brembs,
+        and peer reviewers, and publishes 100 journal articles a year with a 50% rejection rate (Grossmann & Brembs,
         2021, p. 6).{footnote_grossmann}
 
         **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is
@@ -2149,7 +2149,7 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
         """
         You may optionally choose to save your result, which can enable future research on differences across
         disciplines and geography. If you choose to save your result, you consent to [SPARC](https://sparcopen.org/)
-        storing all data you enterinto this tool and to potential use of this data by SPARC for future research.
+        storing all data you enter into this tool and to potential use of this data by SPARC for future research.
         Data will be retained for as long as necessary to fulfil the purposes set out in this paragraph or
         in [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/). Please refer to
         [SPARC's Privacy Policy](https://sparcopen.org/privacy-policy/) for further details about how your data will

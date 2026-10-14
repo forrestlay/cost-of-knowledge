@@ -556,6 +556,24 @@ def test_simplified_starts_at_zero_and_loads_defaults_for_first_researcher() -> 
     assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3752:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,752 (USD)"]
 
 
+@pytest.mark.parametrize(
+    ("mode", "button"), [("detailed", "load-alam-defaults"), ("simplified", "load-simplified-defaults")]
+)
+def test_load_defaults_resets_peer_review(mode: str, button: str) -> None:
+    at: AppTest = run_app(mode)
+    add_researcher_at_rate(at)
+    at.slider(key="journal-submissions").set_value(4)
+    at.slider(key="peer-reviewers").set_value(5)
+    at.slider(key="review-rounds").set_value(6)
+    run(at)
+
+    at.button(key=button).click()
+    run(at)
+    assert at.slider(key="journal-submissions").value == 1
+    assert at.slider(key="peer-reviewers").value == 1
+    assert at.slider(key="review-rounds").value == 3
+
+
 def test_simplified_estimates() -> None:
     at: AppTest = run_app("simplified")
     add_researcher_at_rate(at)

@@ -48,6 +48,7 @@ from src.calculator_state import (
     CalculatorState,
     compute_costs,
     compute_hours,
+    default_peer_review,
     default_phase_costs,
     default_phase_hours,
 )
@@ -1223,7 +1224,8 @@ def load_alam_defaults() -> None:
 def load_simplified_defaults() -> None:
     """Callback for the simplified calculator's "Load defaults from Alam et al. (2026)" button. Sets the hours and
     direct costs to the estimates from Alam et al. (2026): the first researcher gets the default hours of each phase
-    and everyone else has none.
+    and everyone else has none. The peer review sliders are reset to the default journal submissions, peer reviewers
+    and review rounds, as the detailed calculator's button does.
 
     The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
     """
@@ -1237,6 +1239,12 @@ def load_simplified_defaults() -> None:
             set_simplified_hours(phase, person.unique_key, hours)
         st.session_state["simplified_direct_costs"][phase] = round(cost * rate, 2)
         st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
+    # Set both the values and the sliders' widget state, as CalculatorState.apply_to_session_state does.
+    for attribute, value in default_peer_review().items():
+        st.session_state[attribute] = value
+        st.session_state[attribute.replace("_", "-")] = value
+        setattr(st.session_state["peer_review_activity"], attribute, value)
+    st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 

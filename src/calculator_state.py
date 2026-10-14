@@ -121,6 +121,18 @@ def default_phase_costs() -> dict[str, float]:
     return costs
 
 
+def default_peer_review() -> dict[str, int]:
+    """Returns the number of journal submissions, peer reviewers and review rounds in the default estimates from Alam
+    et al. (2026), keyed by their PeerReview attribute names.
+    """
+    peer_review: Mapping[str, Any] = _DEFAULT_COSTS["peer_review"]
+    return {
+        "journal_submissions": int(peer_review["journal_submissions"]),
+        "peer_reviewers": int(peer_review["peer_reviewers"]),
+        "review_rounds": int(peer_review["review_rounds"]),
+    }
+
+
 def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
     """Calculates the total cost of activities and direct costs in the given list.
 

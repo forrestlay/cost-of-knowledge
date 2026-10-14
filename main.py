@@ -2111,8 +2111,9 @@ st.markdown(
 
         **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is
         strictly required of a publisher to disseminate an article), while price is driven by what individuals are
-        willing to pay for a publication. Based on the profitability of the largest publishers <link to
-        profitability report>, using an APC price is likely to significantly overstate necessary costs.**
+        willing to pay for a publication.
+        Based on the [profitability of the largest publishers](https://doi.org/10.5281/zenodo.23311549), using an
+        APC price is likely to significantly overstate necessary costs.**
 
         Publishing cost is not included in the total cost calculated by this tool, as these costs represent a
         publisher's investment in the work rather than investment from researchers, the public, or institutions.

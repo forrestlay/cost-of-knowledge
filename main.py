@@ -45,7 +45,6 @@ from src.calculator_state import (
     DEFAULT_PUBLISHING_COSTS,
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
-    WIDGET_KEYS,
     CalculatorState,
     compute_costs,
     compute_hours,
@@ -115,15 +114,20 @@ current_page: st.Page = st.navigation(
     [CALCULATOR_PAGE, RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE],
     position="hidden",
 )
+# Session state key of the calculator's inputs, saved on leaving the calculator for another page (e.g. the about page
+# in the sidebar) and restored on returning to it. Holds the CalculatorState under "state", and the "save my result"
+# toggle, which is not part of a CalculatorState, under "save_result_to_database".
+CALCULATOR_SNAPSHOT_KEY: str = "calculator_snapshot"
 for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
     if current_page.url_path == other_page.url_path:
         # Streamlit discards the state of widgets that are not rendered in a run, so the calculator's inputs would be
-        # lost on visiting the about page from the sidebar. Reassigning them hands them over to session state instead.
-        # The add and edit forms are left out, as they are reset whenever they are opened.
-        if other_page is ABOUT_PAGE:
-            for widget_key in list(st.session_state.keys()):
-                if widget_key in WIDGET_KEYS or str(widget_key).startswith(("simplified-hours-", "simplified-cost-")):
-                    st.session_state[widget_key] = st.session_state[widget_key]
+        # lost on leaving it. Its widgets' state is still there in the first run of the other page, so snapshot the
+        # inputs then. A session that starts on another page has no inputs to snapshot.
+        if "activity_list" in st.session_state and CALCULATOR_SNAPSHOT_KEY not in st.session_state:
+            st.session_state[CALCULATOR_SNAPSHOT_KEY] = {
+                "state": CalculatorState.from_dict(CalculatorState.from_session_state(st.session_state).to_dict()),
+                "save_result_to_database": st.session_state.get("save_result_to_database", False),
+            }
         other_page.run()
         st.stop()
 
@@ -1547,6 +1551,13 @@ def copy_link_button(label: str, url: str, copied_label: str, help: str, key: st
 # calculator is imported, so the defaults and the serialised fields are defined in one place (calculator_state.py).
 if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
+elif CALCULATOR_SNAPSHOT_KEY in st.session_state:
+    # Returning from another page. The widgets' values must be set in this run, before the widgets are rendered, for
+    # Streamlit to send them to the browser. Otherwise the browser shows each widget's default, and sends it back on the
+    # next interaction, overwriting the input.
+    calculator_snapshot: dict[str, Any] = st.session_state.pop(CALCULATOR_SNAPSHOT_KEY)
+    calculator_snapshot["state"].apply_to_session_state(st.session_state)
+    st.session_state["save_result_to_database"] = calculator_snapshot["save_result_to_database"]
 
 # Whether the user has loaded the defaults from Alam et al. (2026) in the detailed calculator. Set by
 # load_alam_defaults and saved with the result.
@@ -2169,8 +2180,8 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
     st.container(border=True).toggle(
         """Save my result so I can share it and to enable future research. I consent to SPARC retaining the data
         I have entered into this tool and using it for future research.""",
+        # No value=, as it is restored through session state on returning from another page. It is off by default.
         key="save_result_to_database",
-        value=False,
     )
 
 st.button(

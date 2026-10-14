@@ -6,6 +6,7 @@ from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 from typing import Any
 
+import pytest
 from streamlit.runtime.state.common import TESTING_KEY
 from streamlit.testing.v1 import AppTest
 
@@ -605,6 +606,51 @@ def test_deleting_researcher_moves_simplified_hours() -> None:
     assert at.slider(key="simplified-hours-incubation-2").value == 336.0
     # The hours are capped at the slider's maximum.
     assert at.slider(key="simplified-hours-data-2").value == 800.0
+
+
+def visit_about_page_and_return(at: AppTest) -> None:
+    """Visits the about page, then returns to the calculator, as the sidebar's page links do."""
+    at.switch_page("app_pages/about.py")
+    run(at)
+    assert at.title[0].value == "About the Cost of Knowledge Calculator"
+    # The calculator is a callable page, which switch_page cannot select, so select the default page instead.
+    at._page_hash = ""
+    run(at)
+
+
+@pytest.mark.parametrize("mode", ["simplified", "detailed"])
+def test_inputs_survive_visiting_the_about_page(mode: str) -> None:
+    at: AppTest = run_app(mode)
+    add_researcher_at_rate(at)
+    # Element type and key of each widget whose value is checked after returning.
+    restored_widgets: list[tuple[str, str]] = [
+        ("selectbox", "user_country_select"),
+        ("slider", "indirect_cost_percentage"),
+        ("slider", "review-rounds"),
+        ("radio", "calculator-mode"),
+    ]
+    if mode == "simplified":
+        at.slider(key="simplified-hours-incubation-1").set_value(100.0)
+        restored_widgets.append(("slider", "simplified-hours-incubation-1"))
+    else:
+        load_alam_defaults(at)
+    at.slider(key="indirect_cost_percentage").set_value(30)
+    at.slider(key="review-rounds").set_value(5)
+    run(at)
+    results: list[str] = metric_values(at)
+    assert results
+
+    visit_about_page_and_return(at)
+    assert metric_values(at) == results
+    assert at.radio(key="calculator-mode").value == mode
+    assert at.slider(key="indirect_cost_percentage").value == 30
+    assert at.slider(key="review-rounds").value == 5
+    # The browser mounts the widgets afresh on returning, and shows their defaults unless the app sends their values.
+    # It would then send those defaults back on the next interaction, losing the inputs.
+    for element_type, key in restored_widgets:
+        assert getattr(at, element_type)(key=key).proto.set_value, key
+    run(at)
+    assert metric_values(at) == results
 
 
 def test_sunburst_only_shown_in_detailed_mode() -> None:

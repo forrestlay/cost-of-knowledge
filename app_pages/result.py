@@ -30,7 +30,7 @@ import streamlit as st
 import streamlit_analytics2 as sa2
 
 from src import database, sql_store
-from src.analytics import ANALYTICS_FILE, analytics_password, simple_analytics_embed
+from src.analytics import analytics_password, analytics_store, simple_analytics_embed
 from src.calculator_state import compute_costs
 from src.figures import (
     build_color_map,
@@ -213,7 +213,7 @@ st.markdown(
 
 with (
     st.container(horizontal=True, horizontal_alignment="center"),
-    sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
+    sa2.track(unsafe_password=analytics_password(), store=analytics_store()),
 ):
     back_to_calculator_button()
 
@@ -294,7 +294,7 @@ st.plotly_chart(
 
 with (
     st.container(horizontal=True, horizontal_alignment="center"),
-    sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
+    sa2.track(unsafe_password=analytics_password(), store=analytics_store()),
 ):
     back_to_calculator_button()
 

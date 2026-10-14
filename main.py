@@ -38,7 +38,7 @@ import streamlit as st
 import streamlit_analytics2 as sa2
 
 from src import database, reference_data, sql_store
-from src.analytics import ANALYTICS_FILE, analytics_password, simple_analytics_embed
+from src.analytics import analytics_password, analytics_store, simple_analytics_embed
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
@@ -1638,7 +1638,7 @@ with st.sidebar:
 toggletip_styles()
 
 # Add privacy-focused analytics to the app
-with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+with sa2.track(unsafe_password=analytics_password(), store=analytics_store()):
     # Highlight the introduction with the theme's orange (accent) background and a primary-coloured border.
     st.html(
         f"""
@@ -2496,7 +2496,7 @@ if st.session_state["show_results"] and not results_requirements:
             include_publishing_costs_toggle("include-publishing-costs-share")
 
         with st.container(horizontal=True, horizontal_alignment="left"):
-            with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+            with sa2.track(unsafe_password=analytics_password(), store=analytics_store()):
                 st.download_button(
                     "Download your summary infographic image",
                     data=social_media_svg_to_png(social_media_svg),

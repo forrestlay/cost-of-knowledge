@@ -7,6 +7,7 @@ from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
+from streamlit_analytics2.events import Event
 
 from src import migrate, sql_store
 from src.calculator_state import CalculatorState
@@ -103,6 +104,29 @@ def test_1_0_1_to_1_0_2_adds_base_hourly_rate_column() -> None:
         assert sql_store.load_project(conn, public_id).people["1"].base_hourly_rate == 55
 
 
+def test_1_0_2_to_1_0_3_creates_analytics_events_table() -> None:
+    migration: ModuleType = load_migration("1.0.2_to_1.0.3_migration")
+    with closing(sql_store.connect(":memory:")) as conn:
+        public_id: str = sql_store.save_project(conn, CalculatorState.default(), "1.0.2")
+        # The 1.0.2 schema has no analytics_events table.
+        conn.execute("DROP TABLE analytics_events")
+        conn.commit()
+
+        migration.migrate(conn)
+        migration.migrate(conn)
+
+        assert sql_store.load_project(conn, public_id) == CalculatorState.default()
+        event: Event = Event("2026-10-15T09:30:00Z", "widget", "s1", key="country", props={"a": 1})
+        sql_store.append_analytics_events(conn, [event])
+        assert sql_store.read_analytics_events(conn) == [event]
+        # The migration creates the same columns as the current schema.
+        columns: list[tuple[str, str]] = [
+            (row[1], row[2]) for row in conn.execute("PRAGMA table_info(analytics_events)")
+        ]
+    with closing(sql_store.connect(":memory:")) as conn:
+        assert [(row[1], row[2]) for row in conn.execute("PRAGMA table_info(analytics_events)")] == columns
+
+
 def test_find_migrations_orders_by_version(tmp_path: Path) -> None:
     for name in ("0.10_to_0.11_migration.py", "0.2_to_0.10_migration.py", "0.1_to_0.2_migration.py", "notes.py"):
         (tmp_path / name).write_text("", encoding="utf-8")
@@ -118,6 +142,7 @@ def test_run_migrations_migrates_old_database_once(old_conn: sqlite3.Connection)
         "0.1_to_0.1.2_migration",
         "0.1.4_to_0.1.5_migration",
         "1.0.1_to_1.0.2_migration",
+        "1.0.2_to_1.0.3_migration",
     ]
     [project] = sql_store.list_projects(old_conn)
     assert project["version"] == "0.1"

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import streamlit as st
+from streamlit_analytics2.events import Event
 
 from src import database, sql_store
 from src.calculator_state import CalculatorState
@@ -35,6 +36,7 @@ TABLES: tuple[str, ...] = (
     "people",
     "projects",
     "admin_users",
+    "analytics_events",
 )
 
 
@@ -334,3 +336,29 @@ def test_owner_email_restricts_first_owner(conn: Connection) -> None:
     boss = sql_store.record_admin_login(conn, "z", "Boss@Example.com", "Z", owner_email="boss@example.com")
     assert boss["is_owner"]
     assert boss["is_authorised"]
+
+
+def test_append_and_read_analytics_events(conn: Connection) -> None:
+    assert sql_store.read_analytics_events(conn) == []
+    events: list[Event] = [
+        Event("2026-10-15T09:30:00Z", "session", "s1", visitor="v1", page="main"),
+        Event(
+            "2026-10-15T09:30:05Z",
+            "widget",
+            "s1",
+            visitor="v1",
+            page="main",
+            name="Country",
+            widget_id="w1",
+            widget_type="selectbox",
+            key="user_country",
+            value="Ñew Zealand",
+        ),
+    ]
+    sql_store.append_analytics_events(conn, iter(events))
+    sql_store.append_analytics_events(conn, [])
+    sql_store.append_analytics_events(conn, [Event("2026-10-15T09:31:00Z", "custom", "s2", props={"button": "x"})])
+    assert sql_store.read_analytics_events(conn) == [
+        *events,
+        Event("2026-10-15T09:31:00Z", "custom", "s2", props={"button": "x"}),
+    ]

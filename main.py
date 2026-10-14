@@ -27,7 +27,6 @@ limitations under the License.
 
 import json
 import logging
-import os
 from contextlib import closing
 from inspect import cleandoc
 from pathlib import Path
@@ -37,9 +36,9 @@ from urllib.parse import quote, urlsplit
 import plotly.express as px
 import streamlit as st
 import streamlit_analytics2 as sa2
-from streamlit.errors import StreamlitSecretNotFoundError
 
 from src import database, reference_data, sql_store
+from src.analytics import ANALYTICS_FILE, analytics_password
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
@@ -186,32 +185,6 @@ ACTIVITY_DEFAULT_HOURS: dict[tuple[str, str], float] = {
 COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
     (cost["phase"], cost["name"]): float(cost["default_cost"]) for cost in _COSTS_DATA["direct_costs"]
 }
-
-
-# -----------------------------------------------
-# Analytics
-# -----------------------------------------------
-
-
-# Saved under data/ so that the Docker volume mounted there also persists the analytics events.
-ANALYTICS_FILE: Path = Path(__file__).parent / "data" / "analytics.db"
-
-
-def analytics_password() -> str | None:
-    """Password for the analytics dashboard, from the ANALYTICS_PASSWORD environment variable, falling back to
-    "analytics_password" in Streamlit secrets.
-
-    Returns None if neither is set, which leaves the dashboard without a password. An empty string must not be returned
-    instead, as streamlit_analytics2 would then accept an empty password input.
-    """
-    password: str | None = os.environ.get("ANALYTICS_PASSWORD")
-    if password:
-        return password
-    try:
-        secret: object = st.secrets.get("analytics_password")
-    except StreamlitSecretNotFoundError:
-        return None
-    return str(secret) if secret else None
 
 
 # -----------------------------------------------
@@ -2460,40 +2433,50 @@ if st.session_state["show_results"] and not results_requirements:
         with st.container(border=True):
             include_publishing_costs_toggle("include-publishing-costs-share")
 
-        with st.container(horizontal=True, horizontal_alignment="left"):
-            with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
-                st.download_button(
-                    "Download your summary infographic image",
-                    data=social_media_svg_to_png(social_media_svg),
-                    file_name="cost-of-knowledge-estimate.png",
-                    mime="image/png",
-                    icon=":material/image:",
-                    type="primary",
-                )
-                st.link_button(
-                    "Share on LinkedIn",
-                    linkedin_share_url(total_cost, saved_result_url),
-                    icon=":material/share:",
-                    help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-                )
-                st.link_button(
-                    "Share on Bluesky",
-                    bluesky_share_url(total_cost, saved_result_url),
-                    icon=":material/share:",
-                    help="Share this tool on Bluesky. Download the image first and attach it to your post.",
-                )
-                st.link_button(
-                    "Share on Facebook",
-                    facebook_share_url(saved_result_url),
-                    icon=":material/share:",
-                    help="Share this tool on Facebook. Download the image first and attach it to your post.",
-                )
-                st.link_button(
-                    "Share via email",
-                    email_share_url(total_cost, saved_result_url),
-                    icon=":material/email:",
-                    help="Share this tool via email. Download the image first and attach it to your email.",
-                )
+        with (
+            st.container(horizontal=True, horizontal_alignment="left"),
+            sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
+        ):
+            st.download_button(
+                "Download your summary infographic image",
+                data=social_media_svg_to_png(social_media_svg),
+                file_name="cost-of-knowledge-estimate.png",
+                mime="image/png",
+                icon=":material/image:",
+                type="primary",
+            )
+            if st.link_button(
+                "Share on LinkedIn",
+                linkedin_share_url(total_cost, saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
+                on_click="rerun",
+            ):
+                sa2.event("share_linkedin")
+            if st.link_button(
+                "Share on Bluesky",
+                bluesky_share_url(total_cost, saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on Bluesky. Download the image first and attach it to your post.",
+                on_click="rerun",
+            ):
+                sa2.event("share_bluesky")
+            if st.link_button(
+                "Share on Facebook",
+                facebook_share_url(saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on Facebook. Download the image first and attach it to your post.",
+                on_click="rerun",
+            ):
+                sa2.event("share_facebook")
+            if st.link_button(
+                "Share via email",
+                email_share_url(total_cost, saved_result_url),
+                icon=":material/email:",
+                help="Share this tool via email. Download the image first and attach it to your email.",
+                on_click="rerun",
+            ):
+                sa2.event("share_email")
     share_right.container(horizontal=True, horizontal_alignment="center").image(
         social_media_svg, width=540, alt=social_media_alt_text
     )

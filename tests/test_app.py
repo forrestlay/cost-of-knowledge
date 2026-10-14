@@ -688,6 +688,49 @@ def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:
     assert detailed.slider(key="add-item-hours-1").label == label
 
 
+def test_indirect_cost_rate_applies_to_every_researcher() -> None:
+    at: AppTest = run_app("simplified")
+    add_researcher(at, "assistant_professor")
+    at.selectbox(key="add-person-role").set_value("manual_salary")
+    run(at)
+    # $50 an hour excluding indirect costs.
+    at.number_input(key="add-person-salary").set_value(104000)
+    submit_researcher_form(at)
+    at.selectbox(key="add-person-role").set_value("manual_hourly_rate")
+    run(at)
+    at.number_input(key="add-person-hourly-rate").set_value(55.0)
+    submit_researcher_form(at)
+
+    def hourly_rates() -> list[float]:
+        return [person.hourly_rate for person in at.session_state["people"].values()]
+
+    role_rate: float = ROLES["assistant_professor"].hourly_rate_usd
+    assert hourly_rates() == [round(role_rate * 1.4, 2), 70.0, 77.0]
+    at.slider(key="indirect_cost_percentage").set_value(50)
+    run(at)
+    assert hourly_rates() == [round(role_rate * 1.5, 2), 75.0, 82.5]
+
+    # Editing the researcher without entering a new salary keeps their salary.
+    at.button(key="edit-person-button-2").click()
+    run(at)
+    at.number_input(key="edit-person-2-quantity").set_value(2)
+    next(button for button in at.button if button.label == "Save changes").click()
+    run(at)
+    assert hourly_rates()[1] == 75.0
+    at.slider(key="indirect_cost_percentage").set_value(0)
+    run(at)
+    assert hourly_rates()[1:] == [50.0, 55.0]
+
+    # Rates excluding indirect costs are converted with the currency, so rates keep following the indirect cost rate.
+    at.selectbox(key="user_country_select").set_value("au")
+    run(at)
+    at.slider(key="indirect_cost_percentage").set_value(40)
+    run(at)
+    salary_rate: float | None = convert_currency(50, "USD", "AUD")
+    assert salary_rate is not None
+    assert hourly_rates()[1] == pytest.approx(round(round(salary_rate, 2) * 1.4, 2))
+
+
 def test_clear_all_researchers_asks_for_confirmation() -> None:
     at: AppTest = run_app("simplified")
     assert at.button(key="clear-people").disabled

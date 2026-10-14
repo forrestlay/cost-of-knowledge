@@ -135,7 +135,7 @@ for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # Version of the tool, shown in the footer and recorded with each saved result. Whenever this tool is changed
 # substantially such that users may approach answering the questions differently, increment this.
-COST_OF_KNOWLEDGE_VERSION: str = "1.0.1"
+COST_OF_KNOWLEDGE_VERSION: str = "1.0.2"
 # Persist version across pages.
 if "tool_version" not in st.session_state:
     st.session_state["tool_version"] = COST_OF_KNOWLEDGE_VERSION
@@ -265,6 +265,8 @@ def convert_monetary_values():
     ]
     for person in people:
         person.hourly_rate = convert(person.hourly_rate)
+        if person.base_hourly_rate is not None:
+            person.base_hourly_rate = convert(person.base_hourly_rate)
     # Keyed number_inputs keep their widget ID when value= changes, so the browser would keep showing (and send
     # back) the old amount. Writing the converted amount into the widget's state makes Streamlit push it to the
     # browser.
@@ -360,13 +362,14 @@ def role_hourly_rate(role: str) -> float:
 
 
 def apply_indirect_cost_rate() -> None:
-    """Callback for the indirect cost rate slider. Refreshes the hourly rate of everyone who has a role selected.
-
-    Rates that were calculated from a salary (no role) are left alone.
+    """Callback for the indirect cost rate slider. Refreshes the hourly rate of every researcher: from their role, or
+    from their hourly rate excluding indirect costs if it was calculated from a salary or entered directly.
     """
     for person in st.session_state["people"].values():
         if person.role is not None:
             person.hourly_rate = role_hourly_rate(person.role)
+        else:
+            person.apply_indirect_cost_rate(st.session_state["indirect_cost_percentage"])
 
 
 def format_hourly_rate(hourly_rate: float) -> str:
@@ -444,23 +447,12 @@ def calculate_manual_hourly_rate(key: str, person: Person | None = None) -> None
         )
 
 
-def manual_hourly_rate(key: str) -> float:
-    """Returns the hourly rate entered in calculate_manual_hourly_rate, including indirect costs."""
-    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
-    return round(st.session_state[f"{key}-hourly-rate"] * indirect_cost_multiplier, 2)
-
-
-def salary_hourly_rate(key: str) -> float:
-    """Calculates the hourly rate from the inputs shown by calculate_hourly_rate, including indirect costs."""
-    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
-    return round(
-        Person.salary_to_hourly_rate(
-            st.session_state[f"{key}-salary"],
-            st.session_state[f"{key}-weekly-hours"],
-            st.session_state[f"{key}-months"],
-            indirect_cost_multiplier,
-        ),
-        2,
+def salary_base_hourly_rate(key: str) -> float:
+    """Calculates the hourly rate from the inputs shown by calculate_hourly_rate, excluding indirect costs."""
+    return Person.salary_to_hourly_rate(
+        st.session_state[f"{key}-salary"],
+        st.session_state[f"{key}-weekly-hours"],
+        st.session_state[f"{key}-months"],
     )
 
 
@@ -477,39 +469,46 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
     quantity: int = int(st.session_state[f"{key}-quantity"])
 
     role: str | None = None
+    # Hourly rate excluding indirect costs, of a researcher whose rate is calculated from a salary or entered directly.
+    base_hourly_rate: int | float | None = None
     if choice is None:
         st.toast("Choose a role or enter a salary or hourly rate first.", icon=":material/error:")
         return
     if choice == MANUAL_SALARY_OPTION:
         if st.session_state[f"{key}-salary"] > 0:
-            hourly_rate: int | float = salary_hourly_rate(key)
+            base_hourly_rate = salary_base_hourly_rate(key)
         elif person is not None and person.role is None:
-            hourly_rate = person.hourly_rate
+            base_hourly_rate = person.base_hourly_rate
         else:
             st.toast("Enter the researcher's salary first.", icon=":material/error:")
             return
     elif choice == MANUAL_HOURLY_RATE_OPTION:
         if st.session_state[f"{key}-hourly-rate"] > 0:
-            hourly_rate = manual_hourly_rate(key)
+            base_hourly_rate = st.session_state[f"{key}-hourly-rate"]
         elif person is not None and person.role is None:
-            hourly_rate = person.hourly_rate
+            base_hourly_rate = person.base_hourly_rate
         else:
             st.toast("Enter the researcher's hourly rate first.", icon=":material/error:")
             return
     else:
         role = choice
-        hourly_rate = role_hourly_rate(choice)
 
     if person is None:
-        person = Person(next_person_key(), PersonType.RESEARCH_TEAM, hourly_rate, role, quantity)
+        # The hourly rate is set below.
+        person = Person(next_person_key(), PersonType.RESEARCH_TEAM, 0, role, quantity, base_hourly_rate)
         people[person.unique_key] = person
         # The form clears itself, but not the role selectbox above it.
         st.session_state[f"{key}-role"] = None
         st.toast(f"Added {person.label}.", icon=":material/check_circle:")
     else:
         person.role = role
-        person.hourly_rate = hourly_rate
         person.quantity = quantity
+        person.base_hourly_rate = base_hourly_rate
+    if role is not None:
+        person.hourly_rate = role_hourly_rate(role)
+    else:
+        # Does nothing to a researcher who keeps their current rate but has no rate excluding indirect costs.
+        person.apply_indirect_cost_rate(st.session_state["indirect_cost_percentage"])
     st.session_state[f"{key}-saved"] = True
 
 
@@ -1809,7 +1808,8 @@ st.slider(
     max_value=100,
     key="indirect_cost_percentage",
     on_change=apply_indirect_cost_rate,
-    help="Applied equally to every hourly rate calculated from a salary.",
+    help="Applied equally to every researcher's hourly rate, whether based on a title or role, a salary or an hourly "
+    "rate entered manually.",
 )
 
 # -----------------------------------------------

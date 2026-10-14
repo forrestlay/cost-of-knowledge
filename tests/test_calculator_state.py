@@ -165,7 +165,33 @@ def test_schema_version_1_names_are_ignored() -> None:
         person_data["name"] = "A name"
         del person_data["role"]
     state.people["2"].role = None
+    # Researchers without a role have their rates excluding indirect costs derived, as in any data before version 6.
+    for person in state.people.values():
+        person.base_hourly_rate = person.hourly_rate / (1 + state.indirect_cost_percentage / 100)
     assert CalculatorState.from_dict(data) == state
+
+
+def test_base_hourly_rates_derived_before_schema_version_6() -> None:
+    """Data saved before version 6 has no rates excluding indirect costs, so they are derived for researchers without a
+    role, assuming their rates were calculated with the project's indirect cost rate."""
+    state: CalculatorState = CalculatorState.default()
+    state.indirect_cost_percentage = 25
+    state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 62.5)
+    state.people["2"] = Person("2", PersonType.RESEARCH_TEAM, 66.25, "assistant_professor")
+    data = state.to_dict()
+    data["schema_version"] = 5
+    for person_data in data["people"]:
+        del person_data["base_hourly_rate"]
+
+    restored: CalculatorState = CalculatorState.from_dict(data)
+    assert restored.people["1"].base_hourly_rate == pytest.approx(50)
+    assert restored.people["1"].hourly_rate == 62.5
+    # A researcher with a role has their rate from the role, and the peer reviewer's and journal editor's are fixed.
+    assert restored.people["2"].base_hourly_rate is None
+    assert restored.peer_reviewer.base_hourly_rate is None
+    assert restored.journal_editor.base_hourly_rate is None
+    # From version 6, a researcher without a base hourly rate keeps not having one.
+    assert CalculatorState.from_dict(state.to_dict()).people["1"].base_hourly_rate is None
 
 
 def test_missing_peer_review_raises() -> None:
@@ -191,4 +217,5 @@ def test_json_is_plain() -> None:
         "hourly_rate": 41.2,
         "role": "research_scientist",
         "quantity": 3,
+        "base_hourly_rate": None,
     }

@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS people (
     hourly_rate NUMERIC NOT NULL,
     -- Number of people sharing the hourly rate.
     quantity INTEGER NOT NULL DEFAULT 1,
+    -- Hourly rate excluding indirect costs, of a researcher whose rate was calculated from a salary or entered
+    -- directly. NULL for other people, and for projects saved before schema version 6.
+    base_hourly_rate NUMERIC,
     PRIMARY KEY (project_id, unique_key)
 );
 
@@ -203,6 +206,9 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         hourly_rate DOUBLE NOT NULL,
         -- Number of people sharing the hourly rate.
         quantity INTEGER NOT NULL DEFAULT 1,
+        -- Hourly rate excluding indirect costs, of a researcher whose rate was calculated from a salary or entered
+        -- directly. NULL for other people, and for projects saved before schema version 6.
+        base_hourly_rate DOUBLE,
         PRIMARY KEY (project_id, unique_key),
         FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
     )
@@ -372,6 +378,7 @@ def validate_state(state: CalculatorState) -> None:
     for person in people:
         check_text(person["unique_key"])
         check_number(person["hourly_rate"], MAX_COST)
+        check_number(person["base_hourly_rate"], MAX_COST)
         check_number(person["quantity"], MAX_PEOPLE)
     for item in (*data["activities"], *data["direct_costs"]):
         for value in item.values():
@@ -494,7 +501,7 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
         _sql(
             conn,
             "INSERT INTO people (project_id, position, unique_key, role, researcher_role, person_type, hourly_rate,"
-            " quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " quantity, base_hourly_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ),
         [
             (
@@ -506,6 +513,7 @@ def _insert_children(conn: Connection, cursor: Cursor, project_id: int, state: C
                 person["person_type"],
                 person["hourly_rate"],
                 person["quantity"],
+                person["base_hourly_rate"],
             )
             for position, (role, person) in enumerate(people_rows)
         ],
@@ -634,6 +642,7 @@ def _state_from_rows(
                 "hourly_rate": row["hourly_rate"],
                 "role": row["researcher_role"],
                 "quantity": row["quantity"],
+                "base_hourly_rate": row["base_hourly_rate"],
             }
         )
     activities: list[dict[str, Any]] = [

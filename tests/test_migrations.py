@@ -10,6 +10,7 @@ import pytest
 
 from src import migrate, sql_store
 from src.calculator_state import CalculatorState
+from src.models import Person, PersonType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -78,6 +79,30 @@ def test_0_1_4_to_0_1_5_adds_peer_reviewers_column() -> None:
         assert sql_store.load_project(conn, public_id).peer_review.peer_reviewers == 3
 
 
+def test_1_0_1_to_1_0_2_adds_base_hourly_rate_column() -> None:
+    migration: ModuleType = load_migration("1.0.1_to_1.0.2_migration")
+    state: CalculatorState = CalculatorState.default()
+    state.people["1"] = Person("1", PersonType.RESEARCH_TEAM, 70)
+    with closing(sql_store.connect(":memory:")) as conn:
+        public_id: str = sql_store.save_project(conn, state, "1.0.1")
+        # The 1.0.1 schema has no base_hourly_rate column, and saved projects under schema version 5.
+        conn.execute("ALTER TABLE people DROP COLUMN base_hourly_rate")
+        conn.execute("UPDATE projects SET schema_version = 5")
+        conn.commit()
+
+        migration.migrate(conn)
+        migration.migrate(conn)
+
+        # The hourly rate is unchanged, and the rate excluding indirect costs is derived with the project's 40% rate.
+        restored: CalculatorState = sql_store.load_project(conn, public_id)
+        assert restored.people["1"].hourly_rate == 70
+        assert restored.people["1"].base_hourly_rate == pytest.approx(50)
+        # Saving under the new version stores the rate excluding indirect costs.
+        restored.people["1"].base_hourly_rate = 55
+        sql_store.update_project(conn, public_id, restored, "1.0.2")
+        assert sql_store.load_project(conn, public_id).people["1"].base_hourly_rate == 55
+
+
 def test_find_migrations_orders_by_version(tmp_path: Path) -> None:
     for name in ("0.10_to_0.11_migration.py", "0.2_to_0.10_migration.py", "0.1_to_0.2_migration.py", "notes.py"):
         (tmp_path / name).write_text("", encoding="utf-8")
@@ -89,7 +114,11 @@ def test_find_migrations_orders_by_version(tmp_path: Path) -> None:
 
 
 def test_run_migrations_migrates_old_database_once(old_conn: sqlite3.Connection) -> None:
-    assert migrate.run_migrations(old_conn) == ["0.1_to_0.1.2_migration", "0.1.4_to_0.1.5_migration"]
+    assert migrate.run_migrations(old_conn) == [
+        "0.1_to_0.1.2_migration",
+        "0.1.4_to_0.1.5_migration",
+        "1.0.1_to_1.0.2_migration",
+    ]
     [project] = sql_store.list_projects(old_conn)
     assert project["version"] == "0.1"
 

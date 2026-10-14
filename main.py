@@ -1354,15 +1354,14 @@ def confirm_reset() -> None:
 def short_share_text(total_cost: float, saved_url: str | None) -> str:
     """Short social media sharing text."""
     if saved_url is None:
-        url_text = f"Use the calculator at {COST_OF_KNOWLEDGE_URL}"
+        url_text = f"Read more and use the calculator at {COST_OF_KNOWLEDGE_URL}"
     else:
         url_text = f"See my result and use the calculator at {saved_url}"
 
     return (
         f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-        "institutional investment. The public benefits, but where does the financial return go?"
-        f"{url_text} to estimate the investment in your work and learn more about the profitability of the "
-        "largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAWeek"
+        "institutional investment. The public benefits, but where does the financial return go? "
+        f"{url_text}. #OAWeek"
     )
 
 
@@ -1376,8 +1375,8 @@ def long_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str,
     return (
         (
             f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-            "institutional investment: my time, my university’s resources, research funding.  The public benefits, "
-            "but where does the financial return go?"
+            "institutional investment: my time, my university’s resources, research funding, and more.  The public "
+            "benefits, but where does the financial return go?"
         ),
         (
             f"{url_text} to estimate the investment in your own work and learn more about the profitability "
@@ -1400,12 +1399,12 @@ def email_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str
     return (
         (
             f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-            "institutional investment: my time, my university’s resources, research funding.  The public benefits, "
-            "but where does the financial return go?"
+            "institutional investment: my time, my university’s resources, research funding, and more.  The public "
+            "benefits, but where does the financial return go?"
         ),
         (
             f"{url_text} to estimate the investment in your own work and learn more about the profitability "
-            "of the largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAweek"
+            "of the largest publishers at https://doi.org/10.5281/zenodo.23311549"
         ),
         (
             "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "

@@ -25,3 +25,9 @@ def analytics_password() -> str | None:
     except StreamlitSecretNotFoundError:
         return None
     return str(secret) if secret else None
+
+
+def simple_analytics_embed() -> None:
+    st.html(
+        '<script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>', unsafe_allow_javascript=True
+    )

@@ -38,7 +38,7 @@ import streamlit as st
 import streamlit_analytics2 as sa2
 
 from src import database, reference_data, sql_store
-from src.analytics import ANALYTICS_FILE, analytics_password
+from src.analytics import ANALYTICS_FILE, analytics_password, simple_analytics_embed
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
@@ -2547,3 +2547,4 @@ if st.session_state["show_results"] and not results_requirements:
     )
 
 show_footer()
+simple_analytics_embed()

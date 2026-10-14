@@ -30,7 +30,7 @@ import streamlit as st
 import streamlit_analytics2 as sa2
 
 from src import database, sql_store
-from src.analytics import ANALYTICS_FILE, analytics_password
+from src.analytics import ANALYTICS_FILE, analytics_password, simple_analytics_embed
 from src.calculator_state import compute_costs
 from src.figures import (
     build_color_map,
@@ -324,3 +324,4 @@ st.markdown(
     """.replace("{version}", state.version or "unknown"),
     text_alignment="center",
 )
+simple_analytics_embed()

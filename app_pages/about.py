@@ -18,7 +18,7 @@ limitations under the License.
 import streamlit as st
 import streamlit_analytics2 as sa2
 
-from src.analytics import ANALYTICS_FILE, analytics_password
+from src.analytics import ANALYTICS_FILE, analytics_password, simple_analytics_embed
 from src.ui import CALCULATOR_PAGE
 
 with st.sidebar:
@@ -75,3 +75,5 @@ st.markdown(
 
 if "tool_version" in st.session_state:
     st.markdown(f":small[Tool version: v{st.session_state['tool_version']}]", text_alignment="center")
+
+simple_analytics_embed()

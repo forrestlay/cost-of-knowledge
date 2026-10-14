@@ -1351,31 +1351,66 @@ def confirm_reset() -> None:
 # -----------------------------------------------
 
 
-def share_summary(total_cost: float) -> str:
-    """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
+def short_share_text(total_cost: float, saved_url: str | None) -> str:
+    """Short social media sharing text."""
+    if saved_url is None:
+        url_text = f"Use the calculator at {COST_OF_KNOWLEDGE_URL}"
+    else:
+        url_text = f"See my result and use the calculator at {saved_url}"
+
     return (
-        f"I estimated that the public and institutional investment in my peer-reviewed journal article is "
-        f"{format_currency(total_cost)}. "
-        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
-        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
+        "institutional investment. The public benefits, but where does the financial return go?"
+        f"{url_text} to estimate the investment in your work and learn more about the profitability of the "
+        "largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAWeek"
     )
 
 
-def share_link(saved_url: str | None) -> tuple[str, str]:
-    """Returns the link shared on social media and by email, and the call to action introducing it.
-
-    Args:
-        saved_url: Link to the user's saved result, or None if it has not been saved, in which case the tool's own
-            link is shared.
-    """
+def long_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str, str]:
+    """Long social media sharing text."""
     if saved_url is None:
-        return (
-            COST_OF_KNOWLEDGE_URL,
-            ("I invite you to estimate your own Cost of Knowledge"),
-        )
+        url_text = f"Use the #CostofKnowledge Calculator at {COST_OF_KNOWLEDGE_URL}"
+    else:
+        url_text = f"See my result and use the #CostofKnowledge Calculator at {saved_url}"
+
     return (
-        saved_url,
-        ("I invite you to see my result and estimate your own Cost of Knowledge"),
+        (
+            f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
+            "institutional investment: my time, my university’s resources, research funding.  The public benefits, "
+            "but where does the financial return go?"
+        ),
+        (
+            f"{url_text} to estimate the investment in your own work and learn more about the profitability "
+            "of the largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAweek"
+        ),
+        (
+            "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "
+            "produced by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        ),
+    )
+
+
+def email_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str, str]:
+    """Long social media sharing text."""
+    if saved_url is None:
+        url_text = f"Use the Cost of Knowledge Calculator at {COST_OF_KNOWLEDGE_URL}"
+    else:
+        url_text = f"See my result and use the Cost of Knowledge Calculator at {saved_url}"
+
+    return (
+        (
+            f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
+            "institutional investment: my time, my university’s resources, research funding.  The public benefits, "
+            "but where does the financial return go?"
+        ),
+        (
+            f"{url_text} to estimate the investment in your own work and learn more about the profitability "
+            "of the largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAweek"
+        ),
+        (
+            "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "
+            "produced by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        ),
     )
 
 
@@ -1387,8 +1422,8 @@ def share_footer() -> str:
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
 def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
-    url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}\n\n{share_footer()}"
+    para1, para2, para3 = long_share_text(total_cost, saved_url)
+    text: str = f"{para1}\n\n{para2}\n\n{para3}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
@@ -1397,9 +1432,7 @@ def bluesky_share_url(total_cost: float, saved_url: str | None) -> str:
 
     Bluesky's compose intent only accepts text, so the link is included in the text, where Bluesky detects it.
     """
-    url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)} {call_to_action}: {url}"
-    return f"https://bsky.app/intent/compose?text={quote(text)}"
+    return f"https://bsky.app/intent/compose?text={quote(short_share_text(total_cost, saved_url))}"
 
 
 def facebook_share_url(saved_url: str | None) -> str:
@@ -1407,16 +1440,16 @@ def facebook_share_url(saved_url: str | None) -> str:
 
     Facebook's share dialog only accepts a URL; it does not allow pre-filled post text.
     """
-    url, _ = share_link(saved_url)
+    url = COST_OF_KNOWLEDGE_URL if saved_url is None else saved_url
     return f"https://www.facebook.com/sharer/sharer.php?u={quote(url, safe='')}"
 
 
 def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
-    url, call_to_action = share_link(saved_url)
+    para1, para2, para3 = long_share_text(total_cost, saved_url)
     subject: str = "Sharing with you the public and institutional investment in my journal article"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}\r\n\r\n{share_footer()}"
+    body: str = f"{para1}\r\n\r\n{para2}\r\n\r\n{para3}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 
@@ -1604,16 +1637,21 @@ with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE)
     st.container(border=True, key="intro").markdown(
         """
         Every journal article starts as public investment: researcher time, university resources, grant funding.
-        By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog
-        post>.
+        By the time it reaches a publisher, more than 95% of the cost has typically already been paid.
+        [Learn more](https://sparcopen.org/our-work/cost-of-knowledge/).
 
         This tool enables faculty to quantify the public and institutional investment that underpins their work
         (primarily in the form of their own labor) using a costing model described in this
         [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
-        publisher's investment. Through this quantification, this tool makes visible the resources that sustain
-        scholarly publishing and who contributes those resources. Viewed in combination with an associated publication
-        [link to profitability report], the tool offers greater insight into the scale of public subsidies supporting
-        the commercial publishing industry.
+        publisher's investment.
+
+        Through this quantification, this tool makes visible the resources that sustain scholarly publishing and who
+        contributes those resources. A related report,
+        [*How Profitable Are the Big Four Publishers?*](https://doi.org/10.5281/zenodo.23311549),
+        examines the financial performance of the four largest academic publishers over the last 20 years, showing how
+        academic publishing has generated high profit margins and returned billions of dollars to shareholders.
+        Considered together, this tool offers greater insight into the scale of public subsidy supporting the
+        commercial publishing industry.
         """
     )
 

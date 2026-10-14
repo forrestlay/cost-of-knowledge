@@ -1367,7 +1367,7 @@ def short_share_text(total_cost: float, saved_url: str | None) -> str:
     if saved_url is None:
         url_text = f"Read more and use the calculator at {COST_OF_KNOWLEDGE_URL}"
     else:
-        url_text = f"See my result and use the calculator at {saved_url}"
+        url_text = f"See my result and read more at {saved_url}"
 
     return (
         f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
@@ -1546,6 +1546,11 @@ def copy_link_button(label: str, url: str, copied_label: str, help: str, key: st
         key=key,
         width="content",
     )
+
+
+def queue_share_event(event_name: str) -> None:
+    """Callback for a share button, queueing its analytics event to be recorded in the rerun that follows the click."""
+    st.session_state["share_event"] = event_name
 
 
 # -----------------------------------------------
@@ -2490,50 +2495,53 @@ if st.session_state["show_results"] and not results_requirements:
         with st.container(border=True):
             include_publishing_costs_toggle("include-publishing-costs-share")
 
-        with (
-            st.container(horizontal=True, horizontal_alignment="left"),
-            sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
-        ):
-            st.download_button(
-                "Download your summary infographic image",
-                data=social_media_svg_to_png(social_media_svg),
-                file_name="cost-of-knowledge-estimate.png",
-                mime="image/png",
-                icon=":material/image:",
-                type="primary",
-            )
-            if st.link_button(
+        with st.container(horizontal=True, horizontal_alignment="left"):
+            with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+                st.download_button(
+                    "Download your summary infographic image",
+                    data=social_media_svg_to_png(social_media_svg),
+                    file_name="cost-of-knowledge-estimate.png",
+                    mime="image/png",
+                    icon=":material/image:",
+                    type="primary",
+                )
+                # The share buttons' callbacks run before this rerun reaches here, so the clicked one is recorded.
+                if (share_event := st.session_state.pop("share_event", None)) is not None:
+                    sa2.event(share_event)
+            # The share buttons are rendered outside tracking because streamlit_analytics2 records every link button
+            # it sees on each rerun as a widget change, not only the one that was clicked.
+            st.link_button(
                 "Share on LinkedIn",
                 linkedin_share_url(total_cost, saved_result_url),
                 icon=":material/share:",
                 help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-                on_click="rerun",
-            ):
-                sa2.event("share_linkedin")
-            if st.link_button(
+                on_click=queue_share_event,
+                args=("share_linkedin",),
+            )
+            st.link_button(
                 "Share on Bluesky",
                 bluesky_share_url(total_cost, saved_result_url),
                 icon=":material/share:",
                 help="Share this tool on Bluesky. Download the image first and attach it to your post.",
-                on_click="rerun",
-            ):
-                sa2.event("share_bluesky")
-            if st.link_button(
+                on_click=queue_share_event,
+                args=("share_bluesky",),
+            )
+            st.link_button(
                 "Share on Facebook",
                 facebook_share_url(saved_result_url),
                 icon=":material/share:",
                 help="Share this tool on Facebook. Download the image first and attach it to your post.",
-                on_click="rerun",
-            ):
-                sa2.event("share_facebook")
-            if st.link_button(
+                on_click=queue_share_event,
+                args=("share_facebook",),
+            )
+            st.link_button(
                 "Share via email",
                 email_share_url(total_cost, saved_result_url),
                 icon=":material/email:",
                 help="Share this tool via email. Download the image first and attach it to your email.",
-                on_click="rerun",
-            ):
-                sa2.event("share_email")
+                on_click=queue_share_event,
+                args=("share_email",),
+            )
     share_right.container(horizontal=True, horizontal_alignment="center").image(
         social_media_svg, width=540, alt=social_media_alt_text
     )

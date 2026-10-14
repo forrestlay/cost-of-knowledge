@@ -1386,8 +1386,8 @@ def long_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str,
     return (
         (
             f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-            "institutional investment: my time, my university’s resources, research funding, and more.  The public "
-            "benefits, but where does the financial return go?"
+            "institutional investment: my time, my university’s resources, research funding, and more.  There are "
+            "significant public benefits, but where does the financial return go?"
         ),
         (
             f"{url_text} to estimate the investment in your own work and learn more about the profitability "
@@ -1410,15 +1410,15 @@ def email_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str
     return (
         (
             f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-            "institutional investment: my time, my university’s resources, research funding, and more.  The public "
-            "benefits, but where does the financial return go?"
+            "institutional investment: my time, my university’s resources, research funding, and more.  There are "
+            "significant public benefits, but where does the financial return go?"
         ),
         (
             f"{url_text} to estimate the investment in your own work and learn more about the profitability "
             "of the largest publishers at https://doi.org/10.5281/zenodo.23311549"
         ),
         (
-            "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "
+            "The Cost of Knowledge Calculator is a collaboration between SPARC and the University of Sydney and "
             "produced by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
         ),
     )
@@ -1456,7 +1456,7 @@ def facebook_share_url(saved_url: str | None) -> str:
 
 def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
-    para1, para2, para3 = long_share_text(total_cost, saved_url)
+    para1, para2, para3 = email_share_text(total_cost, saved_url)
     subject: str = "Sharing with you the public and institutional investment in my journal article"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
     body: str = f"{para1}\r\n\r\n{para2}\r\n\r\n{para3}"

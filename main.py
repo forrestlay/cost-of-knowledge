@@ -27,7 +27,6 @@ limitations under the License.
 
 import json
 import logging
-import os
 from contextlib import closing
 from inspect import cleandoc
 from pathlib import Path
@@ -37,9 +36,9 @@ from urllib.parse import quote, urlsplit
 import plotly.express as px
 import streamlit as st
 import streamlit_analytics2 as sa2
-from streamlit.errors import StreamlitSecretNotFoundError
 
 from src import database, reference_data, sql_store
+from src.analytics import ANALYTICS_FILE, analytics_password
 from src.calculator_state import (
     CALCULATOR_MODES,
     DEFAULT_INDIRECT_COST_PERCENTAGE,
@@ -186,32 +185,6 @@ ACTIVITY_DEFAULT_HOURS: dict[tuple[str, str], float] = {
 COST_DEFAULTS_USD: dict[tuple[str, str], float] = {
     (cost["phase"], cost["name"]): float(cost["default_cost"]) for cost in _COSTS_DATA["direct_costs"]
 }
-
-
-# -----------------------------------------------
-# Analytics
-# -----------------------------------------------
-
-
-# Saved under data/ so that the Docker volume mounted there also persists the analytics events.
-ANALYTICS_FILE: Path = Path(__file__).parent / "data" / "analytics.db"
-
-
-def analytics_password() -> str | None:
-    """Password for the analytics dashboard, from the ANALYTICS_PASSWORD environment variable, falling back to
-    "analytics_password" in Streamlit secrets.
-
-    Returns None if neither is set, which leaves the dashboard without a password. An empty string must not be returned
-    instead, as streamlit_analytics2 would then accept an empty password input.
-    """
-    password: str | None = os.environ.get("ANALYTICS_PASSWORD")
-    if password:
-        return password
-    try:
-        secret: object = st.secrets.get("analytics_password")
-    except StreamlitSecretNotFoundError:
-        return None
-    return str(secret) if secret else None
 
 
 # -----------------------------------------------
@@ -1378,31 +1351,66 @@ def confirm_reset() -> None:
 # -----------------------------------------------
 
 
-def share_summary(total_cost: float) -> str:
-    """One-sentence summary of the estimate used as the pre-filled text of social media posts."""
+def short_share_text(total_cost: float, saved_url: str | None) -> str:
+    """Short social media sharing text."""
+    if saved_url is None:
+        url_text = f"Use the calculator at {COST_OF_KNOWLEDGE_URL}"
+    else:
+        url_text = f"See my result and use the calculator at {saved_url}"
+
     return (
-        f"I estimated that the public and institutional investment in my peer-reviewed journal article is "
-        f"{format_currency(total_cost)}. "
-        "I used the University of Sydney and SPARC Cost of Knowledge Calculator "
-        "by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
+        "institutional investment. The public benefits, but where does the financial return go?"
+        f"{url_text} to estimate the investment in your work and learn more about the profitability of the "
+        "largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAWeek"
     )
 
 
-def share_link(saved_url: str | None) -> tuple[str, str]:
-    """Returns the link shared on social media and by email, and the call to action introducing it.
-
-    Args:
-        saved_url: Link to the user's saved result, or None if it has not been saved, in which case the tool's own
-            link is shared.
-    """
+def long_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str, str]:
+    """Long social media sharing text."""
     if saved_url is None:
-        return (
-            COST_OF_KNOWLEDGE_URL,
-            ("I invite you to estimate your own Cost of Knowledge"),
-        )
+        url_text = f"Use the #CostofKnowledge Calculator at {COST_OF_KNOWLEDGE_URL}"
+    else:
+        url_text = f"See my result and use the #CostofKnowledge Calculator at {saved_url}"
+
     return (
-        saved_url,
-        ("I invite you to see my result and estimate your own Cost of Knowledge"),
+        (
+            f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
+            "institutional investment: my time, my university’s resources, research funding.  The public benefits, "
+            "but where does the financial return go?"
+        ),
+        (
+            f"{url_text} to estimate the investment in your own work and learn more about the profitability "
+            "of the largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAweek"
+        ),
+        (
+            "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "
+            "produced by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        ),
+    )
+
+
+def email_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str, str]:
+    """Long social media sharing text."""
+    if saved_url is None:
+        url_text = f"Use the Cost of Knowledge Calculator at {COST_OF_KNOWLEDGE_URL}"
+    else:
+        url_text = f"See my result and use the Cost of Knowledge Calculator at {saved_url}"
+
+    return (
+        (
+            f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
+            "institutional investment: my time, my university’s resources, research funding.  The public benefits, "
+            "but where does the financial return go?"
+        ),
+        (
+            f"{url_text} to estimate the investment in your own work and learn more about the profitability "
+            "of the largest publishers at https://doi.org/10.5281/zenodo.23311549 #OAweek"
+        ),
+        (
+            "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "
+            "produced by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
+        ),
     )
 
 
@@ -1414,8 +1422,8 @@ def share_footer() -> str:
 # None of the platforms' share links can attach an image, so the user attaches the downloaded PNG themselves.
 def linkedin_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a link that opens LinkedIn's post composer pre-filled with a summary of the estimate."""
-    url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)}\n\n{call_to_action} at {url}\n\n{share_footer()}"
+    para1, para2, para3 = long_share_text(total_cost, saved_url)
+    text: str = f"{para1}\n\n{para2}\n\n{para3}"
     return f"https://www.linkedin.com/feed/?shareActive=true&text={quote(text)}"
 
 
@@ -1424,9 +1432,7 @@ def bluesky_share_url(total_cost: float, saved_url: str | None) -> str:
 
     Bluesky's compose intent only accepts text, so the link is included in the text, where Bluesky detects it.
     """
-    url, call_to_action = share_link(saved_url)
-    text: str = f"{share_summary(total_cost)} {call_to_action}: {url}"
-    return f"https://bsky.app/intent/compose?text={quote(text)}"
+    return f"https://bsky.app/intent/compose?text={quote(short_share_text(total_cost, saved_url))}"
 
 
 def facebook_share_url(saved_url: str | None) -> str:
@@ -1434,16 +1440,16 @@ def facebook_share_url(saved_url: str | None) -> str:
 
     Facebook's share dialog only accepts a URL; it does not allow pre-filled post text.
     """
-    url, _ = share_link(saved_url)
+    url = COST_OF_KNOWLEDGE_URL if saved_url is None else saved_url
     return f"https://www.facebook.com/sharer/sharer.php?u={quote(url, safe='')}"
 
 
 def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
-    url, call_to_action = share_link(saved_url)
+    para1, para2, para3 = long_share_text(total_cost, saved_url)
     subject: str = "Sharing with you the public and institutional investment in my journal article"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
-    body: str = f"{share_summary(total_cost)}\r\n\r\n{call_to_action} at {url}\r\n\r\n{share_footer()}"
+    body: str = f"{para1}\r\n\r\n{para2}\r\n\r\n{para3}"
     return f"mailto:?subject={quote(subject)}&body={quote(body)}"
 
 
@@ -1631,16 +1637,21 @@ with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE)
     st.container(border=True, key="intro").markdown(
         """
         Every journal article starts as public investment: researcher time, university resources, grant funding.
-        By the time it reaches a publisher, more than 95% of the cost has typically already been paid <link to blog
-        post>.
+        By the time it reaches a publisher, more than 95% of the cost has typically already been paid.
+        [Learn more](https://sparcopen.org/our-work/cost-of-knowledge/).
 
         This tool enables faculty to quantify the public and institutional investment that underpins their work
         (primarily in the form of their own labor) using a costing model described in this
         [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
-        publisher's investment. Through this quantification, this tool makes visible the resources that sustain
-        scholarly publishing and who contributes those resources. Viewed in combination with an associated publication
-        [link to profitability report], the tool offers greater insight into the scale of public subsidies supporting
-        the commercial publishing industry.
+        publisher's investment.
+
+        Through this quantification, this tool makes visible the resources that sustain scholarly publishing and who
+        contributes those resources. A related report,
+        [*How Profitable Are the Big Four Publishers?*](https://doi.org/10.5281/zenodo.23311549),
+        examines the financial performance of the four largest academic publishers over the last 20 years, showing how
+        academic publishing has generated high profit margins and returned billions of dollars to shareholders.
+        Considered together, this tool offers greater insight into the scale of public subsidy supporting the
+        commercial publishing industry.
         """
     )
 
@@ -2460,40 +2471,50 @@ if st.session_state["show_results"] and not results_requirements:
         with st.container(border=True):
             include_publishing_costs_toggle("include-publishing-costs-share")
 
-        with st.container(horizontal=True, horizontal_alignment="left"):
-            with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
-                st.download_button(
-                    "Download your summary infographic image",
-                    data=social_media_svg_to_png(social_media_svg),
-                    file_name="cost-of-knowledge-estimate.png",
-                    mime="image/png",
-                    icon=":material/image:",
-                    type="primary",
-                )
-                st.link_button(
-                    "Share on LinkedIn",
-                    linkedin_share_url(total_cost, saved_result_url),
-                    icon=":material/share:",
-                    help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
-                )
-                st.link_button(
-                    "Share on Bluesky",
-                    bluesky_share_url(total_cost, saved_result_url),
-                    icon=":material/share:",
-                    help="Share this tool on Bluesky. Download the image first and attach it to your post.",
-                )
-                st.link_button(
-                    "Share on Facebook",
-                    facebook_share_url(saved_result_url),
-                    icon=":material/share:",
-                    help="Share this tool on Facebook. Download the image first and attach it to your post.",
-                )
-                st.link_button(
-                    "Share via email",
-                    email_share_url(total_cost, saved_result_url),
-                    icon=":material/email:",
-                    help="Share this tool via email. Download the image first and attach it to your email.",
-                )
+        with (
+            st.container(horizontal=True, horizontal_alignment="left"),
+            sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
+        ):
+            st.download_button(
+                "Download your summary infographic image",
+                data=social_media_svg_to_png(social_media_svg),
+                file_name="cost-of-knowledge-estimate.png",
+                mime="image/png",
+                icon=":material/image:",
+                type="primary",
+            )
+            if st.link_button(
+                "Share on LinkedIn",
+                linkedin_share_url(total_cost, saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on LinkedIn. Download the image first and attach it to your post.",
+                on_click="rerun",
+            ):
+                sa2.event("share_linkedin")
+            if st.link_button(
+                "Share on Bluesky",
+                bluesky_share_url(total_cost, saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on Bluesky. Download the image first and attach it to your post.",
+                on_click="rerun",
+            ):
+                sa2.event("share_bluesky")
+            if st.link_button(
+                "Share on Facebook",
+                facebook_share_url(saved_result_url),
+                icon=":material/share:",
+                help="Share this tool on Facebook. Download the image first and attach it to your post.",
+                on_click="rerun",
+            ):
+                sa2.event("share_facebook")
+            if st.link_button(
+                "Share via email",
+                email_share_url(total_cost, saved_result_url),
+                icon=":material/email:",
+                help="Share this tool via email. Download the image first and attach it to your email.",
+                on_click="rerun",
+            ):
+                sa2.event("share_email")
     share_right.container(horizontal=True, horizontal_alignment="center").image(
         social_media_svg, width=540, alt=social_media_alt_text
     )

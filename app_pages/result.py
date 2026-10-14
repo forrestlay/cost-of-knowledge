@@ -27,8 +27,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 import streamlit as st
+import streamlit_analytics2 as sa2
 
 from src import database, sql_store
+from src.analytics import ANALYTICS_FILE, analytics_password
 from src.calculator_state import compute_costs
 from src.figures import (
     build_color_map,
@@ -183,7 +185,10 @@ st.markdown(
     text_alignment="center",
 )
 
-with st.container(horizontal=True, horizontal_alignment="center"):
+with (
+    st.container(horizontal=True, horizontal_alignment="center"),
+    sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
+):
     back_to_calculator_button()
 
 # Same colour maps as the calculator, so each phase and activity has the same colour on both pages.

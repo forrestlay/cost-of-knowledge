@@ -132,18 +132,44 @@ results_direct_costs: list[DirectCost] = state.effective_direct_costs()
 combined_costs_list: list[Cost] = [*results_activities, *results_direct_costs]  # ty:ignore[invalid-assignment]
 total_cost: float = compute_costs(combined_costs_list)
 
-st.markdown(
+st.container(key="intro").markdown(
     """
-        <span style="font-size: 1.4rem">**As a researcher, have you thought about what it really costs to take a
-        journal article from ideation to publication?**</span>
+    Every journal article starts as public investment: researcher time, university resources, grant funding.
+    By the time it reaches a publisher, more than 95% of the cost has typically already been paid.
+    [Learn more](https://sparcopen.org/our-work/cost-of-knowledge/).
 
-        Debates about the economics of scholarly publishing typically focus on subscription prices, article
-        processing charges, publisher revenues, and profit margins. Much less attention is paid to the costs
-        incurred in producing the research that makes scholarly publishing possible.
+    The researcher who has shared their result with you has used the Cost of Knowledge Calculator to estimate the
+    full cost of preparing one of their refereed journal articles, from ideation to acceptance by a journal (including
+    the cost of academic labor and institutional resources).
 
-        The researcher who has shared their result with you has used the Cost of Knowledge Calculator to estimate the
-        full cost of preparing and publishing one of their refereed journal articles.
-        """,
+    This tool enables faculty to quantify the public and institutional investment that underpins their work
+    (primarily in the form of their own labor) using a costing model described in this
+    [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
+    publisher's investment.
+
+    Through this quantification, this tool makes visible the resources that sustain scholarly publishing and who
+    contributes those resources. A related report,
+    [*How Profitable Are the Big Four Publishers?*](https://doi.org/10.5281/zenodo.23311549),
+    examines the financial performance of the four largest academic publishers over the last 20 years, showing how
+    academic publishing has generated high profit margins and returned billions of dollars to shareholders.
+    Considered together, this tool offers greater insight into the scale of public subsidy supporting the
+    commercial publishing industry.
+
+    **The results of this tool should not be taken to reflect or quantify the value of research**, only the costs
+    involved in preparing a refereed journal article. Prior literature has established that research provides
+    substantial economic and social returns{footnote_returns}, and with this tool we instead seek to draw attention
+    to the resources required for scholarly publishing.
+    """.replace(
+        "{footnote_returns}",
+        toggletip(
+            "<sup>1</sup>",
+            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
+            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
+            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
+            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
+            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
+        ),
+    ),
     unsafe_allow_html=True,
 )
 
@@ -197,26 +223,6 @@ item_color_map: dict[str, str] = build_color_map([item.get_name() or "Unnamed" f
 
 
 st.header("The Cost of This Refereed Journal Article")
-
-st.markdown(
-    """
-        **These results should not be taken to reflect or quantify the value of research**, only the costs
-        involved in preparing a refereed journal article. Prior literature has established that research provides
-        substantial economic and social returns{footnote_1}, and with this tool we instead seek to draw attention
-        to the resources required for scholarly publishing.
-        """.replace(
-        "{footnote_1}",
-        toggletip(
-            "<sup>1</sup>",
-            "Jones, B. F., & Summers, L. H. (Eds.). (2022). A Calculation of the Social Returns to Innovation. In "
-            "Innovation and Public Policy (pp. 13-60). University of Chicago Press. "
-            "https://doi.org/10.7208/chicago/9780226805597.003.0002; Salter, A. J., & Martin, B. R. (2001). "
-            "The economic benefits of publicly funded basic research: A critical review. Research Policy, 30(3), "
-            "509-532. https://doi.org/10.1016/S0048-7333(00)00091-3.",
-        ),
-    ),
-    unsafe_allow_html=True,
-)
 
 k1, k2 = st.columns(2)
 k1.metric("Estimated total cost", format_currency(total_cost, country))

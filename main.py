@@ -1367,7 +1367,7 @@ def short_share_text(total_cost: float, saved_url: str | None) -> str:
     if saved_url is None:
         url_text = f"Read more and use the calculator at {COST_OF_KNOWLEDGE_URL}"
     else:
-        url_text = f"See my result and use the calculator at {saved_url}"
+        url_text = f"See my result and read more at {saved_url}"
 
     return (
         f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "

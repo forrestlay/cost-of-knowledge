@@ -50,9 +50,11 @@ type SessionStateKey = str | int
 # is read by ignoring the names, with no roles. Version 3 added the calculator mode and the simplified estimates. Older
 # data is read in detailed mode with no simplified estimates. Version 4 added the publishing cost. Older data is read
 # with the default publishing cost. Version 5 added the number of peer reviewers to the peer review activity. Older data
-# is read with one peer reviewer.
-SCHEMA_VERSION: int = 5
-SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4, 5)
+# is read with one peer reviewer. Version 6 added people's hourly rates excluding indirect costs, so that the rates of
+# people without a role follow the indirect cost rate. Older data derives them from the hourly rate and the project's
+# indirect cost rate.
+SCHEMA_VERSION: int = 6
+SUPPORTED_SCHEMA_VERSIONS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 # The two ways of estimating activities and costs in the calculator. Simplified takes an overall number of hours per
 # researcher and an overall direct cost for each phase in OVERALL_TOTAL_PHASES. Detailed takes individual activities and
 # direct costs.
@@ -60,8 +62,8 @@ CALCULATOR_MODES: tuple[str, ...] = ("simplified", "detailed")
 DEFAULT_CALCULATOR_MODE: str = "simplified"
 # Maximum hours of a researcher in a phase, or on an activity.
 MAX_RESEARCHER_HOURS: int = 800
-# Project-wide indirect cost rate (%) applied to hourly rates calculated from a salary. Projects saved before the rate
-# was stored are loaded with this rate.
+# Project-wide indirect cost rate (%) applied to every researcher's hourly rate, whether from a role, a salary or an
+# hourly rate entered directly. Projects saved before the rate was stored are loaded with this rate.
 DEFAULT_INDIRECT_COST_PERCENTAGE: int = 40
 
 # Keys of the widgets in main.py whose values are held in st.session_state. A keyed widget takes its value from
@@ -117,6 +119,18 @@ def default_phase_costs() -> dict[str, float]:
     for direct_cost in _DEFAULT_COSTS["direct_costs"]:
         costs[direct_cost["phase"]] += float(direct_cost["cost"])
     return costs
+
+
+def default_peer_review() -> dict[str, int]:
+    """Returns the number of journal submissions, peer reviewers and review rounds in the default estimates from Alam
+    et al. (2026), keyed by their PeerReview attribute names.
+    """
+    peer_review: Mapping[str, Any] = _DEFAULT_COSTS["peer_review"]
+    return {
+        "journal_submissions": int(peer_review["journal_submissions"]),
+        "peer_reviewers": int(peer_review["peer_reviewers"]),
+        "review_rounds": int(peer_review["review_rounds"]),
+    }
 
 
 def compute_costs(costs: Sequence[Cost], phase: str | None = None) -> float:
@@ -418,11 +432,19 @@ class CalculatorState:
         if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError(f"Unsupported calculator schema_version {schema_version!r}.")
 
+        project: Mapping[str, Any] = data["project"]
+        indirect_cost_percentage: int = int(project.get("indirect_cost_percentage", DEFAULT_INDIRECT_COST_PERCENTAGE))
+
         people: dict[str, Person] = {}
         for person_data in data["people"]:
             person: Person = Person.from_dict(person_data)
             if person.unique_key in people:
                 raise ValueError(f"Duplicate person unique_key {person.unique_key!r}.")
+            # Before version 6, the rate of a researcher without a role was calculated from a salary or entered
+            # directly, and the indirect cost rate applied, without keeping the rate excluding indirect costs. Derive
+            # it, assuming the rate was calculated with the project's indirect cost rate.
+            if schema_version < 6 and person.role is None and person.base_hourly_rate is None:
+                person.base_hourly_rate = person.hourly_rate / (1 + indirect_cost_percentage / 100)
             people[person.unique_key] = person
         peer_reviewer: Person = Person.from_dict(data["peer_reviewer"])
         journal_editor: Person = Person.from_dict(data["journal_editor"])
@@ -441,7 +463,6 @@ class CalculatorState:
             if count != 1:
                 raise ValueError(f"Expected exactly one {special_type.__name__} activity, found {count}.")
 
-        project: Mapping[str, Any] = data["project"]
         calculator_mode: str = project.get("calculator_mode", "detailed")
         if calculator_mode == "granular":  # Detailed mode was previously called granular.
             calculator_mode = "detailed"
@@ -457,7 +478,7 @@ class CalculatorState:
             user_country=project["user_country"],
             international_collaborators=bool(project["international_collaborators"]),
             project_field=project["project_field"],
-            indirect_cost_percentage=int(project.get("indirect_cost_percentage", DEFAULT_INDIRECT_COST_PERCENTAGE)),
+            indirect_cost_percentage=indirect_cost_percentage,
             people=people,
             peer_reviewer=peer_reviewer,
             journal_editor=journal_editor,

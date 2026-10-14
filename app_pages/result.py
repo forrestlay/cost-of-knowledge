@@ -286,7 +286,10 @@ st.plotly_chart(
     ),
 )
 
-with st.container(horizontal=True, horizontal_alignment="center"):
+with (
+    st.container(horizontal=True, horizontal_alignment="center"),
+    sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE),
+):
     back_to_calculator_button()
 
 st.divider()

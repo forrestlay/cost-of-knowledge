@@ -58,6 +58,9 @@ class Person:
         hourly_rate: Cost of person's labour per hour.
         role: Key of the person's role in reference_data.ROLES (e.g. "assistant_professor"), or None if not chosen.
         quantity: Number of people who share this hourly rate. Recorded for display only; it does not affect costs.
+        base_hourly_rate: Hourly rate excluding indirect costs, of a person whose rate was calculated from a salary or
+            entered directly rather than from a role, so that hourly_rate can be recalculated when the indirect cost
+            rate changes. None for a person with a role, or whose rate is fixed (e.g. the peer reviewer).
     """
 
     unique_key: str
@@ -65,6 +68,7 @@ class Person:
     hourly_rate: int | float
     role: str | None = None
     quantity: int = 1
+    base_hourly_rate: int | float | None = None
 
     @property
     def label(self) -> str:
@@ -99,6 +103,16 @@ class Person:
             return salary / contract_period_hours * indirect_cost_multiplier
         return 0
 
+    def apply_indirect_cost_rate(self, indirect_cost_percentage: float) -> None:
+        """Recalculates hourly_rate from base_hourly_rate with the given indirect cost rate, rounded to the cent. Does
+        nothing if this person has no base_hourly_rate.
+
+        Args:
+            indirect_cost_percentage: Indirect cost rate as a percentage of base_hourly_rate, e.g. 40.
+        """
+        if self.base_hourly_rate is not None:
+            self.hourly_rate = round(self.base_hourly_rate * (1 + indirect_cost_percentage / 100), 2)
+
     def to_dict(self) -> dict[str, Any]:
         """Returns a JSON-serialisable dict of this person."""
         return {
@@ -107,6 +121,7 @@ class Person:
             "hourly_rate": self.hourly_rate,
             "role": self.role,
             "quantity": self.quantity,
+            "base_hourly_rate": self.base_hourly_rate,
         }
 
     @classmethod
@@ -114,7 +129,8 @@ class Person:
         """Creates a Person from a dict produced by ``to_dict``.
 
         Ignores the "name" key written by schema version 1, which has no "role" key. Data saved before quantities
-        existed has no "quantity" key, and is loaded with a quantity of 1.
+        existed has no "quantity" key, and is loaded with a quantity of 1. Data saved before schema version 6 has no
+        "base_hourly_rate" key, and is loaded without one (see CalculatorState.from_dict, which derives it).
         """
         return cls(
             unique_key=str(data["unique_key"]),
@@ -122,6 +138,7 @@ class Person:
             hourly_rate=data["hourly_rate"],
             role=data.get("role"),
             quantity=int(data.get("quantity") or 1),
+            base_hourly_rate=data.get("base_hourly_rate"),
         )
 
 

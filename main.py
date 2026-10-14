@@ -45,10 +45,10 @@ from src.calculator_state import (
     DEFAULT_PUBLISHING_COSTS,
     MAX_RESEARCHER_HOURS,
     OVERALL_TOTAL_PHASES,
-    WIDGET_KEYS,
     CalculatorState,
     compute_costs,
     compute_hours,
+    default_peer_review,
     default_phase_costs,
     default_phase_hours,
 )
@@ -115,15 +115,20 @@ current_page: st.Page = st.navigation(
     [CALCULATOR_PAGE, RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE],
     position="hidden",
 )
+# Session state key of the calculator's inputs, saved on leaving the calculator for another page (e.g. the about page
+# in the sidebar) and restored on returning to it. Holds the CalculatorState under "state", and the "save my result"
+# toggle, which is not part of a CalculatorState, under "save_result_to_database".
+CALCULATOR_SNAPSHOT_KEY: str = "calculator_snapshot"
 for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
     if current_page.url_path == other_page.url_path:
         # Streamlit discards the state of widgets that are not rendered in a run, so the calculator's inputs would be
-        # lost on visiting the about page from the sidebar. Reassigning them hands them over to session state instead.
-        # The add and edit forms are left out, as they are reset whenever they are opened.
-        if other_page is ABOUT_PAGE:
-            for widget_key in list(st.session_state.keys()):
-                if widget_key in WIDGET_KEYS or str(widget_key).startswith(("simplified-hours-", "simplified-cost-")):
-                    st.session_state[widget_key] = st.session_state[widget_key]
+        # lost on leaving it. Its widgets' state is still there in the first run of the other page, so snapshot the
+        # inputs then. A session that starts on another page has no inputs to snapshot.
+        if "activity_list" in st.session_state and CALCULATOR_SNAPSHOT_KEY not in st.session_state:
+            st.session_state[CALCULATOR_SNAPSHOT_KEY] = {
+                "state": CalculatorState.from_dict(CalculatorState.from_session_state(st.session_state).to_dict()),
+                "save_result_to_database": st.session_state.get("save_result_to_database", False),
+            }
         other_page.run()
         st.stop()
 
@@ -131,7 +136,7 @@ for other_page in (RESULT_PAGE, ADMIN_PAGE, ABOUT_PAGE):
 COST_OF_KNOWLEDGE_URL: str = "https://costofknowledge.org"
 # Version of the tool, shown in the footer and recorded with each saved result. Whenever this tool is changed
 # substantially such that users may approach answering the questions differently, increment this.
-COST_OF_KNOWLEDGE_VERSION: str = "1.0.1"
+COST_OF_KNOWLEDGE_VERSION: str = "1.0.2"
 # Persist version across pages.
 if "tool_version" not in st.session_state:
     st.session_state["tool_version"] = COST_OF_KNOWLEDGE_VERSION
@@ -261,6 +266,8 @@ def convert_monetary_values():
     ]
     for person in people:
         person.hourly_rate = convert(person.hourly_rate)
+        if person.base_hourly_rate is not None:
+            person.base_hourly_rate = convert(person.base_hourly_rate)
     # Keyed number_inputs keep their widget ID when value= changes, so the browser would keep showing (and send
     # back) the old amount. Writing the converted amount into the widget's state makes Streamlit push it to the
     # browser.
@@ -356,13 +363,14 @@ def role_hourly_rate(role: str) -> float:
 
 
 def apply_indirect_cost_rate() -> None:
-    """Callback for the indirect cost rate slider. Refreshes the hourly rate of everyone who has a role selected.
-
-    Rates that were calculated from a salary (no role) are left alone.
+    """Callback for the indirect cost rate slider. Refreshes the hourly rate of every researcher: from their role, or
+    from their hourly rate excluding indirect costs if it was calculated from a salary or entered directly.
     """
     for person in st.session_state["people"].values():
         if person.role is not None:
             person.hourly_rate = role_hourly_rate(person.role)
+        else:
+            person.apply_indirect_cost_rate(st.session_state["indirect_cost_percentage"])
 
 
 def format_hourly_rate(hourly_rate: float) -> str:
@@ -440,23 +448,12 @@ def calculate_manual_hourly_rate(key: str, person: Person | None = None) -> None
         )
 
 
-def manual_hourly_rate(key: str) -> float:
-    """Returns the hourly rate entered in calculate_manual_hourly_rate, including indirect costs."""
-    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
-    return round(st.session_state[f"{key}-hourly-rate"] * indirect_cost_multiplier, 2)
-
-
-def salary_hourly_rate(key: str) -> float:
-    """Calculates the hourly rate from the inputs shown by calculate_hourly_rate, including indirect costs."""
-    indirect_cost_multiplier: float = 1 + (st.session_state["indirect_cost_percentage"] / 100)
-    return round(
-        Person.salary_to_hourly_rate(
-            st.session_state[f"{key}-salary"],
-            st.session_state[f"{key}-weekly-hours"],
-            st.session_state[f"{key}-months"],
-            indirect_cost_multiplier,
-        ),
-        2,
+def salary_base_hourly_rate(key: str) -> float:
+    """Calculates the hourly rate from the inputs shown by calculate_hourly_rate, excluding indirect costs."""
+    return Person.salary_to_hourly_rate(
+        st.session_state[f"{key}-salary"],
+        st.session_state[f"{key}-weekly-hours"],
+        st.session_state[f"{key}-months"],
     )
 
 
@@ -473,39 +470,46 @@ def save_researcher(key: str, person_key: str | None = None) -> None:
     quantity: int = int(st.session_state[f"{key}-quantity"])
 
     role: str | None = None
+    # Hourly rate excluding indirect costs, of a researcher whose rate is calculated from a salary or entered directly.
+    base_hourly_rate: int | float | None = None
     if choice is None:
         st.toast("Choose a role or enter a salary or hourly rate first.", icon=":material/error:")
         return
     if choice == MANUAL_SALARY_OPTION:
         if st.session_state[f"{key}-salary"] > 0:
-            hourly_rate: int | float = salary_hourly_rate(key)
+            base_hourly_rate = salary_base_hourly_rate(key)
         elif person is not None and person.role is None:
-            hourly_rate = person.hourly_rate
+            base_hourly_rate = person.base_hourly_rate
         else:
             st.toast("Enter the researcher's salary first.", icon=":material/error:")
             return
     elif choice == MANUAL_HOURLY_RATE_OPTION:
         if st.session_state[f"{key}-hourly-rate"] > 0:
-            hourly_rate = manual_hourly_rate(key)
+            base_hourly_rate = st.session_state[f"{key}-hourly-rate"]
         elif person is not None and person.role is None:
-            hourly_rate = person.hourly_rate
+            base_hourly_rate = person.base_hourly_rate
         else:
             st.toast("Enter the researcher's hourly rate first.", icon=":material/error:")
             return
     else:
         role = choice
-        hourly_rate = role_hourly_rate(choice)
 
     if person is None:
-        person = Person(next_person_key(), PersonType.RESEARCH_TEAM, hourly_rate, role, quantity)
+        # The hourly rate is set below.
+        person = Person(next_person_key(), PersonType.RESEARCH_TEAM, 0, role, quantity, base_hourly_rate)
         people[person.unique_key] = person
         # The form clears itself, but not the role selectbox above it.
         st.session_state[f"{key}-role"] = None
         st.toast(f"Added {person.label}.", icon=":material/check_circle:")
     else:
         person.role = role
-        person.hourly_rate = hourly_rate
         person.quantity = quantity
+        person.base_hourly_rate = base_hourly_rate
+    if role is not None:
+        person.hourly_rate = role_hourly_rate(role)
+    else:
+        # Does nothing to a researcher who keeps their current rate but has no rate excluding indirect costs.
+        person.apply_indirect_cost_rate(st.session_state["indirect_cost_percentage"])
     st.session_state[f"{key}-saved"] = True
 
 
@@ -1195,8 +1199,8 @@ def show_footer() -> None:
         :small[[Privacy Policy](https://sparcopen.org/privacy-policy/) •
         [GitHub](https://github.com/forrestlay/cost-of-knowledge)]
 
-        :small[Tool version: v{version} • [Admin]({base_url}/admin)]
-        """.replace("{version}", COST_OF_KNOWLEDGE_VERSION).replace("{base_url}", COST_OF_KNOWLEDGE_URL),
+        :small[Tool version: v{version} • [Admin](admin)]
+        """.replace("{version}", COST_OF_KNOWLEDGE_VERSION),
         text_alignment="center",
     )
 
@@ -1220,7 +1224,8 @@ def load_alam_defaults() -> None:
 def load_simplified_defaults() -> None:
     """Callback for the simplified calculator's "Load defaults from Alam et al. (2026)" button. Sets the hours and
     direct costs to the estimates from Alam et al. (2026): the first researcher gets the default hours of each phase
-    and everyone else has none.
+    and everyone else has none. The peer review sliders are reset to the default journal submissions, peer reviewers
+    and review rounds, as the detailed calculator's button does.
 
     The direct costs are converted from USD to the user's currency, or left in USD if no exchange rate is available.
     """
@@ -1234,6 +1239,12 @@ def load_simplified_defaults() -> None:
             set_simplified_hours(phase, person.unique_key, hours)
         st.session_state["simplified_direct_costs"][phase] = round(cost * rate, 2)
         st.session_state[f"simplified-cost-{phase}"] = st.session_state["simplified_direct_costs"][phase]
+    # Set both the values and the sliders' widget state, as CalculatorState.apply_to_session_state does.
+    for attribute, value in default_peer_review().items():
+        st.session_state[attribute] = value
+        st.session_state[attribute.replace("_", "-")] = value
+        setattr(st.session_state["peer_review_activity"], attribute, value)
+    st.session_state["journal_editing_activity"].journal_submissions = st.session_state["journal_submissions"]
     st.toast("Loaded the estimates from Alam et al. (2026).", icon=":material/check_circle:")
 
 
@@ -1375,8 +1386,8 @@ def long_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str,
     return (
         (
             f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-            "institutional investment: my time, my university’s resources, research funding, and more.  The public "
-            "benefits, but where does the financial return go?"
+            "institutional investment: my time, my university’s resources, research funding, and more.  There are "
+            "significant public benefits, but where does the financial return go?"
         ),
         (
             f"{url_text} to estimate the investment in your own work and learn more about the profitability "
@@ -1399,15 +1410,15 @@ def email_share_text(total_cost: float, saved_url: str | None) -> tuple[str, str
     return (
         (
             f"My peer-reviewed journal article was supported by {format_currency(total_cost)} of public and "
-            "institutional investment: my time, my university’s resources, research funding, and more.  The public "
-            "benefits, but where does the financial return go?"
+            "institutional investment: my time, my university’s resources, research funding, and more.  There are "
+            "significant public benefits, but where does the financial return go?"
         ),
         (
             f"{url_text} to estimate the investment in your own work and learn more about the profitability "
             "of the largest publishers at https://doi.org/10.5281/zenodo.23311549"
         ),
         (
-            "The #CostofKnowledge Calculator is a collaboration between @SPARC and the University of Sydney and "
+            "The Cost of Knowledge Calculator is a collaboration between SPARC and the University of Sydney and "
             "produced by Alam, Andrew, Baker, Coupe, Koh, Lay, Loh, and Tanima."
         ),
     )
@@ -1445,7 +1456,7 @@ def facebook_share_url(saved_url: str | None) -> str:
 
 def email_share_url(total_cost: float, saved_url: str | None) -> str:
     """Builds a mailto link that opens the user's email client with a pre-filled summary of the estimate."""
-    para1, para2, para3 = long_share_text(total_cost, saved_url)
+    para1, para2, para3 = email_share_text(total_cost, saved_url)
     subject: str = "Sharing with you the public and institutional investment in my journal article"
     # RFC 6068 recommends CRLF line breaks in mailto bodies.
     body: str = f"{para1}\r\n\r\n{para2}\r\n\r\n{para3}"
@@ -1547,6 +1558,13 @@ def copy_link_button(label: str, url: str, copied_label: str, help: str, key: st
 # calculator is imported, so the defaults and the serialised fields are defined in one place (calculator_state.py).
 if "activity_list" not in st.session_state:
     CalculatorState.default().apply_to_session_state(st.session_state)
+elif CALCULATOR_SNAPSHOT_KEY in st.session_state:
+    # Returning from another page. The widgets' values must be set in this run, before the widgets are rendered, for
+    # Streamlit to send them to the browser. Otherwise the browser shows each widget's default, and sends it back on the
+    # next interaction, overwriting the input.
+    calculator_snapshot: dict[str, Any] = st.session_state.pop(CALCULATOR_SNAPSHOT_KEY)
+    calculator_snapshot["state"].apply_to_session_state(st.session_state)
+    st.session_state["save_result_to_database"] = calculator_snapshot["save_result_to_database"]
 
 # Whether the user has loaded the defaults from Alam et al. (2026) in the detailed calculator. Set by
 # load_alam_defaults and saved with the result.
@@ -1798,7 +1816,8 @@ st.slider(
     max_value=100,
     key="indirect_cost_percentage",
     on_change=apply_indirect_cost_rate,
-    help="Applied equally to every hourly rate calculated from a salary.",
+    help="Applied equally to every researcher's hourly rate, whether based on a title or role, a salary or an hourly "
+    "rate entered manually.",
 )
 
 # -----------------------------------------------
@@ -2100,8 +2119,9 @@ st.markdown(
 
         **Note: Cost here is distinct from price. Cost is based on the value of necessary inputs (e.g. what is
         strictly required of a publisher to disseminate an article), while price is driven by what individuals are
-        willing to pay for a publication. Based on the profitability of the largest publishers <link to
-        profitability report>, using an APC price is likely to significantly overstate necessary costs.**
+        willing to pay for a publication.
+        Based on the [profitability of the largest publishers](https://doi.org/10.5281/zenodo.23311549), using an
+        APC price is likely to significantly overstate necessary costs.**
 
         Publishing cost is not included in the total cost calculated by this tool, as these costs represent a
         publisher's investment in the work rather than investment from researchers, the public, or institutions.
@@ -2169,8 +2189,8 @@ if DATABASE_TYPE in ("sqlite", "mysql"):
     st.container(border=True).toggle(
         """Save my result so I can share it and to enable future research. I consent to SPARC retaining the data
         I have entered into this tool and using it for future research.""",
+        # No value=, as it is restored through session state on returning from another page. It is off by default.
         key="save_result_to_database",
-        value=False,
     )
 
 st.button(

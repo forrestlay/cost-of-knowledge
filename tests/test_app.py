@@ -6,6 +6,7 @@ from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 from typing import Any
 
+import pytest
 from streamlit.runtime.state.common import TESTING_KEY
 from streamlit.testing.v1 import AppTest
 
@@ -555,6 +556,24 @@ def test_simplified_starts_at_zero_and_loads_defaults_for_first_researcher() -> 
     assert metric_values(at) == [f"${(775.5 + 23) * 85 + 3752:,.0f} (USD)", f"{775.5 + 23:.0f} h", "$3,752 (USD)"]
 
 
+@pytest.mark.parametrize(
+    ("mode", "button"), [("detailed", "load-alam-defaults"), ("simplified", "load-simplified-defaults")]
+)
+def test_load_defaults_resets_peer_review(mode: str, button: str) -> None:
+    at: AppTest = run_app(mode)
+    add_researcher_at_rate(at)
+    at.slider(key="journal-submissions").set_value(4)
+    at.slider(key="peer-reviewers").set_value(5)
+    at.slider(key="review-rounds").set_value(6)
+    run(at)
+
+    at.button(key=button).click()
+    run(at)
+    assert at.slider(key="journal-submissions").value == 1
+    assert at.slider(key="peer-reviewers").value == 1
+    assert at.slider(key="review-rounds").value == 3
+
+
 def test_simplified_estimates() -> None:
     at: AppTest = run_app("simplified")
     add_researcher_at_rate(at)
@@ -607,6 +626,51 @@ def test_deleting_researcher_moves_simplified_hours() -> None:
     assert at.slider(key="simplified-hours-data-2").value == 800.0
 
 
+def visit_about_page_and_return(at: AppTest) -> None:
+    """Visits the about page, then returns to the calculator, as the sidebar's page links do."""
+    at.switch_page("app_pages/about.py")
+    run(at)
+    assert at.title[0].value == "About the Cost of Knowledge Calculator"
+    # The calculator is a callable page, which switch_page cannot select, so select the default page instead.
+    at._page_hash = ""
+    run(at)
+
+
+@pytest.mark.parametrize("mode", ["simplified", "detailed"])
+def test_inputs_survive_visiting_the_about_page(mode: str) -> None:
+    at: AppTest = run_app(mode)
+    add_researcher_at_rate(at)
+    # Element type and key of each widget whose value is checked after returning.
+    restored_widgets: list[tuple[str, str]] = [
+        ("selectbox", "user_country_select"),
+        ("slider", "indirect_cost_percentage"),
+        ("slider", "review-rounds"),
+        ("radio", "calculator-mode"),
+    ]
+    if mode == "simplified":
+        at.slider(key="simplified-hours-incubation-1").set_value(100.0)
+        restored_widgets.append(("slider", "simplified-hours-incubation-1"))
+    else:
+        load_alam_defaults(at)
+    at.slider(key="indirect_cost_percentage").set_value(30)
+    at.slider(key="review-rounds").set_value(5)
+    run(at)
+    results: list[str] = metric_values(at)
+    assert results
+
+    visit_about_page_and_return(at)
+    assert metric_values(at) == results
+    assert at.radio(key="calculator-mode").value == mode
+    assert at.slider(key="indirect_cost_percentage").value == 30
+    assert at.slider(key="review-rounds").value == 5
+    # The browser mounts the widgets afresh on returning, and shows their defaults unless the app sends their values.
+    # It would then send those defaults back on the next interaction, losing the inputs.
+    for element_type, key in restored_widgets:
+        assert getattr(at, element_type)(key=key).proto.set_value, key
+    run(at)
+    assert metric_values(at) == results
+
+
 def test_sunburst_only_shown_in_detailed_mode() -> None:
     # AppTest cannot read Plotly charts, so look for the caption shown beneath the sunburst.
     def sunburst_caption_shown(at: AppTest) -> bool:
@@ -640,6 +704,49 @@ def test_researcher_slider_labels_show_role_and_hourly_rate() -> None:
     detailed: AppTest = run_app("detailed")
     add_researcher(detailed, "assistant_professor")
     assert detailed.slider(key="add-item-hours-1").label == label
+
+
+def test_indirect_cost_rate_applies_to_every_researcher() -> None:
+    at: AppTest = run_app("simplified")
+    add_researcher(at, "assistant_professor")
+    at.selectbox(key="add-person-role").set_value("manual_salary")
+    run(at)
+    # $50 an hour excluding indirect costs.
+    at.number_input(key="add-person-salary").set_value(104000)
+    submit_researcher_form(at)
+    at.selectbox(key="add-person-role").set_value("manual_hourly_rate")
+    run(at)
+    at.number_input(key="add-person-hourly-rate").set_value(55.0)
+    submit_researcher_form(at)
+
+    def hourly_rates() -> list[float]:
+        return [person.hourly_rate for person in at.session_state["people"].values()]
+
+    role_rate: float = ROLES["assistant_professor"].hourly_rate_usd
+    assert hourly_rates() == [round(role_rate * 1.4, 2), 70.0, 77.0]
+    at.slider(key="indirect_cost_percentage").set_value(50)
+    run(at)
+    assert hourly_rates() == [round(role_rate * 1.5, 2), 75.0, 82.5]
+
+    # Editing the researcher without entering a new salary keeps their salary.
+    at.button(key="edit-person-button-2").click()
+    run(at)
+    at.number_input(key="edit-person-2-quantity").set_value(2)
+    next(button for button in at.button if button.label == "Save changes").click()
+    run(at)
+    assert hourly_rates()[1] == 75.0
+    at.slider(key="indirect_cost_percentage").set_value(0)
+    run(at)
+    assert hourly_rates()[1:] == [50.0, 55.0]
+
+    # Rates excluding indirect costs are converted with the currency, so rates keep following the indirect cost rate.
+    at.selectbox(key="user_country_select").set_value("au")
+    run(at)
+    at.slider(key="indirect_cost_percentage").set_value(40)
+    run(at)
+    salary_rate: float | None = convert_currency(50, "USD", "AUD")
+    assert salary_rate is not None
+    assert hourly_rates()[1] == pytest.approx(round(round(salary_rate, 2) * 1.4, 2))
 
 
 def test_clear_all_researchers_asks_for_confirmation() -> None:

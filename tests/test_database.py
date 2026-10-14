@@ -12,14 +12,14 @@ import pymysql
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
-from test_app import MAIN, field_selectbox, meet_results_requirements, run
+from test_app import MAIN, field_selectbox, meet_results_requirements, run, visit_about_page_and_return
 
 from src import database, sql_store
 from src.calculator_state import CalculatorState
 from src.reference_data import RESEARCH_PHASES
 
 # Stands in for main.COST_OF_KNOWLEDGE_VERSION, which cannot be imported as main.py is a script.
-COST_OF_KNOWLEDGE_VERSION: str = "1.0.1"
+COST_OF_KNOWLEDGE_VERSION: str = "1.0.2"
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -136,6 +136,19 @@ def test_save_waits_until_results_requirements_met(monkeypatch: pytest.MonkeyPat
     with closing(database.connect()) as conn:
         [project] = sql_store.list_projects(conn)
     assert at.session_state["database_public_id"] == project["public_id"]
+
+
+def test_save_toggle_survives_visiting_the_about_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    at: AppTest = AppTest.from_file(MAIN, default_timeout=30)
+    run(at)
+    at.toggle(key=SAVE_TOGGLE_KEY).set_value(True)
+    run(at)
+
+    visit_about_page_and_return(at)
+    assert at.toggle(key=SAVE_TOGGLE_KEY).value
+    # Without its value, the browser would show the toggle off, and turn it off on the next interaction.
+    assert at.toggle(key=SAVE_TOGGLE_KEY).proto.set_value
 
 
 def test_save_button_without_changes_keeps_project(monkeypatch: pytest.MonkeyPatch) -> None:

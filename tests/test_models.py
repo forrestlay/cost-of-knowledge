@@ -28,6 +28,31 @@ def test_person_has_no_name(people: dict[str, Person]) -> None:
     assert Person.from_dict({**people["1"].to_dict(), "name": "Ada"}) == people["1"]
 
 
+def test_person_with_base_hourly_rate_round_trip() -> None:
+    person: Person = Person("1", PersonType.RESEARCH_TEAM, 43.75, base_hourly_rate=31.25)
+    assert Person.from_dict(person.to_dict()) == person
+    # Data saved before schema version 6 has no base hourly rate.
+    data = person.to_dict()
+    del data["base_hourly_rate"]
+    assert Person.from_dict(data).base_hourly_rate is None
+
+
+def test_apply_indirect_cost_rate() -> None:
+    person: Person = Person("1", PersonType.RESEARCH_TEAM, 71.5, base_hourly_rate=55)
+    person.apply_indirect_cost_rate(50)
+    assert person.hourly_rate == 82.5
+    person.apply_indirect_cost_rate(0)
+    assert person.hourly_rate == 55
+    # Rounded to the cent.
+    rounded: Person = Person("2", PersonType.RESEARCH_TEAM, 0, base_hourly_rate=31.25)
+    rounded.apply_indirect_cost_rate(33)
+    assert rounded.hourly_rate == 41.56
+    # A person without a base hourly rate, such as one with a role, keeps their rate.
+    fixed: Person = Person("3", PersonType.RESEARCH_TEAM, 85, "associate_professor")
+    fixed.apply_indirect_cost_rate(50)
+    assert fixed.hourly_rate == 85
+
+
 def test_person_without_role_round_trip(people: dict[str, Person]) -> None:
     person: Person = people["Peer reviewer"]
     assert person.to_dict()["role"] is None

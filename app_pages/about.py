@@ -16,37 +16,40 @@ limitations under the License.
 """
 
 import streamlit as st
+import streamlit_analytics2 as sa2
 
+from src.analytics import ANALYTICS_FILE, analytics_password
 from src.ui import CALCULATOR_PAGE
 
 with st.sidebar:
     st.page_link(CALCULATOR_PAGE, icon=":material/calculate:")
 
-st.title("About the Cost of Knowledge Calculator")
-st.markdown(
-    """
-    Every journal article starts as public investment: researcher time, university resources, grant funding.
-    By the time it reaches a publisher, more than 95% of the cost has typically already been paid.
-    [Learn more](https://sparcopen.org/our-work/cost-of-knowledge/).
+with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+    st.title("About the Cost of Knowledge Calculator")
+    st.markdown(
+        """
+        Every journal article starts as public investment: researcher time, university resources, grant funding.
+        By the time it reaches a publisher, more than 95% of the cost has typically already been paid.
+        [Learn more](https://sparcopen.org/our-work/cost-of-knowledge/).
 
-    This tool enables faculty to quantify the public and institutional investment that underpins their work
-    (primarily in the form of their own labor) using a costing model described in this
-    [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
-    publisher's investment.
+        This tool enables faculty to quantify the public and institutional investment that underpins their work
+        (primarily in the form of their own labor) using a costing model described in this
+        [companion publication](https://doi.org/10.5281/zenodo.23030223) – and to compare that with an estimate of the
+        publisher's investment.
 
-    Through this quantification, this tool makes visible the resources that sustain scholarly publishing and who
-    contributes those resources. A related report,
-    [*How Profitable Are the Big Four Publishers?*](https://doi.org/10.5281/zenodo.23311549),
-    examines the financial performance of the four largest academic publishers over the last 20 years, showing how
-    academic publishing has generated high profit margins and returned billions of dollars to shareholders.
-    Considered together, this tool offers greater insight into the scale of public subsidy supporting the
-    commercial publishing industry.
+        Through this quantification, this tool makes visible the resources that sustain scholarly publishing and who
+        contributes those resources. A related report,
+        [*How Profitable Are the Big Four Publishers?*](https://doi.org/10.5281/zenodo.23311549),
+        examines the financial performance of the four largest academic publishers over the last 20 years, showing how
+        academic publishing has generated high profit margins and returned billions of dollars to shareholders.
+        Considered together, this tool offers greater insight into the scale of public subsidy supporting the
+        commercial publishing industry.
 
-    This project has been supported by a University of Sydney Industry Partnership Grant in collaboration with SPARC.
-    The research has been undertaken independently and is not subject to any funding-related caveats apart from making
-    the outputs available openly.
-    """
-)
+        This project has been supported by a University of Sydney Industry Partnership Grant in collaboration with SPARC.
+        The research has been undertaken independently and is not subject to any funding-related caveats apart from making
+        the outputs available openly.
+        """
+    )
 
 st.subheader("Technical issues with the Calculator")
 st.markdown(

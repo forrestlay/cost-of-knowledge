@@ -45,9 +45,9 @@ with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE)
         Considered together, this tool offers greater insight into the scale of public subsidy supporting the
         commercial publishing industry.
 
-        This project has been supported by a University of Sydney Industry Partnership Grant in collaboration with SPARC.
-        The research has been undertaken independently and is not subject to any funding-related caveats apart from making
-        the outputs available openly.
+        This project has been supported by a University of Sydney Industry Partnership Grant in collaboration with
+        SPARC. The research has been undertaken independently and is not subject to any funding-related caveats apart
+        from making the outputs available openly.
         """
     )
 

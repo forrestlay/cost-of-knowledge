@@ -554,11 +554,16 @@ def researcher_form(key: str, person: Person | None = None) -> None:
         help="""To calculate the cost of labor, we calculate an hourly rate based on the salary of each researcher
         involved in preparing the refereed journal article. If you select a faculty title, the hourly rate is
         calculated using median 9-month salaries from the AAUP Annual Report on the Economic Status of the
-        Profession, 2025-26. The hourly rate for a postdoctoral researcher is based on the median wage for confirmed
-        postdoctoral commitments of research doctorate recipients in the National Center for
-        Science and Engineering Statistics Survey of Doctorate Recipients 2024. The hourly rate for a research
-        assistant is based on the median hourly wage for a social science research assistant in the US Bureau of
-        Labor Statistics Occupational Employment and Wage Statistics May 2025.""",
+        Profession, 2025-26.
+        The hourly rate for a postdoctoral researcher is based on the median wage for confirmed postdoctoral
+        commitments of research doctorate recipients in the National Center for Science and Engineering
+        Statistics Survey of Doctorate Recipients 2024.
+        The hourly rate for a graduate student conducting research (pre-attainment of PhD) is calculated on the
+        opportunity cost of this student pursuing a research degree instead of seeking employment, based on the
+        median annual salary for a person with a Master's degree in the US Bureau of Labor Statistics Employment
+        Projections Education and Training Data 2025 (Table 5.2).
+        The hourly rate for a research assistant is based on the median hourly wage for a social science research
+        assistant in the US Bureau of Labor Statistics Occupational Employment and Wage Statistics May 2025.""",
     )
     with st.form(f"{key}-form", clear_on_submit=person is None, border=False):
         if choice == MANUAL_SALARY_OPTION:
@@ -1174,7 +1179,9 @@ def show_footer() -> None:
         National Center for Science and Engineering Statistics (2026). *Survey of Earned Doctorates 2024.*
         https://ncses.nsf.gov/surveys/earned-doctorates/2024;
         US Bureau of Labor Statistics (2026). *Occupational Employment and Wage Statistics May 2025.*
-        https://data.bls.gov/oes/#/area/0000000/2025]
+        https://data.bls.gov/oes/#/area/0000000/2025;
+        US Bureau of Labor Statistics (2026). *Employment Projections Education and Training Data 2025.*
+        https://www.bls.gov/emp/documentation/education-training-system.htm]
 
         :small[<sup>3</sup> Azoulay, P., Gross, D. P., & Sampat, B. N. (2026). *Indirect Cost Recovery in US
         Innovation Policy: History, Evidence, and Avenues for Reform.* Entrepreneurship and Innovation Policy and
@@ -1714,10 +1721,18 @@ st.info(
 with st.expander("About the data", expanded=False):
     st.markdown(
         """
-        The hourly rates offered for each researcher role are median US rates including indirect costs,
-        derived from widely cited national salary surveys{footnote_surveys}. Where appropriate, these are converted
-        to your country's currency along with the direct costs. You can replace any rate or cost with your own
-        figure.
+        The hourly rates offered for each researcher role are median US rates, derived from widely cited national
+        salary surveys{footnote_surveys}, and subsequently adjusted for indirect costs. For a graduate student
+        conducting research, their hourly rate of labor is calculated based on the opportunity cost of the student
+        pursuing a research degree instead of employment, using the median salary for a person that has attained a
+        Master's degree. This tool makes the assumption that this opportunity cost best reflects the cost of labor
+        of a graduate student compared to alternative figures, such as the median PhD stipend.
+
+        If a person's role is not listed below, you may use the "Enter a salary manually" or "Enter an hourly
+        rate manually" options instead.
+
+        Where appropriate, these hourly rates are converted to your country's currency along with the direct costs.
+        You can replace any rate or cost with your own figure.
         """.replace(
             "{footnote_surveys}",
             toggletip(
@@ -1727,7 +1742,9 @@ with st.expander("About the data", expanded=False):
                 National Center for Science and Engineering Statistics (2026). Survey of Earned Doctorates 2024.
                 https://ncses.nsf.gov/surveys/earned-doctorates/2024;
                 US Bureau of Labor Statistics (2026). Occupational Employment and Wage Statistics May 2025.
-                https://data.bls.gov/oes/#/area/0000000/2025""",
+                https://data.bls.gov/oes/#/area/0000000/2025;
+                US Bureau of Labor Statistics (2026). Employment Projections Education and Training Data 2025.
+                https://www.bls.gov/emp/documentation/education-training-system.htm""",
             ),
         ),
         unsafe_allow_html=True,

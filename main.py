@@ -1851,6 +1851,10 @@ st.header(":material/groups: People Involved in the Journal Article Preparation 
 st.markdown("""
             Please identify the people involved in preparing the refereed journal article, from ideation to
             manuscript preparation. Begin with the primary investigator, if any.
+
+            This tool provides pre-filled rates for certain researcher roles that have readily available US survey
+            data. Click on the question mark next to "Title or role" for additional details. If a person's role is not
+            listed below, you may use the "Enter a salary manually" or "Enter an hourly rate manually" options instead.
             """)
 
 with st.container(border=True):

@@ -14,6 +14,18 @@
       }
     },
     {
+      "key": "graduate_student",
+      "sector": "university",
+      "us_label": "Graduate Student",
+      "hourly_rate_usd": 40,
+      "hourly_rate_source": "Bureau of Labor Statistics Education and Training Data 2026, median annual wage 2025 for a Master's degree person; representing the opportunity cost of a graduate research student",
+      "local_labels": {
+        "au": "Graduate Student",
+        "gb": "Graduate Student",
+        "nz": "Graduate Student"
+      }
+    },
+    {
       "key": "postdoctoral_researcher",
       "sector": "university",
       "us_label": "Postdoctoral Researcher",

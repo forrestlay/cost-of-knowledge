@@ -12,14 +12,17 @@ import pymysql
 import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
+from streamlit_analytics2 import storage
+from streamlit_analytics2.events import Event
 from test_app import MAIN, field_selectbox, meet_results_requirements, run, visit_about_page_and_return
 
 from src import database, sql_store
+from src.analytics import ANALYTICS_FILE, DatabaseEventStore, analytics_store
 from src.calculator_state import CalculatorState
 from src.reference_data import RESEARCH_PHASES
 
 # Stands in for main.COST_OF_KNOWLEDGE_VERSION, which cannot be imported as main.py is a script.
-COST_OF_KNOWLEDGE_VERSION: str = "1.0.2"
+COST_OF_KNOWLEDGE_VERSION: str = "1.0.3"
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -72,6 +75,39 @@ def test_init_database_creates_sqlite_file(monkeypatch: pytest.MonkeyPatch, isol
     assert isolated_database.exists()
     with closing(database.connect()) as conn:
         assert sql_store.list_projects(conn) == []
+
+
+def test_database_event_store_saves_events(monkeypatch: pytest.MonkeyPatch, isolated_database: Path) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    store: DatabaseEventStore = DatabaseEventStore()
+    assert store.read() == []
+    events: list[Event] = [
+        Event("2026-10-15T09:30:00Z", "pageview", "s1", page="main"),
+        Event("2026-10-15T09:30:01Z", "run", "s1", page="main"),
+    ]
+    store.append(event for event in events)
+    assert store.read() == events
+    # A new store reads the same database.
+    assert DatabaseEventStore().read() == events
+
+
+def test_analytics_store_uses_database_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(database.DATABASE_TYPE_SECRET, "sqlite")
+    assert isinstance(analytics_store(), DatabaseEventStore)
+
+
+def test_analytics_store_uses_analytics_file_without_database() -> None:
+    assert analytics_store() is storage.open_store(ANALYTICS_FILE)
+
+
+def test_database_event_store_without_database_raises(isolated_database: Path) -> None:
+    store: DatabaseEventStore = DatabaseEventStore()
+    store.append([])
+    with pytest.raises(RuntimeError):
+        store.append([Event("2026-10-15T09:30:00Z", "run", "s1")])
+    with pytest.raises(RuntimeError):
+        store.read()
+    assert not isolated_database.exists()
 
 
 def test_init_database_none_creates_nothing(isolated_database: Path) -> None:

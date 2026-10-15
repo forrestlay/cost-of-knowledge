@@ -18,13 +18,13 @@ limitations under the License.
 import streamlit as st
 import streamlit_analytics2 as sa2
 
-from src.analytics import ANALYTICS_FILE, analytics_password
+from src.analytics import analytics_password, analytics_store, simple_analytics_embed
 from src.ui import CALCULATOR_PAGE
 
 with st.sidebar:
     st.page_link(CALCULATOR_PAGE, icon=":material/calculate:")
 
-with sa2.track(unsafe_password=analytics_password(), events_path=ANALYTICS_FILE):
+with sa2.track(unsafe_password=analytics_password(), store=analytics_store()):
     st.title("About the Cost of Knowledge Calculator")
     st.markdown(
         """
@@ -75,3 +75,5 @@ st.markdown(
 
 if "tool_version" in st.session_state:
     st.markdown(f":small[Tool version: v{st.session_state['tool_version']}]", text_alignment="center")
+
+simple_analytics_embed()

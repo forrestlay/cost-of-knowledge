@@ -12,6 +12,8 @@ the scripts in src/migrations to bring them up to date.
 The admin_users table records everyone who has logged in to the admin page. The first user to log in is the owner and is
 authorised automatically. Every later user must be authorised by the owner before they can use the admin page.
 
+The analytics_events table holds the events recorded by streamlit_analytics2, through src.analytics.DatabaseEventStore.
+
 Functions take either a sqlite3 connection or a PyMySQL connection. Queries are written with "?" placeholders, which
 are rewritten to PyMySQL's "%s" placeholders when needed.
 
@@ -32,6 +34,7 @@ limitations under the License.
 
 from __future__ import annotations
 
+import json
 import math
 import secrets
 import sqlite3
@@ -39,10 +42,12 @@ from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from streamlit_analytics2.events import Event
+
 from src.calculator_state import CalculatorState
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     import pymysql
     import pymysql.cursors
@@ -158,6 +163,27 @@ CREATE TABLE IF NOT EXISTS admin_users (
     first_login_at TEXT NOT NULL,
     last_login_at TEXT NOT NULL,
     authorised_at TEXT
+);
+
+-- Events recorded by streamlit_analytics2, one row per streamlit_analytics2.events.Event, in the order recorded.
+CREATE TABLE IF NOT EXISTS analytics_events (
+    id INTEGER PRIMARY KEY,
+    -- UTC time of the event, e.g. '2026-10-15T09:30:00Z'.
+    ts TEXT NOT NULL,
+    -- 'session', 'pageview', 'run', 'widget' or 'custom'.
+    kind TEXT NOT NULL,
+    session TEXT NOT NULL,
+    visitor TEXT,
+    page TEXT,
+    -- Widget label or custom event name.
+    name TEXT,
+    widget_id TEXT,
+    widget_type TEXT,
+    -- The Event's key field. Named widget_key as KEY is reserved in MySQL.
+    widget_key TEXT,
+    value TEXT,
+    -- JSON object of the event's props.
+    props TEXT
 );
 """
 
@@ -283,6 +309,27 @@ MYSQL_SCHEMA: tuple[str, ...] = (
         authorised_at VARCHAR(32)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS analytics_events (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        -- UTC time of the event, e.g. '2026-10-15T09:30:00Z'.
+        ts VARCHAR(32) NOT NULL,
+        -- 'session', 'pageview', 'run', 'widget' or 'custom'.
+        kind VARCHAR(16) NOT NULL,
+        session TEXT NOT NULL,
+        visitor TEXT,
+        page TEXT,
+        -- Widget label or custom event name.
+        name TEXT,
+        widget_id TEXT,
+        widget_type TEXT,
+        -- The Event's key field. Named widget_key as KEY is reserved in MySQL.
+        widget_key TEXT,
+        value TEXT,
+        -- JSON object of the event's props.
+        props TEXT
+    )
+    """,
 )
 
 # The URL-safe alphabet and default length of NanoID, giving about 126 bits of randomness per id.
@@ -311,6 +358,22 @@ _ACTIVITY_COLUMNS: tuple[str, ...] = (
 # people, so they come first. Table names are interpolated into queries, so only names from here may be used.
 _CHILD_TABLES: tuple[str, ...] = ("activities", "simplified_hours", "simplified_direct_costs", "direct_costs", "people")
 _SELECTABLE_TABLES: frozenset[str] = frozenset((*_CHILD_TABLES, "projects", "admin_users"))
+
+# Columns of the analytics_events table besides id, matching the fields of streamlit_analytics2.events.Event, except
+# that the Event's key field is stored in widget_key.
+_ANALYTICS_EVENT_COLUMNS: tuple[str, ...] = (
+    "ts",
+    "kind",
+    "session",
+    "visitor",
+    "page",
+    "name",
+    "widget_id",
+    "widget_type",
+    "widget_key",
+    "value",
+    "props",
+)
 
 # Limits on a saved project, so anonymous saves cannot fill the database or slow the admin page.
 MAX_TEXT_LENGTH: int = 200
@@ -940,3 +1003,49 @@ def delete_admin_user(conn: Connection, user_id: str) -> None:
         if row[0]:
             raise ValueError("The owner cannot be deleted.")
         cursor.execute(_sql(conn, "DELETE FROM admin_users WHERE user_id = ?"), (user_id,))
+
+
+def append_analytics_events(conn: Connection, events: Iterable[Event]) -> None:
+    """Appends streamlit_analytics2 events to the analytics_events table, in the order given."""
+    rows: list[tuple[Any, ...]] = [
+        (
+            event.ts,
+            event.kind,
+            event.session,
+            event.visitor,
+            event.page,
+            event.name,
+            event.widget_id,
+            event.widget_type,
+            event.key,
+            event.value,
+            json.dumps(event.props, ensure_ascii=False) if event.props else None,
+        )
+        for event in events
+    ]
+    if not rows:
+        return
+    with _transaction(conn) as cursor:
+        cursor.executemany(
+            _sql(
+                conn,
+                f"INSERT INTO analytics_events ({', '.join(_ANALYTICS_EVENT_COLUMNS)})"
+                f" VALUES ({', '.join('?' for _ in _ANALYTICS_EVENT_COLUMNS)})",
+            ),
+            rows,
+        )
+
+
+def read_analytics_events(conn: Connection) -> list[Event]:
+    """Returns every streamlit_analytics2 event in the analytics_events table, oldest first."""
+    with closing(conn.cursor()) as cursor:
+        cursor.execute(f"SELECT {', '.join(_ANALYTICS_EVENT_COLUMNS)} FROM analytics_events ORDER BY id")
+        rows: list[tuple[Any, ...]] = list(cursor.fetchall())
+    events: list[Event] = []
+    for row in rows:
+        values: dict[str, Any] = dict(zip(_ANALYTICS_EVENT_COLUMNS, row, strict=True))
+        values["key"] = values.pop("widget_key")
+        if values["props"]:
+            values["props"] = json.loads(values["props"])
+        events.append(Event(**values))
+    return events
